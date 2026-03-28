@@ -1,0 +1,15 @@
+export const IPC_CHANNELS = {
+  paletteOpen: 'palette.open',
+  paletteClose: 'palette.close',
+  commandParse: 'command.parse',
+  searchResolve: 'search.resolve',
+  actionExecute: 'action.execute',
+  itemGet: 'item.get',
+  itemCreate: 'item.create',
+  itemUpdate: 'item.update',
+  itemDelete: 'item.delete',
+  vaultUnlock: 'vault.unlock',
+  settingsGet: 'settings.get',
+  settingsSet: 'settings.set',
+  paletteFocus: 'palette.focus',
+} as const
