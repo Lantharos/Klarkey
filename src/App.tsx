@@ -1,6 +1,8 @@
-import { KeyRound, Pencil, ShieldCheck, Trash2, User } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { ItemDetailOverview } from '@/app/item-detail-overview'
+import { ItemFormPage } from '@/app/item-form-page'
+import { buildDetailActions } from '@/app/item-type-meta'
 import {
   DetailRow,
   HeaderRow,
@@ -10,80 +12,35 @@ import {
   SearchBar,
   SettingsPage,
 } from '@/app/palette-ui'
-import { ItemFormPage } from '@/app/item-form-page'
-import type { DetailAction, ItemFormValues } from '@/app/palette-types'
+import type { ItemFormValues } from '@/app/palette-types'
 import { createFormValues } from '@/app/palette-utils'
 import { usePaletteStore } from '@/app/usePaletteStore'
-import { DEFAULT_SETTINGS, type CreateIdentityInput, type ItemDetails, type UpdateIdentityInput } from '@/shared/types'
+import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type UpdateItemInput } from '@/shared/types'
 
-function detailActionsFor(identityId?: string): DetailAction[] {
-  if (!identityId) {
-    return []
-  }
-
-  return [
-    {
-      id: 'insert-username',
-      title: 'Insert username',
-      icon: User,
-      actionId: `paste-username:${identityId}`,
-    },
-    {
-      id: 'insert-password',
-      title: 'Insert password',
-      icon: KeyRound,
-      actionId: `paste-password:${identityId}`,
-    },
-    {
-      id: 'copy-username',
-      title: 'Copy username',
-      icon: User,
-      modifier: 'none',
-    },
-    {
-      id: 'copy-password',
-      title: 'Copy password',
-      icon: KeyRound,
-      modifier: 'control',
-    },
-    {
-      id: 'show-password',
-      title: 'Show password',
-      icon: ShieldCheck,
-      modifier: 'alt',
-    },
-    {
-      id: 'edit-item',
-      title: 'Edit item',
-      icon: Pencil,
-      tone: 'success',
-    },
-    {
-      id: 'delete-item',
-      title: 'Delete item',
-      icon: Trash2,
-      tone: 'danger',
-    },
-  ]
-}
-
-function cleanFormValue(value: ItemFormValues) {
-  const payload = {
+function cleanFormValue(value: ItemFormValues): CreateItemInput {
+  return {
+    itemType: value.itemType,
     itemName: value.itemName.trim() || 'New item',
-    username: value.username.trim() || undefined,
-    password: value.password.trim() || undefined,
-    notes: value.notes.trim() || undefined,
-    websites: value.websites.map((website) => website.trim()).filter(Boolean),
-    customFields: value.customFields
-      .map((field) => ({
-        ...field,
-        label: field.label.trim(),
-        value: field.value.trim(),
-      }))
-      .filter((field) => field.label || field.value),
+    username: value.itemType === 'login' ? value.username.trim() || undefined : undefined,
+    password: value.itemType === 'login' ? value.password.trim() || undefined : undefined,
+    fullName: value.itemType === 'identity' ? value.fullName.trim() || undefined : undefined,
+    email: value.itemType === 'identity' ? value.email.trim() || undefined : undefined,
+    phone: value.itemType === 'identity' ? value.phone.trim() || undefined : undefined,
+    address: value.itemType === 'identity' ? value.address.trim() || undefined : undefined,
+    content: value.itemType === 'note' ? value.content.trim() || undefined : undefined,
+    notes: value.itemType !== 'note' ? value.notes.trim() || undefined : undefined,
+    websites: value.itemType === 'login' ? value.websites.map((website) => website.trim()).filter(Boolean) : [],
+    customFields:
+      value.itemType !== 'note'
+        ? value.customFields
+            .map((field) => ({
+              ...field,
+              label: field.label.trim(),
+              value: field.value.trim(),
+            }))
+            .filter((field) => field.label || field.value)
+        : [],
   }
-
-  return payload
 }
 
 function App() {
@@ -114,24 +71,42 @@ function App() {
   const submitEditForm = usePaletteStore((state) => state.submitEditForm)
   const deleteCurrentItem = usePaletteStore((state) => state.deleteCurrentItem)
 
-  const [formSeed, setFormSeed] = useState<Partial<ItemDetails>>({})
+  const [detailItem, setDetailItem] = useState<ItemDetails>()
   const [pointerActive, setPointerActive] = useState(false)
   const [isPreparingOpen, setIsPreparingOpen] = useState(false)
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false)
   const selection = actions[selectedIndex]
-  const detailActions = useMemo(() => detailActionsFor(detailAction?.identityId), [detailAction?.identityId])
+  const activeDetailItem = detailAction?.itemId === detailItem?.itemId ? detailItem : undefined
+  const detailActions = useMemo(() => buildDetailActions(activeDetailItem), [activeDetailItem])
   const selectedDetailAction = detailActions[selectedIndex]
-  const formLoading = page === 'form' && formMode === 'edit' && Boolean(detailAction?.identityId) && !formSeed.identityId
+  const formLoading = page === 'form' && formMode === 'edit' && Boolean(detailAction?.itemId) && !activeDetailItem
+  const createItemType =
+    detailAction?.itemType && detailAction.itemType !== 'ssh-key'
+      ? detailAction.itemType
+      : query.entryType && query.entryType !== 'ssh-key'
+        ? query.entryType
+        : 'login'
+  const formItemType =
+    activeDetailItem?.itemType && activeDetailItem.itemType !== 'ssh-key' ? activeDetailItem.itemType : createItemType
   const createSeed = useMemo(
     () => ({
-      itemName: query.itemQuery ?? detailAction?.title.replace(/^Create\s+/i, '') ?? '',
-      username: query.identityQuery ?? '',
+      itemType: createItemType,
+      itemName:
+        (detailAction?.kind === 'create-item' ? detailAction.subtitle : undefined) ||
+        query.itemQuery ||
+        '',
+      username: query.identityQuery || '',
       password: '',
+      fullName: '',
+      email: '',
+      phone: '',
+      address: '',
+      content: '',
       notes: '',
       websites: [''],
       customFields: [],
     }),
-    [detailAction?.title, query.identityQuery, query.itemQuery],
+    [createItemType, detailAction?.kind, detailAction?.subtitle, query.identityQuery, query.itemQuery],
   )
   const footerMessage = execution?.secret ?? execution?.message
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
@@ -149,6 +124,7 @@ function App() {
       setPointerActive(false)
       setIsPreparingOpen(true)
       setPendingDeleteConfirm(false)
+      setDetailItem(undefined)
       primeHome()
       void resetToHome().finally(() => {
         setIsPreparingOpen(false)
@@ -173,20 +149,14 @@ function App() {
   }, [focusInput, page])
 
   useEffect(() => {
-    if (page !== 'form') {
+    if ((page !== 'detail' && page !== 'form') || !detailAction?.itemId) {
       return
     }
 
-    if (formMode === 'edit' && detailAction?.identityId) {
-      void window.klarkey?.item
-        .get(detailAction.identityId)
-        .then((item) => {
-          setFormSeed(item ?? {})
-        })
-      return
-    }
-
-  }, [detailAction, formMode, page])
+    void window.klarkey?.item.get(detailAction.itemId).then((item) => {
+      setDetailItem(item)
+    })
+  }, [detailAction?.itemId, execution?.itemId, page])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -210,11 +180,7 @@ function App() {
         return
       }
 
-      if (page !== 'detail') {
-        return
-      }
-
-      if (detailActions.length === 0) {
+      if (page !== 'detail' || detailActions.length === 0) {
         return
       }
 
@@ -254,16 +220,6 @@ function App() {
         return
       }
 
-      if (selectedDetailAction.id === 'copy-username' && detailAction?.id) {
-        void executeAction(detailAction.id, 'none')
-        return
-      }
-
-      if ((selectedDetailAction.id === 'copy-password' || selectedDetailAction.id === 'show-password') && detailAction?.id) {
-        void executeAction(detailAction.id, selectedDetailAction.modifier ?? 'none')
-        return
-      }
-
       if (selectedDetailAction.actionId) {
         void executeAction(selectedDetailAction.actionId, selectedDetailAction.modifier ?? 'none')
       }
@@ -274,7 +230,6 @@ function App() {
   }, [
     deleteCurrentItem,
     deleteConfirmActive,
-    detailAction,
     detailActions.length,
     executeAction,
     goBackOrClose,
@@ -311,163 +266,163 @@ function App() {
         </div>
       ) : (
         <>
-      <div className="flex items-center gap-4 px-5 pb-3 pt-4">
-        {page === 'home' ? (
-          <SearchBar
-            query={query}
-            onChange={(value) => {
-              void setTrailingText(value)
-            }}
-            onRemoveToken={(tokenId) => {
-              const token = query.tokens.find((candidate) => candidate.id === tokenId)
-              if (token) {
-                removeToken(token)
-              }
-            }}
-            onBackspaceEmpty={() => {
-              const token = query.tokens[query.tokens.length - 1]
-              if (token) {
-                removeToken(token)
-              }
-            }}
-            onMoveSelection={moveSelection}
-            onEnter={() => {
-              void executeSelection()
-            }}
-          />
-        ) : page === 'settings' ? (
-          <HeaderRow title="Settings" subtitle="Preferences" onBack={() => void goBackOrClose()} />
-        ) : page === 'form' ? (
-          <HeaderRow
-            title={formMode === 'edit' ? 'Edit item' : 'Create item'}
-            subtitle={formSeed.itemName || undefined}
-            onBack={() => void goBackOrClose()}
-            showIcon={false}
-          />
-        ) : (
-          <HeaderRow
-            title={detailAction?.title ?? 'Item'}
-            subtitle={detailAction?.subtitle}
-            onBack={() => void goBackOrClose()}
-            showIcon={false}
-          />
-        )}
-      </div>
-
-      <div className="h-px bg-white/8" />
-
-      {page === 'settings' ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <SettingsPage
-            settings={settings ?? DEFAULT_SETTINGS}
-            pointerActive={pointerActive}
-            onToggleStartup={() =>
-              void updateSettings({
-                launchOnStartup: !(settings ?? DEFAULT_SETTINGS).launchOnStartup,
-              })
-            }
-            onTimeoutChange={(seconds) => void updateSettings({ clearClipboardSeconds: seconds })}
-          />
-        </div>
-      ) : page === 'detail' ? (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-            <div className="space-y-1">
-              {detailActions.map((action, index) => (
-                <DetailRow
-                  key={action.id}
-                  action={action}
-                  pointerActive={pointerActive}
-                  selected={index === selectedIndex}
-                  onHover={() => {
-                    setPendingDeleteConfirm(false)
-                    setSelectedIndex(index)
-                  }}
-                />
-              ))}
-            </div>
+          <div className="flex items-center gap-4 px-5 pb-3 pt-4">
+            {page === 'home' ? (
+              <SearchBar
+                query={query}
+                onChange={(value) => {
+                  void setTrailingText(value)
+                }}
+                onRemoveToken={(tokenId) => {
+                  const token = query.tokens.find((candidate) => candidate.id === tokenId)
+                  if (token) {
+                    removeToken(token)
+                  }
+                }}
+                onBackspaceEmpty={() => {
+                  const token = query.tokens[query.tokens.length - 1]
+                  if (token) {
+                    removeToken(token)
+                  }
+                }}
+                onMoveSelection={moveSelection}
+                onEnter={() => {
+                  void executeSelection()
+                }}
+              />
+            ) : page === 'settings' ? (
+              <HeaderRow title="Settings" subtitle="Preferences" onBack={() => void goBackOrClose()} showIcon={false} />
+            ) : page === 'form' ? (
+              <HeaderRow
+                title={formMode === 'edit' ? 'Edit item' : 'Create item'}
+                subtitle={activeDetailItem?.itemName || createSeed.itemName || undefined}
+                onBack={() => void goBackOrClose()}
+                showIcon={false}
+              />
+            ) : (
+              <HeaderRow
+                title={detailAction?.title ?? 'Item'}
+                subtitle={detailAction?.subtitle}
+                onBack={() => void goBackOrClose()}
+                showIcon={false}
+              />
+            )}
           </div>
+
           <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
-            <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
-              {deleteConfirmActive ? (
-                <span className="inline-flex items-center gap-2 text-red-200/86">
-                  <span>Are you sure? Click</span>
-                  <ReturnHint />
-                  <span>to confirm</span>
+
+          {page === 'settings' ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <SettingsPage
+                settings={settings ?? DEFAULT_SETTINGS}
+                pointerActive={pointerActive}
+                onToggleStartup={() =>
+                  void updateSettings({
+                    launchOnStartup: !(settings ?? DEFAULT_SETTINGS).launchOnStartup,
+                  })
+                }
+                onTimeoutChange={(seconds) => void updateSettings({ clearClipboardSeconds: seconds })}
+              />
+            </div>
+          ) : page === 'detail' ? (
+            <>
+              <ItemDetailOverview item={activeDetailItem} />
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div className="space-y-1">
+                  {detailActions.map((action, index) => (
+                    <DetailRow
+                      key={action.id}
+                      action={action}
+                      pointerActive={pointerActive}
+                      selected={index === selectedIndex}
+                      onHover={() => {
+                        setPendingDeleteConfirm(false)
+                        setSelectedIndex(index)
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="h-px bg-white/8" />
+              <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+                <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
+                  {deleteConfirmActive ? (
+                    <span className="inline-flex items-center gap-2 text-red-200/86">
+                      <span>Are you sure? Click</span>
+                      <ReturnHint />
+                      <span>to confirm</span>
+                    </span>
+                  ) : (
+                    footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'
+                  )}
                 </span>
-              ) : (
-                footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'
-              )}
-            </span>
-            <div className="flex items-center gap-2">
-              <KeyHint>Esc</KeyHint>
-              <ReturnHint />
-            </div>
-          </div>
-        </>
-      ) : page === 'form' ? (
-        <ItemFormPage
-          key={`${formMode ?? 'create'}:${detailAction?.identityId ?? 'new'}:${formSeed.identityId ?? 'blank'}`}
-          mode={formMode ?? 'create'}
-          loading={formLoading}
-          initialValue={createFormValues(formMode === 'edit' ? formSeed : createSeed)}
-          onAutoSave={(value) => {
-            if (formMode !== 'edit' || !detailAction?.identityId) {
-              return Promise.resolve(undefined)
-            }
+                <div className="flex items-center gap-2">
+                  <KeyHint>Esc</KeyHint>
+                  <ReturnHint />
+                </div>
+              </div>
+            </>
+          ) : page === 'form' ? (
+            <ItemFormPage
+              key={`${formMode ?? 'create'}:${detailAction?.itemId ?? 'new'}:${detailItem?.itemId ?? 'blank'}:${createItemType}`}
+              mode={formMode ?? 'create'}
+              loading={formLoading}
+              initialValue={createFormValues(formMode === 'edit' ? formItemType : createItemType, formMode === 'edit' ? activeDetailItem : createSeed)}
+              onAutoSave={(value) => {
+                if (formMode !== 'edit' || !detailAction?.itemId) {
+                  return Promise.resolve(undefined)
+                }
 
-            const update: UpdateIdentityInput = {
-              identityId: detailAction.identityId,
-              ...cleanFormValue(value),
-            }
+                const update: UpdateItemInput = {
+                  itemId: detailAction.itemId,
+                  ...cleanFormValue(value),
+                }
 
-            return submitEditForm(update)
-          }}
-          onSubmit={(value) => {
-            const payload = cleanFormValue(value)
+                return submitEditForm(update)
+              }}
+              onSubmit={(value) => {
+                const payload = cleanFormValue(value)
 
-            if (formMode === 'edit' && detailAction?.identityId) {
-              const update: UpdateIdentityInput = {
-                identityId: detailAction.identityId,
-                ...payload,
-              }
-              void submitEditForm(update)
-              return
-            }
+                if (formMode === 'edit' && detailAction?.itemId) {
+                  const update: UpdateItemInput = {
+                    itemId: detailAction.itemId,
+                    ...payload,
+                  }
+                  void submitEditForm(update)
+                  return
+                }
 
-            const create: CreateIdentityInput = payload
-            void submitCreateForm(create)
-          }}
-        />
-      ) : (
-        <>
-          <div className="px-5 py-3 text-[13px] text-white/34">{query.raw ? 'Results' : 'Suggestions'}</div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-            <div className="space-y-1">
-              {actions.map((action, index) => (
-                <ResultRow
-                  key={action.id}
-                  action={action}
-                  pointerActive={pointerActive}
-                  selected={index === selectedIndex}
-                  onHover={() => setSelectedIndex(index)}
-                />
-              ))}
-            </div>
-          </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
-            <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
-              {footerMessage ?? selection?.primaryHint ?? 'Type an item or action.'}
-            </span>
-            <div className="flex items-center gap-2">
-              <KeyHint>Esc</KeyHint>
-              <ReturnHint />
-            </div>
-          </div>
-        </>
-      )}
+                void submitCreateForm(payload)
+              }}
+            />
+          ) : (
+            <>
+              <div className="px-5 py-3 text-[13px] text-white/34">{query.raw ? 'Results' : 'Suggestions'}</div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+                <div className="space-y-1">
+                  {actions.map((action, index) => (
+                    <ResultRow
+                      key={action.id}
+                      action={action}
+                      pointerActive={pointerActive}
+                      selected={index === selectedIndex}
+                      onHover={() => setSelectedIndex(index)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="h-px bg-white/8" />
+              <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+                <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
+                  {footerMessage ?? selection?.primaryHint ?? 'Type an item or action.'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <KeyHint>Esc</KeyHint>
+                  <ReturnHint />
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
@@ -475,4 +430,3 @@ function App() {
 }
 
 export default App
-

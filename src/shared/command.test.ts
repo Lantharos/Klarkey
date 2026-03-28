@@ -11,6 +11,15 @@ describe('parseCommand', () => {
     expect(query.trailingText).toBe('netflix')
   })
 
+  it('detects identity item types', () => {
+    const query = parseCommand('new identity personal')
+
+    expect(query.intent).toBe('create')
+    expect(query.entryType).toBe('identity')
+    expect(query.itemQuery).toBe('personal')
+    expect(query.tokens.map((token) => token.kind)).toEqual(['intent', 'item-type'])
+  })
+
   it('detects credential-specific actions', () => {
     const query = parseCommand('show 2fa discord')
 

@@ -1,3 +1,4 @@
+import type { CreatableItemType } from '@/shared/item-types'
 import type { ItemDetails, ResolvedAction } from '@/shared/types'
 import type { ItemFormValues } from '@/app/palette-types'
 
@@ -9,11 +10,11 @@ const newCustomField = () => ({
 
 export function actionKindLabel(action: ResolvedAction) {
   switch (action.kind) {
-    case 'login':
+    case 'open-item':
       return 'Item'
     case 'open-settings':
       return 'Command'
-    case 'create-login':
+    case 'create-item':
       return 'Create'
     case 'generate-passkey':
       return 'Passkey'
@@ -23,18 +24,28 @@ export function actionKindLabel(action: ResolvedAction) {
     case 'show-password':
     case 'copy-password':
       return 'Secret'
-    case 'switch-identity':
+    case 'copy-value':
+      return 'Copy'
+    case 'switch-item':
       return 'Identity'
+    case 'coming-soon':
+      return 'Soon'
     default:
       return 'Command'
   }
 }
 
-export function createFormValues(seed?: Partial<ItemDetails>): ItemFormValues {
+export function createFormValues(itemType: CreatableItemType, seed?: Partial<ItemDetails>): ItemFormValues {
   return {
+    itemType,
     itemName: seed?.itemName ?? '',
     username: seed?.username ?? '',
     password: seed?.password ?? '',
+    fullName: seed?.fullName ?? '',
+    email: seed?.email ?? '',
+    phone: seed?.phone ?? '',
+    address: seed?.address ?? '',
+    content: seed?.content ?? '',
     notes: seed?.notes ?? '',
     websites: seed?.websites?.length ? seed.websites : [''],
     customFields: seed?.customFields?.length ? seed.customFields : [newCustomField()],

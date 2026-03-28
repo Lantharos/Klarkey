@@ -1,11 +1,12 @@
-import type { IdentityProfile, RecentAction, ResolvedAction, VaultSnapshot } from '@/shared/types'
+import { AVAILABLE_ITEM_TYPES, getItemTypeDefinition } from '@/shared/item-types'
+import type { ItemProfile, RecentAction, ResolvedAction, VaultSnapshot } from '@/shared/types'
 import { parseCommand } from '@/shared/command'
 
 const includes = (haystack: string | undefined, needle: string) =>
   (haystack ?? '').toLowerCase().includes(needle.toLowerCase())
 
-const scoreRecent = (recents: RecentAction[], identityId?: string) => {
-  const hit = recents.find((recent) => recent.identityId === identityId)
+const scoreRecent = (recents: RecentAction[], itemId?: string) => {
+  const hit = recents.find((recent) => recent.itemId === itemId)
 
   if (!hit) {
     return 0
@@ -15,7 +16,21 @@ const scoreRecent = (recents: RecentAction[], identityId?: string) => {
   return Math.max(0, 40 - ageHours)
 }
 
-const itemScore = (item: IdentityProfile, query: string) => {
+const searchableFields = (item: ItemProfile) =>
+  [
+    item.itemName,
+    item.username,
+    item.fullName,
+    item.email,
+    item.phone,
+    item.address,
+    item.content,
+    item.notes,
+    ...(item.websites ?? []),
+    ...(item.customFields?.flatMap((field) => [field.label, field.value]) ?? []),
+  ].filter(Boolean) as string[]
+
+const itemScore = (item: ItemProfile, query: string) => {
   if (!query) {
     return 0
   }
@@ -24,22 +39,47 @@ const itemScore = (item: IdentityProfile, query: string) => {
     return 32
   }
 
-  if (includes(item.username, query)) {
+  const matchingField = searchableFields(item).find((value) => includes(value, query))
+
+  if (!matchingField) {
+    return 0
+  }
+
+  if (matchingField === item.username || matchingField === item.fullName || matchingField === item.email) {
     return 24
   }
 
-  if (item.websites?.some((website) => includes(website, query))) {
-    return 18
+  if (matchingField === item.content || matchingField === item.notes) {
+    return 14
   }
 
-  if (includes(item.notes, query)) {
-    return 12
-  }
-
-  return 0
+  return 18
 }
 
-const itemSubtitle = (item: IdentityProfile) => item.username || item.itemName
+const itemSubtitle = (item: ItemProfile) =>
+  item.itemType === 'login'
+    ? item.username || item.itemName
+    : item.itemType === 'identity'
+      ? item.fullName || item.email || item.itemName
+      : item.content?.trim() || item.notes?.trim() || 'Text note'
+
+const createTypeActions = (literalName: string) =>
+  AVAILABLE_ITEM_TYPES.map((itemType, index) => {
+    const definition = getItemTypeDefinition(itemType)
+
+    return {
+      id: `create:${itemType}:${literalName || 'blank'}`,
+      kind: 'create-item' as const,
+      title: literalName ? `Create ${definition.noun}` : definition.createLabel,
+      subtitle: literalName || definition.placeholderName,
+      itemType,
+      primaryHint: literalName
+        ? `Create a ${definition.noun} named ${literalName}.`
+        : `Start a new ${definition.noun}.`,
+      requiresUnlock: itemType === 'login',
+      score: 100 - index,
+    }
+  })
 
 export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')): ResolvedAction[] {
   const settingsAction: ResolvedAction = {
@@ -57,20 +97,41 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
   }
 
   if (query.intent === 'create') {
-    const literalName = query.itemQuery?.trim() || query.trailingText.trim()
+    const literalName = query.itemQuery?.trim() || ''
 
-    if (!literalName) {
-      return [settingsAction]
+    if (!query.entryType) {
+      return [...createTypeActions(literalName), settingsAction]
+    }
+
+    const definition = getItemTypeDefinition(query.entryType)
+
+    if (!definition.available) {
+      return [
+        {
+          id: `coming-soon:${query.entryType}`,
+          kind: 'coming-soon',
+          title: definition.label,
+          subtitle: 'Coming soon',
+          itemType: query.entryType,
+          primaryHint: `${definition.label} is reserved for a future item type.`,
+          requiresUnlock: false,
+          score: 100,
+        },
+        settingsAction,
+      ]
     }
 
     return [
       {
-        id: `create:new:${literalName}`,
-        kind: 'create-login',
-        title: `Create ${literalName}`,
-        subtitle: '',
-        primaryHint: 'Create a new item.',
-        requiresUnlock: true,
+        id: `create:${query.entryType}:${literalName || 'blank'}`,
+        kind: 'create-item',
+        title: literalName ? `Create ${literalName}` : definition.createLabel,
+        subtitle: literalName || definition.placeholderName,
+        itemType: query.entryType,
+        primaryHint: literalName
+          ? `Create a new ${definition.noun}.`
+          : `Start a new ${definition.noun}.`,
+        requiresUnlock: query.entryType === 'login',
         score: 100,
       },
       settingsAction,
@@ -79,15 +140,19 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
 
   if (!query.raw) {
     const recentActions = snapshot.items.map((item) => ({
-      id: `recent:${item.id}`,
-      kind: 'login' as const,
+      id: `open:${item.id}`,
+      kind: 'open-item' as const,
       title: item.itemName,
       subtitle: itemSubtitle(item),
-      identityId: item.id,
-      primaryHint: 'Open this item.',
-      modifiers: {
-        control: 'Copy the password instead.',
-      },
+      itemId: item.id,
+      itemType: item.itemType,
+      primaryHint: `Open this ${getItemTypeDefinition(item.itemType).noun}.`,
+      modifiers:
+        item.itemType === 'login'
+          ? {
+              control: 'Copy the password instead.',
+            }
+          : undefined,
       requiresUnlock: false,
       score: scoreRecent(snapshot.recents, item.id),
     }))
@@ -99,6 +164,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
   }
 
   const matchingItems = snapshot.items
+    .filter((item) => !query.entryType || item.itemType === query.entryType)
     .map((item) => ({ item, score: itemScore(item, query.itemQuery ?? query.raw) }))
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score)
@@ -109,7 +175,9 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
     if (
       query.identityQuery &&
       !includes(item.itemName, query.identityQuery) &&
-      !includes(item.username, query.identityQuery)
+      !includes(item.username, query.identityQuery) &&
+      !includes(item.fullName, query.identityQuery) &&
+      !includes(item.email, query.identityQuery)
     ) {
       continue
     }
@@ -118,33 +186,36 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
 
     if (query.intent === 'insert' && query.credential === 'password' && item.hasPassword) {
       actions.push({
-        id: `paste-password:${item.id}`,
+        id: `paste:${item.id}:password`,
         kind: 'copy-password',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
+        itemId: item.id,
+        itemType: item.itemType,
         primaryHint: 'Insert the password into the last selected field.',
         requiresUnlock: true,
         score: baseScore + 24,
       })
-    } else if (query.intent === 'insert' && query.credential === 'username') {
+    } else if (query.intent === 'insert' && query.credential === 'username' && item.username) {
       actions.push({
-        id: `paste-username:${item.id}`,
-        kind: 'login',
+        id: `paste:${item.id}:username`,
+        kind: 'copy-value',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
-        primaryHint: 'Insert the username into the last selected field.',
+        itemId: item.id,
+        itemType: item.itemType,
+        primaryHint: 'Insert the primary text into the last selected field.',
         requiresUnlock: false,
         score: baseScore + 24,
       })
     } else if (query.intent === 'show' && query.credential === 'otp' && item.hasOtp) {
       actions.push({
-        id: `otp:${item.id}`,
+        id: `show:${item.id}:otp`,
         kind: 'show-otp',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
+        itemId: item.id,
+        itemType: item.itemType,
         primaryHint: 'Reveal the one-time code.',
         modifiers: {
           control: 'Copy the one-time code to the clipboard.',
@@ -154,22 +225,24 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
       })
     } else if (query.intent === 'copy' && query.credential === 'password' && item.hasPassword) {
       actions.push({
-        id: `copy-password:${item.id}`,
+        id: `copy:${item.id}:password`,
         kind: 'copy-password',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
+        itemId: item.id,
+        itemType: item.itemType,
         primaryHint: 'Copy the password to the clipboard.',
         requiresUnlock: true,
         score: baseScore + 21,
       })
     } else if (query.intent === 'show' && query.credential === 'password' && item.hasPassword) {
       actions.push({
-        id: `show-password:${item.id}`,
+        id: `show:${item.id}:password`,
         kind: 'show-password',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
+        itemId: item.id,
+        itemType: item.itemType,
         primaryHint: 'Reveal the password in place.',
         modifiers: {
           control: 'Copy the password to the clipboard.',
@@ -177,13 +250,14 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         requiresUnlock: true,
         score: baseScore + 20,
       })
-    } else if (query.intent === 'generate') {
+    } else if (query.intent === 'generate' && item.itemType === 'login') {
       actions.push({
-        id: `passkey:${item.id}`,
+        id: `generate-passkey:${item.id}`,
         kind: 'generate-passkey',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
+        itemId: item.id,
+        itemType: item.itemType,
         primaryHint: 'Create a local placeholder for the future passkey bridge.',
         requiresUnlock: true,
         score: baseScore + 18,
@@ -191,34 +265,39 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
     } else if (query.intent === 'switch') {
       actions.push({
         id: `switch:${item.id}`,
-        kind: 'switch-identity',
+        kind: 'switch-item',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
-        primaryHint: 'Make this the current item.',
+        itemId: item.id,
+        itemType: item.itemType,
+        primaryHint: `Make this ${getItemTypeDefinition(item.itemType).noun} the current item.`,
         requiresUnlock: false,
         score: baseScore + 16,
       })
     } else {
       actions.push({
-        id: `login:${item.id}`,
-        kind: 'login',
+        id: `open:${item.id}`,
+        kind: 'open-item',
         title: item.itemName,
         subtitle: itemSubtitle(item),
-        identityId: item.id,
-        primaryHint: 'Open this item.',
-        modifiers: {
-          control: 'Copy the password instead.',
-          alt: 'Show the password in the palette.',
-        },
+        itemId: item.id,
+        itemType: item.itemType,
+        primaryHint: `Open this ${getItemTypeDefinition(item.itemType).noun}.`,
+        modifiers:
+          item.itemType === 'login'
+            ? {
+                control: 'Copy the password instead.',
+                alt: 'Show the password in the palette.',
+              }
+            : item.itemType === 'note'
+              ? {
+                  control: 'Copy the note body instead.',
+                }
+              : undefined,
         requiresUnlock: false,
         score: baseScore + 14,
       })
     }
-  }
-
-  if (query.intent === 'insert' && actions.length === 0) {
-    return [settingsAction]
   }
 
   if (actions.length === 0) {

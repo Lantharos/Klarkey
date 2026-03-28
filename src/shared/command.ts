@@ -1,4 +1,5 @@
 import type { CommandIntent, CommandQuery, CommandToken, CredentialKind } from '@/shared/types'
+import { parseItemType } from '@/shared/item-types'
 
 const INTENT_SYNONYMS: Record<string, CommandIntent> = {
   create: 'create',
@@ -40,14 +41,15 @@ export const composeCommandRaw = (query: Pick<CommandQuery, 'tokens' | 'trailing
   [...query.tokens.map((token) => token.value), query.trailingText].filter(Boolean).join(' ').trim()
 
 export function parseCommand(rawInput: string): CommandQuery {
-  const raw = rawInput.trim().replace(/\s+/g, ' ')
+  const normalizedInput = rawInput.replace(/\s+/g, ' ')
+  const raw = normalizedInput.trim()
 
   if (!raw) {
     return {
       raw: '',
       intent: 'search',
       tokens: [],
-      trailingText: '',
+      trailingText: normalizedInput,
     }
   }
 
@@ -55,7 +57,7 @@ export function parseCommand(rawInput: string): CommandQuery {
   const tokens: CommandToken[] = []
   let intent: CommandIntent = 'search'
   let credential: CredentialKind | undefined
-  let entryType: 'login' | undefined
+  let entryType: CommandQuery['entryType']
   let index = 0
 
   const maybeIntent = INTENT_SYNONYMS[slug(words[0])]
@@ -64,10 +66,14 @@ export function parseCommand(rawInput: string): CommandQuery {
     tokens.push(createToken('intent', words[0]))
     index += 1
 
-    if (slug(words[index] ?? '') === 'login' && maybeIntent === 'create') {
-      entryType = 'login'
-      tokens.push(createToken('item-type', words[index]))
-      index += 1
+    if (maybeIntent === 'create') {
+      const itemTypeMatch = parseItemType(words, index)
+
+      if (itemTypeMatch) {
+        entryType = itemTypeMatch.itemType
+        tokens.push(createToken('item-type', words.slice(index, index + itemTypeMatch.consumed).join(' ')))
+        index += itemTypeMatch.consumed
+      }
     }
   }
 
@@ -100,7 +106,7 @@ export function parseCommand(rawInput: string): CommandQuery {
   const identityWords = rawIdentityWords.filter((word) => !STOP_WORDS.has(slug(word)))
   const itemQuery = itemWords.join(' ').trim()
   const identityQuery = identityWords.join(' ').trim()
-  const trailingText = remaining.join(' ').trim()
+  const trailingText = `${remaining.join(' ')}${/\s$/.test(normalizedInput) ? ' ' : ''}`
 
   return {
     raw,

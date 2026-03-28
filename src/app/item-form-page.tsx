@@ -13,12 +13,14 @@ const newCustomField = () => ({
 function FieldShell({
   label,
   children,
+  className,
 }: {
   label: string
   children: React.ReactNode
+  className?: string
 }) {
   return (
-    <label className="block border-b border-white/6 px-5 py-3">
+    <label className={`block border-b border-white/6 px-5 py-3 ${className ?? ''}`}>
       <div className="mb-2 text-[13px] text-white/42">{label}</div>
       {children}
     </label>
@@ -77,6 +79,7 @@ export function ItemFormPage({
   const saveTimeoutRef = useRef<number | undefined>(undefined)
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const baselineRef = useRef(JSON.stringify(initialValue))
+  const submitCurrentValue = () => onSubmit(value)
 
   useEffect(() => {
     if (!focusTargetRef.current) {
@@ -148,15 +151,7 @@ export function ItemFormPage({
     next?.focus()
   }
 
-  const onFieldKeyDown = (
-    event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    if (mode === 'create' && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault()
-      formRef.current?.requestSubmit()
-      return
-    }
-
+  const onFieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && event.currentTarget instanceof HTMLInputElement) {
       const websiteIndex = event.currentTarget.dataset.websiteIndex
       const customFieldIndex = event.currentTarget.dataset.customFieldIndex
@@ -191,21 +186,18 @@ export function ItemFormPage({
 
     if (event.currentTarget instanceof HTMLTextAreaElement) {
       const { selectionStart, selectionEnd, value: text } = event.currentTarget
-      const currentLineHasSelection = selectionStart !== selectionEnd
       const before = text.slice(0, selectionStart)
       const after = text.slice(selectionEnd)
-      const isFirstLine = !before.includes('\n')
-      const isLastLine = !after.includes('\n')
 
-      if (currentLineHasSelection) {
+      if (selectionStart !== selectionEnd) {
         return
       }
 
-      if (event.key === 'ArrowUp' && !isFirstLine) {
+      if (event.key === 'ArrowUp' && before.includes('\n')) {
         return
       }
 
-      if (event.key === 'ArrowDown' && !isLastLine) {
+      if (event.key === 'ArrowDown' && after.includes('\n')) {
         return
       }
     }
@@ -214,171 +206,243 @@ export function ItemFormPage({
     moveFieldFocus(event.key === 'ArrowDown' ? 1 : -1, event.currentTarget)
   }
 
+  const showWebsites = value.itemType === 'login'
+  const showCustomFields = value.itemType !== 'note'
+  const showNotes = value.itemType !== 'note'
+
   return (
     <form
       ref={formRef}
       className="flex min-h-0 flex-1 flex-col"
+      onKeyDown={(event) => {
+        if (mode === 'create' && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault()
+          submitCurrentValue()
+        }
+      }}
       onSubmit={(event) => {
         event.preventDefault()
-        onSubmit(value)
+        submitCurrentValue()
       }}
     >
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <FieldShell label="Name">
+      <div className={value.itemType === 'note' ? 'flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto'}>
+        <FieldShell label={value.itemType === 'note' ? 'Title' : 'Name'}>
           <TextField
             autoFocus
             value={value.itemName}
             onChange={(itemName) => updateValue((current) => ({ ...current, itemName }))}
             onKeyDown={onFieldKeyDown}
-            placeholder="Netflix"
+            placeholder={value.itemType === 'note' ? 'Meeting follow-up' : value.itemType === 'identity' ? 'Personal identity' : 'Netflix'}
           />
         </FieldShell>
-        <FieldShell label="Username">
-          <TextField
-            value={value.username}
-            onChange={(username) => updateValue((current) => ({ ...current, username }))}
-            onKeyDown={onFieldKeyDown}
-            placeholder="me@example.com"
-          />
-        </FieldShell>
-        <FieldShell label="Password">
-          <TextField
-            masked
-            value={value.password}
-            onChange={(password) => updateValue((current) => ({ ...current, password }))}
-            onKeyDown={onFieldKeyDown}
-            placeholder={mode === 'create' ? 'Leave blank to generate one' : 'Password'}
-          />
-        </FieldShell>
-        <div className="border-b border-white/6 px-5 py-3">
-          <div className="mb-2 text-[13px] text-white/42">Websites</div>
-          <div className="space-y-2">
-            {value.websites.map((website, index) => (
-              <div key={`website_${index}`} className="flex items-center gap-2 rounded-[10px] bg-white/4 px-3 py-2.5">
-                <Globe size={15} className="shrink-0 text-white/32" />
-                <input
-                  data-nav-input="true"
-                  data-focus-key={`website-${index}`}
-                  data-website-index={index}
-                  value={website}
-                  onChange={(event) => {
-                    updateValue((current) => {
-                      const websites = [...current.websites]
-                      websites[index] = event.target.value
-                      return { ...current, websites }
-                    })
-                  }}
-                  onKeyDown={onFieldKeyDown}
-                  placeholder="https://example.com"
-                  className="w-full bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
-                />
-                {value.websites.length > 1 ? (
+
+        {value.itemType === 'login' ? (
+          <>
+            <FieldShell label="Username">
+              <TextField
+                value={value.username}
+                onChange={(username) => updateValue((current) => ({ ...current, username }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="me@example.com"
+              />
+            </FieldShell>
+            <FieldShell label="Password">
+              <TextField
+                masked
+                value={value.password}
+                onChange={(password) => updateValue((current) => ({ ...current, password }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder={mode === 'create' ? 'Leave blank to generate one' : 'Password'}
+              />
+            </FieldShell>
+          </>
+        ) : null}
+
+        {value.itemType === 'identity' ? (
+          <>
+            <FieldShell label="Full name">
+              <TextField
+                value={value.fullName}
+                onChange={(fullName) => updateValue((current) => ({ ...current, fullName }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="Alex Morgan"
+              />
+            </FieldShell>
+            <FieldShell label="Email">
+              <TextField
+                value={value.email}
+                onChange={(email) => updateValue((current) => ({ ...current, email }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="alex@example.com"
+              />
+            </FieldShell>
+            <FieldShell label="Phone">
+              <TextField
+                value={value.phone}
+                onChange={(phone) => updateValue((current) => ({ ...current, phone }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="+49 151 12345678"
+              />
+            </FieldShell>
+            <FieldShell label="Address">
+              <TextField
+                value={value.address}
+                onChange={(address) => updateValue((current) => ({ ...current, address }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="Street, city, postal code"
+              />
+            </FieldShell>
+          </>
+        ) : null}
+
+        {value.itemType === 'note' ? (
+          <FieldShell label="Note" className="flex min-h-0 flex-1 flex-col border-b-0">
+            <textarea
+              data-nav-input="true"
+              value={value.content}
+              onChange={(event) => updateValue((current) => ({ ...current, content: event.target.value }))}
+              onKeyDown={onFieldKeyDown}
+              placeholder="Write anything you want to keep close."
+              className="min-h-0 flex-1 w-full resize-none bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+            />
+          </FieldShell>
+        ) : null}
+
+        {showWebsites ? (
+          <div className="border-b border-white/6 px-5 py-3">
+            <div className="mb-2 text-[13px] text-white/42">Websites</div>
+            <div className="space-y-2">
+              {value.websites.map((website, index) => (
+                <div key={`website_${index}`} className="flex items-center gap-2 rounded-[10px] bg-white/4 px-3 py-2.5">
+                  <Globe size={15} className="shrink-0 text-white/32" />
+                  <input
+                    data-nav-input="true"
+                    data-focus-key={`website-${index}`}
+                    data-website-index={index}
+                    value={website}
+                    onChange={(event) => {
+                      updateValue((current) => {
+                        const websites = [...current.websites]
+                        websites[index] = event.target.value
+                        return { ...current, websites }
+                      })
+                    }}
+                    onKeyDown={onFieldKeyDown}
+                    placeholder="https://example.com"
+                    className="w-full bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+                  />
+                  {value.websites.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateValue((current) => ({
+                          ...current,
+                          websites: current.websites.filter((_, websiteIndex) => websiteIndex !== index),
+                        }))
+                      }
+                      className="text-[13px] text-white/34 transition hover:text-white/62"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {showCustomFields ? (
+          <div className="border-b border-white/6 px-5 py-3">
+            <div className="mb-2 text-[13px] text-white/42">Fields</div>
+            <div className="space-y-2">
+              {value.customFields.map((field, index) => (
+                <div
+                  key={field.id}
+                  className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)_auto] gap-2 rounded-[10px] bg-white/4 px-3 py-2.5"
+                >
+                  <input
+                    data-nav-input="true"
+                    data-focus-key={`custom-${index}-label`}
+                    data-custom-field-index={index}
+                    data-custom-field-side="label"
+                    value={field.label}
+                    onChange={(event) => {
+                      updateValue((current) => {
+                        const customFields = [...current.customFields]
+                        customFields[index] = { ...customFields[index], label: event.target.value }
+                        return { ...current, customFields }
+                      })
+                    }}
+                    onKeyDown={onFieldKeyDown}
+                    placeholder="Field"
+                    className="bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+                  />
+                  <input
+                    data-nav-input="true"
+                    data-focus-key={`custom-${index}-value`}
+                    data-custom-field-index={index}
+                    data-custom-field-side="value"
+                    value={field.value}
+                    onChange={(event) => {
+                      updateValue((current) => {
+                        const customFields = [...current.customFields]
+                        customFields[index] = { ...customFields[index], value: event.target.value }
+                        return { ...current, customFields }
+                      })
+                    }}
+                    onKeyDown={onFieldKeyDown}
+                    placeholder="Value"
+                    className="bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+                  />
                   <button
                     type="button"
                     onClick={() =>
                       updateValue((current) => ({
                         ...current,
-                        websites: current.websites.filter((_, websiteIndex) => websiteIndex !== index),
+                        customFields:
+                          current.customFields.length === 1
+                            ? [newCustomField()]
+                            : current.customFields.filter((candidate) => candidate.id !== field.id),
                       }))
                     }
                     className="text-[13px] text-white/34 transition hover:text-white/62"
                   >
                     Remove
                   </button>
-                ) : null}
-              </div>
-            ))}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="border-b border-white/6 px-5 py-3">
-          <div className="mb-2 text-[13px] text-white/42">Fields</div>
-          <div className="space-y-2">
-            {value.customFields.map((field, index) => (
-              <div
-                key={field.id}
-                className="grid grid-cols-[minmax(0,160px)_minmax(0,1fr)_auto] gap-2 rounded-[10px] bg-white/4 px-3 py-2.5"
-              >
-                <input
-                  data-nav-input="true"
-                  data-focus-key={`custom-${index}-label`}
-                  data-custom-field-index={index}
-                  data-custom-field-side="label"
-                  value={field.label}
-                  onChange={(event) => {
-                    updateValue((current) => {
-                      const customFields = [...current.customFields]
-                      customFields[index] = { ...customFields[index], label: event.target.value }
-                      return { ...current, customFields }
-                    })
-                  }}
-                  onKeyDown={onFieldKeyDown}
-                  placeholder="Field"
-                  className="bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
-                />
-                <input
-                  data-nav-input="true"
-                  data-focus-key={`custom-${index}-value`}
-                  data-custom-field-index={index}
-                  data-custom-field-side="value"
-                  value={field.value}
-                  onChange={(event) => {
-                    updateValue((current) => {
-                      const customFields = [...current.customFields]
-                      customFields[index] = { ...customFields[index], value: event.target.value }
-                      return { ...current, customFields }
-                    })
-                  }}
-                  onKeyDown={onFieldKeyDown}
-                  placeholder="Value"
-                  className="bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    updateValue((current) => ({
-                      ...current,
-                      customFields:
-                        current.customFields.length === 1
-                          ? [newCustomField()]
-                          : current.customFields.filter((candidate) => candidate.id !== field.id),
-                    }))
-                  }
-                  className="text-[13px] text-white/34 transition hover:text-white/62"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-        <FieldShell label="Notes">
-          <textarea
-            data-nav-input="true"
-            value={value.notes}
-            onChange={(event) => updateValue((current) => ({ ...current, notes: event.target.value }))}
-            onKeyDown={onFieldKeyDown}
-            placeholder="Notes"
-            className="min-h-[88px] w-full resize-none bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
-          />
-        </FieldShell>
+        ) : null}
+
+        {showNotes ? (
+          <FieldShell label="Notes">
+            <textarea
+              data-nav-input="true"
+              value={value.notes}
+              onChange={(event) => updateValue((current) => ({ ...current, notes: event.target.value }))}
+              onKeyDown={onFieldKeyDown}
+              placeholder="Notes"
+              className="min-h-[88px] w-full resize-none bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+            />
+          </FieldShell>
+        ) : null}
       </div>
       <div className="h-px bg-white/8" />
       <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
-        <div className="flex items-center gap-3">
-          <span>
-            {loading
-              ? 'Loading item...'
-              : mode === 'edit'
-                ? saveState === 'saving'
-                  ? 'Saving...'
-                  : saveState === 'saved'
-                    ? 'Saved.'
-                    : saveState === 'error'
-                      ? 'Could not save.'
-                      : 'Saved automatically.'
-                : 'Press Ctrl + Return to create.'}
-          </span>
-        </div>
+        <span>
+          {loading
+            ? 'Loading item...'
+            : mode === 'edit'
+              ? saveState === 'saving'
+                ? 'Saving...'
+                : saveState === 'saved'
+                  ? 'Saved.'
+                  : saveState === 'error'
+                    ? 'Could not save.'
+                    : 'Saved automatically.'
+              : 'Press Ctrl + Return to create.'}
+        </span>
         <div className="flex items-center gap-2">
           <KeyHint>Esc</KeyHint>
           {mode === 'create' ? (

@@ -1,9 +1,25 @@
 import { clsx } from 'clsx'
 import { ChevronLeft, CornerDownLeft, Search, Settings2, Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
+import { StaticItemTypeIcon } from '@/app/item-ui'
+import { getCreateTitle, getItemTypeAccent, getItemTypeIcon } from '@/app/item-type-meta'
 import { actionKindLabel, itemInitials } from '@/app/palette-utils'
 import type { DetailAction } from '@/app/palette-types'
 import type { ResolvedAction, UserSettings } from '@/shared/types'
+
+function TypeIcon({ itemType }: { itemType: ResolvedAction['itemType'] }) {
+  if (!itemType || !getItemTypeIcon(itemType)) {
+    return null
+  }
+
+  const accent = getItemTypeAccent(itemType)
+
+  return (
+    <div className={clsx('flex h-8 w-8 items-center justify-center rounded-[9px]', accent?.container ?? 'bg-white/8 text-white/72')}>
+      <StaticItemTypeIcon itemType={itemType} />
+    </div>
+  )
+}
 
 export function RowIcon({ action, title }: { action?: ResolvedAction; title?: string }) {
   if (action?.kind === 'open-settings') {
@@ -14,12 +30,16 @@ export function RowIcon({ action, title }: { action?: ResolvedAction; title?: st
     )
   }
 
-  if (action?.kind === 'create-login') {
+  if (action?.kind === 'create-item') {
     return (
       <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-emerald-500/18 text-emerald-300">
         <Sparkles size={15} />
       </div>
     )
+  }
+
+  if (getItemTypeIcon(action?.itemType ?? 'login')) {
+    return <TypeIcon itemType={action?.itemType} />
   }
 
   const initials = itemInitials(title ?? action?.title ?? 'Klarkey')
@@ -154,7 +174,11 @@ export function ResultRow({
         </div>
       </div>
       <div className="flex items-center gap-3 text-[13px] text-white/38">
-        <span>{action.kind === 'create-login' ? 'Create' : actionKindLabel(action)}</span>
+        <span>
+          {action.kind === 'create-item' && action.itemType && action.itemType !== 'ssh-key'
+            ? getCreateTitle(action.itemType)
+            : actionKindLabel(action)}
+        </span>
         <ReturnHint />
       </div>
     </button>
@@ -303,11 +327,13 @@ export function HeaderRow({
   subtitle,
   onBack,
   showIcon = true,
+  itemType = 'login',
 }: {
   title: string
   subtitle?: string
   onBack: () => void
   showIcon?: boolean
+  itemType?: ResolvedAction['itemType']
 }) {
   return (
     <>
@@ -318,7 +344,7 @@ export function HeaderRow({
       >
         <ChevronLeft size={17} />
       </button>
-      {showIcon ? <RowIcon title={title} /> : null}
+      {showIcon ? <RowIcon action={{ itemType } as ResolvedAction} title={title} /> : null}
       <div className="flex min-w-0 items-baseline gap-3">
         <span className="truncate text-[16px] font-medium text-white">{title}</span>
         {subtitle ? <span className="truncate text-[14px] text-white/40">{subtitle}</span> : null}

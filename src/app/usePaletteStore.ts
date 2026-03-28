@@ -5,11 +5,11 @@ import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
   type CommandQuery,
-  type CreateIdentityInput,
+  type CreateItemInput,
   type ModifierKey,
   type ResolvedAction,
   type SettingsUpdate,
-  type UpdateIdentityInput,
+  type UpdateItemInput,
   type UserSettings,
 } from '@/shared/types'
 
@@ -70,8 +70,8 @@ interface PaletteState {
   executeAction: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult | undefined>
   openCreateForm: () => void
   openEditForm: () => void
-  submitCreateForm: (input: CreateIdentityInput) => Promise<ActionExecutionResult | undefined>
-  submitEditForm: (input: UpdateIdentityInput) => Promise<ActionExecutionResult | undefined>
+  submitCreateForm: (input: CreateItemInput) => Promise<ActionExecutionResult | undefined>
+  submitEditForm: (input: UpdateItemInput) => Promise<ActionExecutionResult | undefined>
   deleteCurrentItem: () => Promise<ActionExecutionResult | undefined>
   goBackOrClose: () => Promise<void>
   closePalette: () => Promise<void>
@@ -199,13 +199,15 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       return
     }
 
-    if (action.kind === 'create-login') {
+    if (action.kind === 'create-item') {
       set({ page: 'form', formMode: 'create', detailAction: action, selectedIndex: 0, execution: undefined })
       return
     }
 
     if (
-      action.id.startsWith('paste-') ||
+      action.id.startsWith('paste:') ||
+      action.id.startsWith('copy:') ||
+      action.id.startsWith('show:') ||
       action.kind === 'copy-password' ||
       action.kind === 'show-password' ||
       action.kind === 'show-otp' ||
@@ -226,7 +228,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ page: 'form', formMode: 'create', selectedIndex: 0, execution: undefined })
   },
   openEditForm() {
-    if (!get().detailAction?.identityId) {
+    if (!get().detailAction?.itemId) {
       return
     }
 
@@ -241,21 +243,32 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     const execution = await api.item.update(input)
     if (execution.status !== 'error') {
       const currentDetailAction = get().detailAction
-      if (currentDetailAction?.identityId === input.identityId) {
-        const title = input.itemName?.trim() || currentDetailAction.title
-        const username = input.username?.trim() || ''
-        const subtitle = username || currentDetailAction.subtitle
+      const nextTitle = input.itemName?.trim()
+      const nextSubtitle =
+        input.username?.trim() || input.fullName?.trim() || input.content?.trim() || currentDetailAction?.subtitle
 
+      const nextActions = get().actions.map((action) =>
+        action.itemId === input.itemId
+          ? {
+              ...action,
+              title: nextTitle || action.title,
+              subtitle: nextSubtitle || action.subtitle,
+            }
+          : action,
+      )
+
+      if (currentDetailAction?.itemId === input.itemId) {
         set({
+          actions: nextActions,
           detailAction: {
             ...currentDetailAction,
-            title,
-            subtitle,
+            title: nextTitle || currentDetailAction.title,
+            subtitle: nextSubtitle || currentDetailAction.subtitle,
           },
           execution,
         })
       } else {
-        set({ execution })
+        set({ actions: nextActions, execution })
       }
       return execution
     }
@@ -264,12 +277,12 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     return execution
   },
   async deleteCurrentItem() {
-    const identityId = get().detailAction?.identityId
-    if (!identityId) {
+    const itemId = get().detailAction?.itemId
+    if (!itemId) {
       return undefined
     }
 
-    const execution = await api.item.delete(identityId)
+    const execution = await api.item.delete(itemId)
     if (execution.status !== 'error') {
       await get().refresh('')
     }

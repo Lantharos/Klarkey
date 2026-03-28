@@ -1,3 +1,5 @@
+import type { CreatableItemType, ItemType } from '@/shared/item-types'
+
 export type CommandIntent =
   | 'search'
   | 'create'
@@ -15,16 +17,16 @@ export type CommandTokenKind = 'intent' | 'item-type' | 'credential' | 'identity
 export type CredentialKind = 'username' | 'password' | 'otp' | 'passkey'
 export type ModifierKey = 'none' | 'control' | 'alt'
 export type ActionKind =
-  | 'login'
+  | 'open-item'
   | 'copy-password'
   | 'show-password'
   | 'show-otp'
   | 'copy-otp'
-  | 'create-login'
-  | 'update-login'
-  | 'delete-login'
+  | 'copy-value'
+  | 'create-item'
   | 'generate-passkey'
-  | 'switch-identity'
+  | 'switch-item'
+  | 'coming-soon'
   | 'open-settings'
 
 export interface CommandToken {
@@ -39,17 +41,22 @@ export interface CommandQuery {
   intent: CommandIntent
   tokens: CommandToken[]
   trailingText: string
-  entryType?: 'login'
+  entryType?: ItemType
   itemQuery?: string
   identityQuery?: string
   credential?: CredentialKind
 }
 
-export interface IdentityProfile {
+export interface ItemProfile {
   id: string
+  itemType: ItemType
   itemName: string
-  username: string
+  username?: string
+  fullName?: string
   email?: string
+  phone?: string
+  address?: string
+  content?: string
   websites?: string[]
   notes?: string
   customFields?: Array<{ id: string; label: string; value: string }>
@@ -62,7 +69,7 @@ export interface IdentityProfile {
 
 export interface Credential {
   id: string
-  identityId: string
+  itemId: string
   kind: CredentialKind
   value: string
   updatedAt: string
@@ -70,7 +77,7 @@ export interface Credential {
 
 export interface OtpSecret {
   id: string
-  identityId: string
+  itemId: string
   secret: string
   issuer: string
   accountName: string
@@ -78,7 +85,7 @@ export interface OtpSecret {
 
 export interface PasskeyRecord {
   id: string
-  identityId: string
+  itemId: string
   label: string
   createdAt: string
 }
@@ -86,7 +93,7 @@ export interface PasskeyRecord {
 export interface RecentAction {
   id: string
   actionId: string
-  identityId?: string
+  itemId?: string
   label: string
   usedAt: string
 }
@@ -96,7 +103,8 @@ export interface ResolvedAction {
   kind: ActionKind
   title: string
   subtitle: string
-  identityId?: string
+  itemId?: string
+  itemType?: ItemType
   primaryHint: string
   modifiers?: Partial<Record<Exclude<ModifierKey, 'none'>, string>>
   requiresUnlock: boolean
@@ -109,7 +117,7 @@ export interface ActionExecutionResult {
   message: string
   secret?: string
   copied?: boolean
-  identityId?: string
+  itemId?: string
 }
 
 export interface SearchResponse {
@@ -129,37 +137,55 @@ export interface SettingsUpdate {
   launchOnStartup?: boolean
 }
 
-export interface CreateIdentityInput {
+export interface CreateItemInput {
+  itemType: CreatableItemType
   itemName: string
   username?: string
   password?: string
+  fullName?: string
+  email?: string
+  phone?: string
+  address?: string
+  content?: string
   notes?: string
   websites?: string[]
   customFields?: Array<{ id: string; label: string; value: string }>
 }
 
-export interface UpdateIdentityInput {
-  identityId: string
+export interface UpdateItemInput {
+  itemId: string
+  itemType?: CreatableItemType
   itemName?: string
   username?: string
   password?: string
+  fullName?: string
+  email?: string
+  phone?: string
+  address?: string
+  content?: string
   notes?: string
   websites?: string[]
   customFields?: Array<{ id: string; label: string; value: string }>
 }
 
 export interface ItemDetails {
-  identityId: string
+  itemId: string
+  itemType: ItemType
   itemName: string
   username: string
   password?: string
+  fullName?: string
+  email?: string
+  phone?: string
+  address?: string
+  content?: string
   notes?: string
   websites: string[]
   customFields: Array<{ id: string; label: string; value: string }>
 }
 
 export interface VaultSnapshot {
-  items: IdentityProfile[]
+  items: ItemProfile[]
   recents: RecentAction[]
 }
 

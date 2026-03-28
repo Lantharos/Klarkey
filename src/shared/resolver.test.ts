@@ -5,7 +5,8 @@ import type { VaultSnapshot } from '@/shared/types'
 const snapshot: VaultSnapshot = {
   items: [
     {
-      id: 'identity_work',
+      id: 'item_work',
+      itemType: 'login',
       itemName: 'GitHub Work',
       username: 'work_user',
       hasPassword: true,
@@ -13,10 +14,21 @@ const snapshot: VaultSnapshot = {
       hasPasskey: false,
     },
     {
-      id: 'identity_personal',
+      id: 'item_personal',
+      itemType: 'login',
       itemName: 'GitHub Personal',
       username: 'personal_user',
       hasPassword: true,
+      hasOtp: false,
+      hasPasskey: false,
+    },
+    {
+      id: 'item_identity',
+      itemType: 'identity',
+      itemName: 'Personal Identity',
+      fullName: 'Alex Morgan',
+      email: 'alex@example.com',
+      hasPassword: false,
       hasOtp: false,
       hasPasskey: false,
     },
@@ -24,8 +36,8 @@ const snapshot: VaultSnapshot = {
   recents: [
     {
       id: 'recent_1',
-      actionId: 'login:identity_work',
-      identityId: 'identity_work',
+      actionId: 'open:item_work',
+      itemId: 'item_work',
       label: 'GitHub Work',
       usedAt: new Date().toISOString(),
     },
@@ -36,7 +48,7 @@ describe('resolveActions', () => {
   it('boosts recent item matches', () => {
     const actions = resolveActions(snapshot, parseCommand('github'))
 
-    expect(actions[0]?.id).toBe('login:identity_work')
+    expect(actions[0]?.id).toBe('open:item_work')
   })
 
   it('returns OTP actions when specifically requested', () => {
@@ -49,5 +61,18 @@ describe('resolveActions', () => {
     const actions = resolveActions(snapshot, parseCommand('new login figma'))
 
     expect(actions[0]?.title).toBe('Create figma')
+    expect(actions[0]?.itemType).toBe('login')
+  })
+
+  it('offers explicit item types when create has no type yet', () => {
+    const actions = resolveActions(snapshot, parseCommand('new'))
+
+    expect(actions.slice(0, 3).map((action) => action.itemType)).toEqual(['login', 'identity', 'note'])
+  })
+
+  it('matches identity items by person fields', () => {
+    const actions = resolveActions(snapshot, parseCommand('alex'))
+
+    expect(actions.some((action) => action.itemType === 'identity')).toBe(true)
   })
 })

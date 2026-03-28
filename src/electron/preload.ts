@@ -17,10 +17,10 @@ const api: KlarkeyApi = {
     execute: (actionId, modifier) => ipcRenderer.invoke(IPC_CHANNELS.actionExecute, actionId, modifier),
   },
   item: {
-    get: (identityId) => ipcRenderer.invoke(IPC_CHANNELS.itemGet, identityId),
+    get: (itemId) => ipcRenderer.invoke(IPC_CHANNELS.itemGet, itemId),
     create: (input) => ipcRenderer.invoke(IPC_CHANNELS.itemCreate, input),
     update: (input) => ipcRenderer.invoke(IPC_CHANNELS.itemUpdate, input),
-    delete: (identityId) => ipcRenderer.invoke(IPC_CHANNELS.itemDelete, identityId),
+    delete: (itemId) => ipcRenderer.invoke(IPC_CHANNELS.itemDelete, itemId),
   },
   vault: {
     unlock: () => ipcRenderer.invoke(IPC_CHANNELS.vaultUnlock),

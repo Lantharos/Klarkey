@@ -4,18 +4,19 @@ import { ClipboardManager } from '@/electron/clipboard'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
-import { IdentityRepository } from '@/electron/repository'
+import { VaultRepository } from '@/electron/repository'
 import { captureForegroundWindow, captureForegroundWindowAsync, pasteIntoWindow } from '@/electron/windows'
 import { parseCommand } from '@/shared/command'
 import { resolveActions } from '@/shared/resolver'
 import type {
   ActionExecutionResult,
   CommandQuery,
-  CreateIdentityInput,
+  CreateItemInput,
+  ItemDetails,
   ModifierKey,
   SearchResponse,
   SettingsUpdate,
-  UpdateIdentityInput,
+  UpdateItemInput,
   UserSettings,
 } from '@/shared/types'
 
@@ -25,7 +26,7 @@ const INSERT_CLIPBOARD_CLEAR_SECONDS = 5
 export class KlarkeyController {
   private readonly keyManager = new KeyManager()
   private readonly database = createDatabase()
-  private readonly repository = new IdentityRepository(this.database.db, this.keyManager.getKey())
+  private readonly repository = new VaultRepository(this.database.db, this.keyManager.getKey())
   private readonly clipboard = new ClipboardManager()
   private readonly window: BrowserWindow
   private unlockedUntil = 0
@@ -51,20 +52,20 @@ export class KlarkeyController {
     return settings
   }
 
-  createItem(input: CreateIdentityInput) {
-    return this.repository.createIdentity(input)
+  createItem(input: CreateItemInput) {
+    return this.repository.createItem(input)
   }
 
-  getItem(identityId: string) {
-    return this.repository.getIdentityDetails(identityId)
+  getItem(itemId: string) {
+    return this.repository.getItemDetails(itemId)
   }
 
-  updateItem(input: UpdateIdentityInput) {
-    return this.repository.updateIdentity(input)
+  updateItem(input: UpdateItemInput) {
+    return this.repository.updateItem(input)
   }
 
-  deleteItem(identityId: string) {
-    return this.repository.deleteIdentity(identityId)
+  deleteItem(itemId: string) {
+    return this.repository.deleteItem(itemId)
   }
 
   parseCommand(_: IpcMainInvokeEvent, raw: string) {
@@ -93,15 +94,63 @@ export class KlarkeyController {
 
   execute(_: IpcMainInvokeEvent, actionId: string, modifier: ModifierKey): ActionExecutionResult {
     const settings = this.repository.getSettings()
+    const parseAction = () => {
+      const [kind, itemId, field] = actionId.split(':')
+      return { kind, itemId, field }
+    }
+    const getItemField = (item: ItemDetails | undefined, field: string) => {
+      if (!item) {
+        return undefined
+      }
 
-    if (actionId.startsWith('paste-username:')) {
-      const identityId = actionId.replace('paste-username:', '')
-      const username = this.repository.getUsername(identityId)
-      if (!username) {
+      if (field === 'username') {
+        return item.username || undefined
+      }
+
+      if (field === 'password') {
+        return item.password
+      }
+
+      if (field === 'fullName') {
+        return item.fullName
+      }
+
+      if (field === 'email') {
+        return item.email
+      }
+
+      if (field === 'phone') {
+        return item.phone
+      }
+
+      if (field === 'address') {
+        return item.address
+      }
+
+      if (field === 'content') {
+        return item.content || item.notes
+      }
+
+      return undefined
+    }
+
+    if (actionId.startsWith('paste:')) {
+      const { itemId, field } = parseAction()
+      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
+      const value =
+        !itemId || !field
+          ? undefined
+          : field === 'password'
+            ? this.repository.getPassword(itemId)
+            : field === 'username'
+              ? this.repository.getUsername(itemId)
+              : getItemField(item, field)
+
+      if (!value) {
         return {
           status: 'error',
-          title: 'Username missing',
-          message: 'This item does not have a username to insert.',
+          title: 'Value missing',
+          message: 'This item does not have a value to insert.',
         }
       }
 
@@ -113,13 +162,13 @@ export class KlarkeyController {
         }
       }
 
-      this.clipboard.copy(username, INSERT_CLIPBOARD_CLEAR_SECONDS)
+      this.clipboard.copy(value, INSERT_CLIPBOARD_CLEAR_SECONDS)
       this.window.hide()
       const pasted = pasteIntoWindow(this.lastExternalWindow)
       return pasted
         ? {
             status: 'success',
-            title: 'Username inserted',
+            title: 'Value inserted',
             message: 'Pasted into the last selected field.',
           }
         : {
@@ -129,39 +178,72 @@ export class KlarkeyController {
           }
     }
 
-    if (actionId.startsWith('paste-password:')) {
-      const identityId = actionId.replace('paste-password:', '')
-      const password = this.repository.getPassword(identityId)
-      if (!password) {
+    if (actionId.startsWith('copy:')) {
+      const { itemId, field } = parseAction()
+      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
+      const value =
+        !itemId || !field
+          ? undefined
+          : field === 'password'
+            ? this.repository.getPassword(itemId)
+            : field === 'otp'
+              ? this.repository.getOtp(itemId)
+              : getItemField(item, field)
+
+      if (!itemId || !field || !value) {
         return {
           status: 'error',
-          title: 'Password missing',
-          message: 'This item does not have a password to insert.',
+          title: 'Value missing',
+          message: 'The requested value could not be copied.',
         }
       }
 
-      if (!this.lastExternalWindow) {
+      this.clipboard.copy(value, settings.clearClipboardSeconds)
+      this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
+      return {
+        status: 'success',
+        title: 'Value copied',
+        message: 'Clipboard will clear automatically.',
+      }
+    }
+
+    if (actionId.startsWith('show:')) {
+      const { itemId, field } = parseAction()
+      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
+      const value =
+        !itemId || !field
+          ? undefined
+          : field === 'password'
+            ? this.repository.getPassword(itemId)
+            : field === 'otp'
+              ? this.repository.getOtp(itemId)
+              : getItemField(item, field)
+
+      if (!itemId || !field || !value) {
         return {
           status: 'error',
-          title: 'No previous field',
-          message: 'Open Klarkey from the field you want to fill.',
+          title: 'Value missing',
+          message: 'The requested value could not be revealed.',
         }
       }
 
-      this.clipboard.copy(password, INSERT_CLIPBOARD_CLEAR_SECONDS)
-      this.window.hide()
-      const pasted = pasteIntoWindow(this.lastExternalWindow)
-      return pasted
-        ? {
-            status: 'success',
-            title: 'Password inserted',
-            message: 'Pasted into the last selected field.',
-          }
-        : {
-            status: 'error',
-            title: 'Insert failed',
-            message: 'Could not focus the previous window.',
-          }
+      if (modifier === 'control') {
+        this.clipboard.copy(value, settings.clearClipboardSeconds)
+        this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
+        return {
+          status: 'success',
+          title: 'Value copied',
+          message: 'Clipboard will clear automatically.',
+        }
+      }
+
+      this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
+      return {
+        status: 'info',
+        title: field === 'otp' ? 'Current OTP' : 'Value revealed',
+        message: field === 'otp' ? 'Code refreshes every 30 seconds.' : 'Use this only when needed.',
+        secret: value,
+      }
     }
 
     const snapshot = this.repository.getSnapshot()
@@ -186,16 +268,16 @@ export class KlarkeyController {
     }
 
     switch (action.kind) {
-      case 'login': {
-        if (!action.identityId) {
+      case 'open-item': {
+        if (!action.itemId) {
           break
         }
 
         if (modifier === 'control') {
-          const password = this.repository.getPassword(action.identityId)
+          const password = this.repository.getPassword(action.itemId)
           if (password) {
             this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.identityId)
+            this.repository.remember(action.id, action.title, action.itemId)
             return {
               status: 'success',
               title: 'Password copied',
@@ -205,9 +287,9 @@ export class KlarkeyController {
         }
 
         if (modifier === 'alt') {
-          const password = this.repository.getPassword(action.identityId)
+          const password = this.repository.getPassword(action.itemId)
           if (password) {
-            this.repository.remember(action.id, action.title, action.identityId)
+            this.repository.remember(action.id, action.title, action.itemId)
             return {
               status: 'info',
               title: 'Password revealed',
@@ -217,28 +299,35 @@ export class KlarkeyController {
           }
         }
 
-        const username = this.repository.getUsername(action.identityId)
-        if (username) {
-          this.clipboard.copy(username, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.identityId)
+        const item = this.repository.getItemDetails(action.itemId)
+        const defaultValue =
+          item?.itemType === 'login'
+            ? item.username
+            : item?.itemType === 'identity'
+              ? item.fullName || item.email
+              : item?.content || item?.notes
+
+        if (defaultValue) {
+          this.clipboard.copy(defaultValue, settings.clearClipboardSeconds)
+          this.repository.remember(action.id, action.title, action.itemId)
           return {
             status: 'success',
-            title: 'Username copied',
-            message: username,
+            title: 'Value copied',
+            message: defaultValue,
           }
         }
         break
       }
 
       case 'copy-password': {
-        if (!action.identityId) {
+        if (!action.itemId) {
           break
         }
 
-        const password = this.repository.getPassword(action.identityId)
+        const password = this.repository.getPassword(action.itemId)
         if (password) {
           this.clipboard.copy(password, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.identityId)
+          this.repository.remember(action.id, action.title, action.itemId)
           return {
             status: 'success',
             title: 'Password copied',
@@ -248,16 +337,20 @@ export class KlarkeyController {
         break
       }
 
+      case 'copy-value': {
+        return this.execute(_, `copy:${action.itemId}:${action.id.endsWith(':username') ? 'username' : 'content'}`, modifier)
+      }
+
       case 'show-password': {
-        if (!action.identityId) {
+        if (!action.itemId) {
           break
         }
 
-        const password = this.repository.getPassword(action.identityId)
+        const password = this.repository.getPassword(action.itemId)
         if (password) {
           if (modifier === 'control') {
             this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.identityId)
+            this.repository.remember(action.id, action.title, action.itemId)
             return {
               status: 'success',
               title: 'Password copied',
@@ -265,7 +358,7 @@ export class KlarkeyController {
             }
           }
 
-          this.repository.remember(action.id, action.title, action.identityId)
+          this.repository.remember(action.id, action.title, action.itemId)
           return {
             status: 'info',
             title: 'Password revealed',
@@ -278,15 +371,15 @@ export class KlarkeyController {
 
       case 'show-otp':
       case 'copy-otp': {
-        if (!action.identityId) {
+        if (!action.itemId) {
           break
         }
 
-        const otp = this.repository.getOtp(action.identityId)
+        const otp = this.repository.getOtp(action.itemId)
         if (otp) {
           if (action.kind === 'copy-otp' || modifier === 'control') {
             this.clipboard.copy(otp, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.identityId)
+            this.repository.remember(action.id, action.title, action.itemId)
             return {
               status: 'success',
               title: 'Code copied',
@@ -294,7 +387,7 @@ export class KlarkeyController {
             }
           }
 
-          this.repository.remember(action.id, action.title, action.identityId)
+          this.repository.remember(action.id, action.title, action.itemId)
           return {
             status: 'info',
             title: 'Current OTP',
@@ -305,17 +398,27 @@ export class KlarkeyController {
         break
       }
 
-      case 'create-login': {
-        const itemName = action.title.replace(/^Create\s+/i, '').trim()
-        const result = this.repository.createIdentity({ itemName })
+      case 'create-item': {
+        const itemType = action.itemType
+
+        if (!itemType || itemType === 'ssh-key') {
+          return {
+            status: 'info',
+            title: 'Coming soon',
+            message: 'That item type is not available yet.',
+          }
+        }
+
+        const itemName = action.subtitle.trim() || action.title.replace(/^Create\s+/i, '').trim()
+        const result = this.repository.createItem({ itemType, itemName })
         this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
         return result
       }
 
       case 'generate-passkey': {
-        if (action.identityId) {
-          this.repository.markPasskey(action.identityId, action.title)
-          this.repository.remember(action.id, action.title, action.identityId)
+        if (action.itemId) {
+          this.repository.markPasskey(action.itemId, action.title)
+          this.repository.remember(action.id, action.title, action.itemId)
           return {
             status: 'success',
             title: 'Passkey placeholder added',
@@ -325,12 +428,20 @@ export class KlarkeyController {
         break
       }
 
-      case 'switch-identity': {
-        this.repository.remember(action.id, action.title, action.identityId)
+      case 'switch-item': {
+        this.repository.remember(action.id, action.title, action.itemId)
         return {
           status: 'success',
-          title: 'Identity switched',
+          title: 'Item switched',
           message: 'This item is now the most recent one used.',
+        }
+      }
+
+      case 'coming-soon': {
+        return {
+          status: 'info',
+          title: 'Coming soon',
+          message: 'That item type is reserved for a future adapter.',
         }
       }
 

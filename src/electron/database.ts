@@ -17,6 +17,14 @@ function hasColumn(db: Database.Database, tableName: string, columnName: string)
   return columns.some((column) => column.name === columnName)
 }
 
+function ensureColumn(db: Database.Database, tableName: string, columnName: string, definition: string) {
+  if (hasColumn(db, tableName, columnName)) {
+    return
+  }
+
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
+}
+
 function resetLegacySchema(db: Database.Database) {
   const hasIdentitiesTable = Boolean(
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identities'").get(),
@@ -47,12 +55,14 @@ export function createDatabase(): DatabaseHandle {
   db.exec(`
     CREATE TABLE IF NOT EXISTS identities (
       id TEXT PRIMARY KEY,
+      itemType TEXT NOT NULL DEFAULT 'login',
       itemName TEXT NOT NULL,
       username TEXT NOT NULL,
       email TEXT,
       websites TEXT,
       notes TEXT,
       customFields TEXT,
+      itemData TEXT,
       passwordPayload TEXT,
       otpPayload TEXT,
       hasPasskey INTEGER NOT NULL DEFAULT 0,
@@ -63,16 +73,16 @@ export function createDatabase(): DatabaseHandle {
 
     CREATE TABLE IF NOT EXISTS passkeys (
       id TEXT PRIMARY KEY,
-      identityId TEXT NOT NULL,
+      itemId TEXT NOT NULL,
       label TEXT NOT NULL,
       createdAt TEXT NOT NULL,
-      FOREIGN KEY(identityId) REFERENCES identities(id) ON DELETE CASCADE
+      FOREIGN KEY(itemId) REFERENCES identities(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS recent_actions (
       id TEXT PRIMARY KEY,
       actionId TEXT NOT NULL,
-      identityId TEXT,
+      itemId TEXT,
       label TEXT NOT NULL,
       usedAt TEXT NOT NULL
     );
@@ -82,6 +92,19 @@ export function createDatabase(): DatabaseHandle {
       value TEXT NOT NULL
     );
   `)
+
+  ensureColumn(db, 'identities', 'itemType', "TEXT NOT NULL DEFAULT 'login'")
+  ensureColumn(db, 'identities', 'itemData', 'TEXT')
+
+  if (hasColumn(db, 'recent_actions', 'identityId') && !hasColumn(db, 'recent_actions', 'itemId')) {
+    ensureColumn(db, 'recent_actions', 'itemId', 'TEXT')
+    db.exec('UPDATE recent_actions SET itemId = identityId WHERE itemId IS NULL')
+  }
+
+  if (hasColumn(db, 'passkeys', 'identityId') && !hasColumn(db, 'passkeys', 'itemId')) {
+    ensureColumn(db, 'passkeys', 'itemId', 'TEXT')
+    db.exec('UPDATE passkeys SET itemId = identityId WHERE itemId IS NULL')
+  }
 
   return {
     db,

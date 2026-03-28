@@ -163,10 +163,10 @@ const bindIpc = () => {
   ipcMain.handle(IPC_CHANNELS.actionExecute, (event, actionId, modifier) =>
     controllerRef?.execute(event, actionId, modifier),
   )
-  ipcMain.handle(IPC_CHANNELS.itemGet, (_, identityId) => controllerRef?.getItem(identityId))
+  ipcMain.handle(IPC_CHANNELS.itemGet, (_, itemId) => controllerRef?.getItem(itemId))
   ipcMain.handle(IPC_CHANNELS.itemCreate, (_, input) => controllerRef?.createItem(input))
   ipcMain.handle(IPC_CHANNELS.itemUpdate, (_, input) => controllerRef?.updateItem(input))
-  ipcMain.handle(IPC_CHANNELS.itemDelete, (_, identityId) => controllerRef?.deleteItem(identityId))
+  ipcMain.handle(IPC_CHANNELS.itemDelete, (_, itemId) => controllerRef?.deleteItem(itemId))
   ipcMain.handle(IPC_CHANNELS.vaultUnlock, () => controllerRef?.unlock())
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => controllerRef?.getSettings())
   ipcMain.handle(IPC_CHANNELS.settingsSet, (_, update) => {

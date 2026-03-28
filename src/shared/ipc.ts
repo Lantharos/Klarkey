@@ -4,8 +4,8 @@ import type {
   ItemDetails,
   ModifierKey,
   SearchResponse,
-  UpdateIdentityInput,
-  CreateIdentityInput,
+  UpdateItemInput,
+  CreateItemInput,
   SettingsUpdate,
   UserSettings,
 } from '@/shared/types'
@@ -25,10 +25,10 @@ export interface KlarkeyApi {
     execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>
   }
   item: {
-    get: (identityId: string) => Promise<ItemDetails | undefined>
-    create: (input: CreateIdentityInput) => Promise<ActionExecutionResult>
-    update: (input: UpdateIdentityInput) => Promise<ActionExecutionResult>
-    delete: (identityId: string) => Promise<ActionExecutionResult>
+    get: (itemId: string) => Promise<ItemDetails | undefined>
+    create: (input: CreateItemInput) => Promise<ActionExecutionResult>
+    update: (input: UpdateItemInput) => Promise<ActionExecutionResult>
+    delete: (itemId: string) => Promise<ActionExecutionResult>
   }
   vault: {
     unlock: () => Promise<ActionExecutionResult>

@@ -14,11 +14,11 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 ## What ships in this MVP
 
 - Global `Alt+S` shortcut with a centered overlay window
-- Tokenized command parsing for queries like `twitter`, `create stripe`, and `insert password netflix alice`
+- Tokenized command parsing for queries like `twitter`, `new login netflix`, `new identity personal`, `new note ideas`, and `insert password netflix alice`
 - Ranked action results with keyboard navigation
 - Local encrypted item storage
 - Item detail actions for insert, copy, reveal, edit, and delete
-- Create and edit flows for usernames, passwords, websites, notes, and custom fields
+- Create and edit flows for login, identity, and note items with item-type-specific fields
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
 
