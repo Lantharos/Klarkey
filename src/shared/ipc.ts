@@ -3,6 +3,7 @@ import type {
   CommandQuery,
   ItemDetails,
   ModifierKey,
+  SearchRequest,
   SearchResponse,
   UpdateItemInput,
   CreateItemInput,
@@ -19,7 +20,7 @@ export interface KlarkeyApi {
     parse: (raw: string) => Promise<CommandQuery>
   }
   search: {
-    resolve: (query: CommandQuery) => Promise<SearchResponse>
+    resolve: (request: SearchRequest) => Promise<SearchResponse>
   }
   action: {
     execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>

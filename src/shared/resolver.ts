@@ -1,7 +1,9 @@
 import { AVAILABLE_ITEM_TYPES, getItemTypeDefinition } from '@/shared/item-types'
 import { normalizeLoginLogoDomain } from '@/shared/login-logo'
-import type { ItemProfile, RecentAction, ResolvedAction, VaultSnapshot } from '@/shared/types'
+import type { ItemProfile, RecentAction, ResolvedAction, SearchResponse, VaultSnapshot } from '@/shared/types'
 import { parseCommand } from '@/shared/command'
+
+const defaultSearchLimit = 20
 
 const includes = (haystack: string | undefined, needle: string) =>
   (haystack ?? '').toLowerCase().includes(needle.toLowerCase())
@@ -87,7 +89,22 @@ const createTypeActions = (literalName: string) =>
     }
   })
 
-export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')): ResolvedAction[] {
+const pageActions = (actions: ResolvedAction[], offset = 0, limit = defaultSearchLimit): SearchResponse => {
+  const nextOffset = Math.max(0, offset) + Math.max(1, limit)
+  const pagedActions = actions.slice(Math.max(0, offset), nextOffset)
+
+  return {
+    actions: pagedActions,
+    locked: false,
+    hasMore: nextOffset < actions.length,
+    nextOffset: nextOffset < actions.length ? nextOffset : actions.length,
+  }
+}
+
+function buildResolvedActions(
+  snapshot: VaultSnapshot,
+  query = parseCommand(''),
+): ResolvedAction[] {
   const settingsAction: ResolvedAction = {
     id: 'settings',
     kind: 'open-settings',
@@ -165,7 +182,13 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
     }))
 
     return [
-      ...recentActions.sort((left, right) => right.score - left.score).slice(0, 5),
+      ...recentActions.sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        return left.title.localeCompare(right.title)
+      }),
       settingsAction,
     ]
   }
@@ -319,5 +342,32 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
     return [settingsAction]
   }
 
-  return [...actions.sort((left, right) => right.score - left.score).slice(0, 8), settingsAction]
+  return [
+    ...actions.sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+
+      return left.title.localeCompare(right.title)
+    }),
+    settingsAction,
+  ]
+}
+
+export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')) {
+  return buildResolvedActions(snapshot, query)
+}
+
+export function resolveSearchResponse(
+  snapshot: VaultSnapshot,
+  query = parseCommand(''),
+  options?: {
+    offset?: number
+    limit?: number
+    locked?: boolean
+  },
+): SearchResponse {
+  const response = pageActions(buildResolvedActions(snapshot, query), options?.offset ?? 0, options?.limit ?? defaultSearchLimit)
+  response.locked = options?.locked ?? false
+  return response
 }

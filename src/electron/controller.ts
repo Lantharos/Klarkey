@@ -7,13 +7,14 @@ import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
 import { captureForegroundWindow, captureForegroundWindowAsync, pasteIntoWindow } from '@/electron/windows'
 import { parseCommand } from '@/shared/command'
-import { resolveActions } from '@/shared/resolver'
+import { resolveActions, resolveSearchResponse } from '@/shared/resolver'
 import type {
   ActionExecutionResult,
   CommandQuery,
   CreateItemInput,
   ItemDetails,
   ModifierKey,
+  ResolvedAction,
   SearchResponse,
   SettingsUpdate,
   UpdateItemInput,
@@ -31,7 +32,7 @@ export class KlarkeyController {
   private readonly window: BrowserWindow
   private unlockedUntil = 0
   private lastExternalWindow?: string
-  private actionCache = new Map<string, ReturnType<typeof resolveActions>[number]>()
+  private actionCache = new Map<string, ResolvedAction>()
 
   constructor(window: BrowserWindow) {
     this.window = window
@@ -72,13 +73,24 @@ export class KlarkeyController {
     return parseCommand(raw)
   }
 
-  resolve(_: IpcMainInvokeEvent, query: CommandQuery): SearchResponse {
+  resolve(_: IpcMainInvokeEvent, request: { query: CommandQuery; offset?: number; limit?: number }): SearchResponse {
     const snapshot = this.repository.getSnapshot()
-    const actions = resolveActions(snapshot, query)
-    this.actionCache = new Map(actions.map((action) => [action.id, action]))
+    const response = resolveSearchResponse(snapshot, request.query, {
+      offset: request.offset,
+      limit: request.limit,
+      locked: this.isLocked(),
+    })
+
+    if ((request.offset ?? 0) === 0) {
+      this.actionCache.clear()
+    }
+
+    for (const action of response.actions) {
+      this.actionCache.set(action.id, action)
+    }
 
     return {
-      actions,
+      ...response,
       locked: this.isLocked(),
     }
   }

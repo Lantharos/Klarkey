@@ -11,7 +11,7 @@ const api: KlarkeyApi = {
     parse: (raw) => ipcRenderer.invoke(IPC_CHANNELS.commandParse, raw),
   },
   search: {
-    resolve: (query) => ipcRenderer.invoke(IPC_CHANNELS.searchResolve, query),
+    resolve: (request) => ipcRenderer.invoke(IPC_CHANNELS.searchResolve, request),
   },
   action: {
     execute: (actionId, modifier) => ipcRenderer.invoke(IPC_CHANNELS.actionExecute, actionId, modifier),

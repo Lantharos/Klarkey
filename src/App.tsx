@@ -54,6 +54,8 @@ function App() {
   const detailAction = usePaletteStore((state) => state.detailAction)
   const execution = usePaletteStore((state) => state.execution)
   const settings = usePaletteStore((state) => state.settings)
+  const hasMoreResults = usePaletteStore((state) => state.hasMoreResults)
+  const isLoadingMore = usePaletteStore((state) => state.isLoadingMore)
   const boot = usePaletteStore((state) => state.boot)
   const primeHome = usePaletteStore((state) => state.primeHome)
   const resetToHome = usePaletteStore((state) => state.resetToHome)
@@ -65,6 +67,7 @@ function App() {
   const executeAction = usePaletteStore((state) => state.executeAction)
   const setSelectedIndex = usePaletteStore((state) => state.setSelectedIndex)
   const updateSettings = usePaletteStore((state) => state.updateSettings)
+  const loadMoreActions = usePaletteStore((state) => state.loadMoreActions)
   const goBackOrClose = usePaletteStore((state) => state.goBackOrClose)
   const openEditForm = usePaletteStore((state) => state.openEditForm)
   const submitCreateForm = usePaletteStore((state) => state.submitCreateForm)
@@ -398,7 +401,17 @@ function App() {
           ) : (
             <>
               <div className="px-5 py-3 text-[13px] text-white/34">{query.raw ? 'Results' : 'Suggestions'}</div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+              <div
+                className="min-h-0 flex-1 overflow-y-auto px-3 pb-3"
+                onScroll={(event) => {
+                  const target = event.currentTarget
+                  const remaining = target.scrollHeight - target.scrollTop - target.clientHeight
+
+                  if (remaining < 96) {
+                    void loadMoreActions()
+                  }
+                }}
+              >
                 <div className="space-y-1">
                   {actions.map((action, index) => (
                     <ResultRow
@@ -409,6 +422,8 @@ function App() {
                       onHover={() => setSelectedIndex(index)}
                     />
                   ))}
+                  {isLoadingMore ? <div className="px-3 py-3 text-[13px] text-white/34">Loading more…</div> : null}
+                  {!isLoadingMore && hasMoreResults ? <div className="px-3 py-3 text-[13px] text-white/24">Scroll for more</div> : null}
                 </div>
               </div>
               <div className="h-px bg-white/8" />

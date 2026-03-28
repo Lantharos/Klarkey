@@ -122,9 +122,17 @@ export interface ActionExecutionResult {
   itemId?: string
 }
 
+export interface SearchRequest {
+  query: CommandQuery
+  offset?: number
+  limit?: number
+}
+
 export interface SearchResponse {
   actions: ResolvedAction[]
   locked: boolean
+  hasMore: boolean
+  nextOffset: number
 }
 
 export interface UserSettings {
