@@ -118,6 +118,7 @@ function App() {
   const [formSeed, setFormSeed] = useState<Partial<ItemDetails>>({})
   const [pointerActive, setPointerActive] = useState(false)
   const [isPreparingOpen, setIsPreparingOpen] = useState(false)
+  const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false)
   const selection = actions[selectedIndex]
   const detailActions = useMemo(() => detailActionsFor(detailAction?.identityId), [detailAction?.identityId])
   const selectedDetailAction = detailActions[selectedIndex]
@@ -134,6 +135,7 @@ function App() {
     [detailAction?.title, query.identityQuery, query.serviceQuery],
   )
   const footerMessage = execution?.secret ?? execution?.message
+  const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
 
   useEffect(() => {
     void boot()
@@ -147,6 +149,7 @@ function App() {
     return window.klarkey.onPrepareOpen(() => {
       setPointerActive(false)
       setIsPreparingOpen(true)
+      setPendingDeleteConfirm(false)
       primeHome()
       void resetToHome().finally(() => {
         setIsPreparingOpen(false)
@@ -194,6 +197,10 @@ function App() {
 
       if (event.key === 'Escape') {
         event.preventDefault()
+        if (deleteConfirmActive) {
+          setPendingDeleteConfirm(false)
+          return
+        }
         void goBackOrClose()
         return
       }
@@ -214,12 +221,14 @@ function App() {
 
       if (event.key === 'ArrowDown') {
         event.preventDefault()
+        setPendingDeleteConfirm(false)
         setSelectedIndex((selectedIndex + 1 + detailActions.length) % detailActions.length)
         return
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault()
+        setPendingDeleteConfirm(false)
         setSelectedIndex((selectedIndex - 1 + detailActions.length) % detailActions.length)
         return
       }
@@ -236,6 +245,12 @@ function App() {
       }
 
       if (selectedDetailAction.id === 'delete-item') {
+        if (!pendingDeleteConfirm) {
+          setPendingDeleteConfirm(true)
+          return
+        }
+
+        setPendingDeleteConfirm(false)
         void deleteCurrentItem()
         return
       }
@@ -259,12 +274,14 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
     deleteCurrentItem,
+    deleteConfirmActive,
     detailAction,
     detailActions.length,
     executeAction,
     goBackOrClose,
     openEditForm,
     page,
+    pendingDeleteConfirm,
     selectedDetailAction,
     selectedIndex,
     setSelectedIndex,
@@ -368,7 +385,10 @@ function App() {
                   action={action}
                   pointerActive={pointerActive}
                   selected={index === selectedIndex}
-                  onHover={() => setSelectedIndex(index)}
+                  onHover={() => {
+                    setPendingDeleteConfirm(false)
+                    setSelectedIndex(index)
+                  }}
                 />
               ))}
             </div>
@@ -376,7 +396,15 @@ function App() {
           <div className="h-px bg-white/8" />
           <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
-              {footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'}
+              {deleteConfirmActive ? (
+                <span className="inline-flex items-center gap-2 text-red-200/86">
+                  <span>Are you sure? Click</span>
+                  <ReturnHint />
+                  <span>to confirm</span>
+                </span>
+              ) : (
+                footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'
+              )}
             </span>
             <div className="flex items-center gap-2">
               <KeyHint>Esc</KeyHint>
