@@ -11,5 +11,6 @@ export const IPC_CHANNELS = {
   vaultUnlock: 'vault.unlock',
   settingsGet: 'settings.get',
   settingsSet: 'settings.set',
+  palettePrepare: 'palette.prepare',
   paletteFocus: 'palette.focus',
 } as const

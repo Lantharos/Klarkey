@@ -115,10 +115,12 @@ export function ResultRow({
   action,
   selected,
   onHover,
+  pointerActive = true,
 }: {
   action: ResolvedAction
   selected: boolean
   onHover: () => void
+  pointerActive?: boolean
 }) {
   const ref = useRef<HTMLButtonElement>(null)
 
@@ -132,11 +134,16 @@ export function ResultRow({
     <button
       ref={ref}
       type="button"
-      onMouseEnter={onHover}
+      onMouseEnter={() => {
+        if (pointerActive) {
+          onHover()
+        }
+      }}
       onFocus={onHover}
       className={clsx(
         'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition',
-        selected ? 'bg-white/10 text-white' : 'text-white/74 hover:bg-white/5',
+        selected ? 'bg-white/10 text-white' : 'text-white/74',
+        pointerActive ? 'hover:bg-white/5' : '',
       )}
     >
       <RowIcon action={action} />
@@ -158,10 +165,12 @@ export function DetailRow({
   action,
   selected,
   onHover,
+  pointerActive = true,
 }: {
   action: DetailAction
   selected: boolean
   onHover: () => void
+  pointerActive?: boolean
 }) {
   const Icon = action.icon
   const ref = useRef<HTMLButtonElement>(null)
@@ -177,7 +186,11 @@ export function DetailRow({
       ref={ref}
       type="button"
       disabled={action.disabled}
-      onMouseEnter={onHover}
+      onMouseEnter={() => {
+        if (pointerActive) {
+          onHover()
+        }
+      }}
       onFocus={onHover}
       className={clsx(
         'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition',
@@ -190,10 +203,13 @@ export function DetailRow({
                 ? 'bg-emerald-500/12 text-white'
               : 'bg-white/10 text-white'
             : action.tone === 'danger'
-              ? 'text-red-200/82 hover:bg-red-500/8'
+              ? 'text-red-200/82'
               : action.tone === 'success'
-                ? 'text-emerald-200/84 hover:bg-emerald-500/8'
-              : 'text-white/74 hover:bg-white/5',
+                ? 'text-emerald-200/84'
+              : 'text-white/74',
+        !selected && pointerActive && action.tone === 'danger' ? 'hover:bg-red-500/8' : '',
+        !selected && pointerActive && action.tone === 'success' ? 'hover:bg-emerald-500/8' : '',
+        !selected && pointerActive && action.tone === 'default' ? 'hover:bg-white/5' : '',
       )}
     >
       <div
@@ -222,13 +238,20 @@ function SettingRow({
   label,
   value,
   onClick,
+  pointerActive = true,
 }: {
   label: string
   value: string
   onClick?: () => void
+  pointerActive?: boolean
 }) {
   const content = (
-    <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition hover:bg-white/5">
+    <div
+      className={clsx(
+        'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition',
+        pointerActive ? 'hover:bg-white/5' : '',
+      )}
+    >
       <div className="text-[15px] text-white">{label}</div>
       <div className="text-[14px] text-white/42">{value}</div>
     </div>
@@ -250,29 +273,34 @@ export function SettingsPage({
   onToggleDemo,
   onToggleStartup,
   onTimeoutChange,
+  pointerActive = true,
 }: {
   settings: UserSettings
   onToggleDemo: () => void
   onToggleStartup: () => void
   onTimeoutChange: (seconds: number) => void
+  pointerActive?: boolean
 }) {
   return (
     <div className="space-y-1 px-2 py-3">
-      <SettingRow label="Shortcut" value={settings.hotkey} />
+      <SettingRow label="Shortcut" value={settings.hotkey} pointerActive={pointerActive} />
       <SettingRow
         label="Clipboard clear"
         value={`${settings.clearClipboardSeconds}s`}
         onClick={() => onTimeoutChange(settings.clearClipboardSeconds === 45 ? 60 : 45)}
+        pointerActive={pointerActive}
       />
       <SettingRow
         label="Launch on startup"
         value={settings.launchOnStartup ? 'On' : 'Off'}
         onClick={onToggleStartup}
+        pointerActive={pointerActive}
       />
       <SettingRow
         label="Demo data"
         value={settings.demoDataEnabled ? 'On' : 'Off'}
         onClick={onToggleDemo}
+        pointerActive={pointerActive}
       />
     </div>
   )

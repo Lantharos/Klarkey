@@ -40,6 +40,7 @@ const fallbackApi: KlarkeyApi = {
     get: async () => DEFAULT_SETTINGS,
     set: async () => DEFAULT_SETTINGS,
   },
+  onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
 }
 
@@ -58,6 +59,7 @@ interface PaletteState {
   formMode?: 'create' | 'edit'
   settings?: UserSettings
   boot: () => Promise<void>
+  primeHome: () => void
   resetToHome: () => Promise<void>
   refresh: (raw: string) => Promise<void>
   setTrailingText: (value: string) => Promise<void>
@@ -120,7 +122,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       set({ bootError: message, isLoadingResults: false })
     }
   },
-  async resetToHome() {
+  primeHome() {
     set({
       page: 'home',
       query: defaultQuery,
@@ -131,6 +133,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       execution: undefined,
       isLoadingResults: true,
     })
+  },
+  async resetToHome() {
+    get().primeHome()
     try {
       const response = await api.search.resolve(defaultQuery)
       set({ actions: response.actions, isLoadingResults: false })

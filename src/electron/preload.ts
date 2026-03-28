@@ -29,6 +29,11 @@ const api: KlarkeyApi = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
     set: (update) => ipcRenderer.invoke(IPC_CHANNELS.settingsSet, update),
   },
+  onPrepareOpen: (callback) => {
+    const listener = () => callback()
+    ipcRenderer.on(IPC_CHANNELS.palettePrepare, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.palettePrepare, listener)
+  },
   onFocusRequest: (callback) => {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.paletteFocus, listener)

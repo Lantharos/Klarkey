@@ -37,5 +37,6 @@ export interface KlarkeyApi {
     get: () => Promise<UserSettings>
     set: (update: SettingsUpdate) => Promise<UserSettings>
   }
+  onPrepareOpen: (callback: () => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
 }

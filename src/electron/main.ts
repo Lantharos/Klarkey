@@ -113,13 +113,17 @@ const openPalette = () => {
 
   windowRef.setPosition(x, y, false)
   windowRef.moveTop()
-  windowRef.showInactive()
+  windowRef.webContents.send(IPC_CHANNELS.palettePrepare)
 
-  void controllerRef.rememberExternalWindowAsync().finally(() => {
-    windowRef?.focus()
-    windowRef?.webContents.focus()
-    controllerRef?.focus()
-  })
+  setTimeout(() => {
+    windowRef?.showInactive()
+
+    void controllerRef?.rememberExternalWindowAsync().finally(() => {
+      windowRef?.focus()
+      windowRef?.webContents.focus()
+      controllerRef?.focus()
+    })
+  }, 16)
 }
 
 const closePalette = () => {

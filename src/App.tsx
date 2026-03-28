@@ -99,6 +99,7 @@ function App() {
   const execution = usePaletteStore((state) => state.execution)
   const settings = usePaletteStore((state) => state.settings)
   const boot = usePaletteStore((state) => state.boot)
+  const primeHome = usePaletteStore((state) => state.primeHome)
   const resetToHome = usePaletteStore((state) => state.resetToHome)
   const focusInput = usePaletteStore((state) => state.focusInput)
   const setTrailingText = usePaletteStore((state) => state.setTrailingText)
@@ -115,6 +116,8 @@ function App() {
   const deleteCurrentItem = usePaletteStore((state) => state.deleteCurrentItem)
 
   const [formSeed, setFormSeed] = useState<Partial<ItemDetails>>({})
+  const [pointerActive, setPointerActive] = useState(false)
+  const [isPreparingOpen, setIsPreparingOpen] = useState(false)
   const selection = actions[selectedIndex]
   const detailActions = useMemo(() => detailActionsFor(detailAction?.identityId), [detailAction?.identityId])
   const selectedDetailAction = detailActions[selectedIndex]
@@ -141,11 +144,25 @@ function App() {
       return undefined
     }
 
+    return window.klarkey.onPrepareOpen(() => {
+      setPointerActive(false)
+      setIsPreparingOpen(true)
+      primeHome()
+      void resetToHome().finally(() => {
+        setIsPreparingOpen(false)
+      })
+    })
+  }, [primeHome, resetToHome])
+
+  useEffect(() => {
+    if (!window.klarkey) {
+      return undefined
+    }
+
     return window.klarkey.onFocusRequest(() => {
-      void resetToHome()
       focusInput()
     })
-  }, [focusInput, resetToHome])
+  }, [focusInput])
 
   useEffect(() => {
     if (page === 'home') {
@@ -264,7 +281,20 @@ function App() {
   }
 
   return (
-    <div className="relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+    <div
+      className="relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]"
+      onMouseMove={() => {
+        if (!pointerActive) {
+          setPointerActive(true)
+        }
+      }}
+    >
+      {isPreparingOpen ? (
+        <div className="flex h-full min-h-full items-center justify-center px-6 py-5 text-[15px] text-white/42">
+          Loading...
+        </div>
+      ) : (
+        <>
       <div className="flex items-center gap-4 px-5 pb-3 pt-4">
         {page === 'home' ? (
           <SearchBar
@@ -314,6 +344,7 @@ function App() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           <SettingsPage
             settings={settings ?? DEFAULT_SETTINGS}
+            pointerActive={pointerActive}
             onToggleDemo={() =>
               void updateSettings({
                 demoDataEnabled: !(settings ?? DEFAULT_SETTINGS).demoDataEnabled,
@@ -335,6 +366,7 @@ function App() {
                 <DetailRow
                   key={action.id}
                   action={action}
+                  pointerActive={pointerActive}
                   selected={index === selectedIndex}
                   onHover={() => setSelectedIndex(index)}
                 />
@@ -400,6 +432,7 @@ function App() {
                   <ResultRow
                     key={action.id}
                     action={action}
+                    pointerActive={pointerActive}
                     selected={index === selectedIndex}
                     onHover={() => setSelectedIndex(index)}
                   />
@@ -417,6 +450,8 @@ function App() {
               <ReturnHint />
             </div>
           </div>
+        </>
+      )}
         </>
       )}
     </div>
