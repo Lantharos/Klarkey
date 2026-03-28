@@ -67,9 +67,13 @@ export function KeyHint({ children }: { children: string }) {
   return <span className="rounded-[7px] bg-white/6 px-2 py-1 text-[12px] text-white/50">{children}</span>
 }
 
-export function ReturnHint() {
+export function ShortcutHint({ children }: { children: React.ReactNode }) {
+  return <span className="inline-flex items-center gap-1 rounded-[7px] bg-white/6 px-2 py-1 text-[12px] text-white/50">{children}</span>
+}
+
+export function ReturnHint({ embedded = false }: { embedded?: boolean }) {
   return (
-    <span className="flex items-center justify-center rounded-[7px] bg-white/6 px-2 py-1 text-white/50">
+    <span className={embedded ? 'flex items-center justify-center text-white/50' : 'flex items-center justify-center rounded-[7px] bg-white/6 px-2 py-1 text-white/50'}>
       <CornerDownLeft size={12} strokeWidth={2.2} />
     </span>
   )

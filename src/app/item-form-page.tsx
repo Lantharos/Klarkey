@@ -1,6 +1,6 @@
 import { Globe } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { KeyHint, ReturnHint } from '@/app/palette-ui'
+import { KeyHint, ReturnHint, ShortcutHint } from '@/app/palette-ui'
 import type { ItemFormValues } from '@/app/palette-types'
 import type { ActionExecutionResult } from '@/shared/types'
 
@@ -446,10 +446,11 @@ export function ItemFormPage({
         <div className="flex items-center gap-2">
           <KeyHint>Esc</KeyHint>
           {mode === 'create' ? (
-            <>
-              <KeyHint>Ctrl</KeyHint>
-              <ReturnHint />
-            </>
+            <ShortcutHint>
+              <span>Ctrl</span>
+              <span>+</span>
+              <ReturnHint embedded />
+            </ShortcutHint>
           ) : null}
         </div>
       </div>

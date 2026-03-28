@@ -361,7 +361,6 @@ function App() {
                 </span>
                 <div className="flex items-center gap-2">
                   <KeyHint>Esc</KeyHint>
-                  <ReturnHint />
                 </div>
               </div>
             </>
@@ -433,7 +432,6 @@ function App() {
                 </span>
                 <div className="flex items-center gap-2">
                   <KeyHint>Esc</KeyHint>
-                  <ReturnHint />
                 </div>
               </div>
             </>
