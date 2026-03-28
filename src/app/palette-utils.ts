@@ -35,12 +35,16 @@ export function actionKindLabel(action: ResolvedAction) {
   }
 }
 
-export function createFormValues(itemType: CreatableItemType, seed?: Partial<ItemDetails>): ItemFormValues {
+export function createFormValues(
+  itemType: CreatableItemType,
+  seed?: Partial<Omit<ItemDetails, 'otp'>> & { otp?: ItemDetails['otp'] | string },
+): ItemFormValues {
   return {
     itemType,
     itemName: seed?.itemName ?? '',
     username: seed?.username ?? '',
     password: seed?.password ?? '',
+    otp: typeof seed?.otp === 'string' ? seed.otp : seed?.otp?.secret ?? '',
     fullName: seed?.fullName ?? '',
     email: seed?.email ?? '',
     phone: seed?.phone ?? '',

@@ -154,6 +154,8 @@ export class KlarkeyController {
           ? undefined
           : field === 'password'
             ? this.repository.getPassword(itemId)
+            : field === 'otp'
+              ? this.repository.getOtp(itemId)
             : field === 'username'
               ? this.repository.getUsername(itemId)
               : getItemField(item, field)

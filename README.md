@@ -19,6 +19,7 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Local encrypted item storage
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for login, identity, and note items with item-type-specific fields
+- Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
 

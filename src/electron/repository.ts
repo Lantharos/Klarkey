@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import * as OTPAuth from 'otpauth'
 import type Database from 'better-sqlite3'
 import { decryptValue, encryptValue, type EncryptedPayload } from '@/electron/crypto'
 import type { CreatableItemType } from '@/shared/item-types'
+import { getTotpCode, parseStoredTotp, parseTotpInput } from '@/shared/totp'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
@@ -30,6 +30,22 @@ const tryDecrypt = (key: Buffer, payload?: string) => {
     return undefined
   }
 }
+
+const getOtpFallback = ({
+  itemName,
+  username,
+  existing,
+}: {
+  itemName: string
+  username: string
+  existing?: ItemDetails['otp']
+}) => ({
+  issuer: existing?.issuer ?? itemName,
+  accountName: existing?.accountName ?? username ?? itemName,
+  digits: existing?.digits,
+  period: existing?.period,
+  algorithm: existing?.algorithm,
+})
 
 const parseJson = <Value>(payload: string | undefined, fallback: Value) => {
   if (!payload) {
@@ -168,7 +184,13 @@ export class VaultRepository {
       itemType === 'login' ? input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}` : ''
     const password =
       itemType === 'login' ? input.password?.trim() || randomBytes(12).toString('base64url') : undefined
-    const otp = itemType === 'login' ? new OTPAuth.Secret({ size: 20 }).base32 : undefined
+    const otp =
+      itemType === 'login'
+        ? parseTotpInput(input.otp, {
+            issuer: itemName,
+            accountName: username || itemName,
+          })
+        : undefined
     const timestamp = now()
     const itemId = id('item')
 
@@ -191,7 +213,7 @@ export class VaultRepository {
         JSON.stringify(input.customFields ?? []),
         JSON.stringify(sanitizeItemData(itemType, input)),
         password ? JSON.stringify(encryptValue(this.key, password)) : null,
-        otp ? JSON.stringify(encryptValue(this.key, otp)) : null,
+        otp ? JSON.stringify(encryptValue(this.key, JSON.stringify(otp))) : null,
         0,
         timestamp,
         timestamp,
@@ -220,6 +242,7 @@ export class VaultRepository {
           customFields?: string
           itemData?: string
           passwordPayload?: string
+          otpPayload?: string
         }
       | undefined
 
@@ -238,12 +261,36 @@ export class VaultRepository {
       input.password === undefined
         ? current.passwordPayload
         : JSON.stringify(encryptValue(this.key, input.password.trim()))
+    const currentOtp = parseStoredTotp(tryDecrypt(this.key, current.otpPayload), {
+      issuer: itemName,
+      accountName: username || itemName,
+    })
+    const otp =
+      input.otp === undefined
+        ? current.otpPayload
+        : input.otp.trim()
+          ? JSON.stringify(
+              encryptValue(
+                this.key,
+                JSON.stringify(
+                  parseTotpInput(
+                    input.otp,
+                    getOtpFallback({
+                      itemName,
+                      username,
+                      existing: currentOtp,
+                    }),
+                  ),
+                ),
+              ),
+            )
+          : null
 
     this.db
       .prepare(
         `
         UPDATE identities
-        SET itemType = ?, itemName = ?, username = ?, email = ?, websites = ?, notes = ?, customFields = ?, itemData = ?, passwordPayload = ?, updatedAt = ?
+        SET itemType = ?, itemName = ?, username = ?, email = ?, websites = ?, notes = ?, customFields = ?, itemData = ?, passwordPayload = ?, otpPayload = ?, updatedAt = ?
         WHERE id = ?
       `,
       )
@@ -260,6 +307,7 @@ export class VaultRepository {
           ...sanitizeItemData(itemType, input),
         }),
         password ?? null,
+        otp,
         now(),
         input.itemId,
       )
@@ -287,6 +335,7 @@ export class VaultRepository {
           customFields?: string
           itemData?: string
           passwordPayload?: string
+          otpPayload?: string
         }
       | undefined
 
@@ -295,6 +344,10 @@ export class VaultRepository {
     }
 
     const itemData = parseJson<ItemDataPayload>(row.itemData, {})
+    const otp = parseStoredTotp(tryDecrypt(this.key, row.otpPayload), {
+      issuer: row.itemName,
+      accountName: row.username || row.itemName,
+    })
 
     return {
       itemId: row.id,
@@ -302,6 +355,7 @@ export class VaultRepository {
       itemName: row.itemName,
       username: row.username,
       password: tryDecrypt(this.key, row.passwordPayload),
+      otp,
       fullName: itemData.fullName,
       email: row.email ?? undefined,
       phone: itemData.phone,
@@ -348,27 +402,22 @@ export class VaultRepository {
 
   getOtp(itemId: string) {
     const row = this.db
-      .prepare('SELECT otpPayload, username FROM identities WHERE id = ?')
-      .get(itemId) as { otpPayload?: string; username: string } | undefined
+      .prepare('SELECT otpPayload, itemName, username FROM identities WHERE id = ?')
+      .get(itemId) as { otpPayload?: string; itemName: string; username: string } | undefined
 
     if (!row?.otpPayload) {
       return undefined
     }
 
-    const secret = tryDecrypt(this.key, row.otpPayload)
-    if (!secret) {
+    const details = parseStoredTotp(tryDecrypt(this.key, row.otpPayload), {
+      issuer: row.itemName,
+      accountName: row.username || row.itemName,
+    })
+    if (!details) {
       return undefined
     }
 
-    const totp = new OTPAuth.TOTP({
-      secret,
-      issuer: 'Klarkey',
-      label: row.username,
-      period: 30,
-      digits: 6,
-    })
-
-    return totp.generate()
+    return getTotpCode(details).value
   }
 
   getUsername(itemId: string) {

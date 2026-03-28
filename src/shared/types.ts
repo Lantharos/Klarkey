@@ -75,12 +75,16 @@ export interface Credential {
   updatedAt: string
 }
 
-export interface OtpSecret {
-  id: string
-  itemId: string
+export type TotpAlgorithm = 'SHA1' | 'SHA256' | 'SHA512'
+
+export interface TotpDetails {
   secret: string
-  issuer: string
+  issuer?: string
   accountName: string
+  digits: number
+  period: number
+  algorithm: TotpAlgorithm
+  uri: string
 }
 
 export interface PasskeyRecord {
@@ -152,6 +156,7 @@ export interface CreateItemInput {
   itemName: string
   username?: string
   password?: string
+  otp?: string
   fullName?: string
   email?: string
   phone?: string
@@ -168,6 +173,7 @@ export interface UpdateItemInput {
   itemName?: string
   username?: string
   password?: string
+  otp?: string
   fullName?: string
   email?: string
   phone?: string
@@ -184,6 +190,7 @@ export interface ItemDetails {
   itemName: string
   username: string
   password?: string
+  otp?: TotpDetails
   fullName?: string
   email?: string
   phone?: string

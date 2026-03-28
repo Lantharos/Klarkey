@@ -3,11 +3,13 @@ import { fileURLToPath } from 'node:url'
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   globalShortcut,
   ipcMain,
   Menu,
   nativeImage,
   screen,
+  session,
   Tray,
 } from 'electron'
 import { KlarkeyController } from '@/electron/controller'
@@ -178,6 +180,21 @@ const bindIpc = () => {
 
 app.whenReady()
   .then(async () => {
+    session.defaultSession.setDisplayMediaRequestHandler(
+      async (_, callback) => {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 0, height: 0 },
+          fetchWindowIcons: false,
+        })
+
+        callback({
+          video: sources[0],
+        })
+      },
+      { useSystemPicker: true },
+    )
+
     bindIpc()
     await createWindow()
     createTray()

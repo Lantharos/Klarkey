@@ -1,12 +1,13 @@
 import { clsx } from 'clsx'
 import { ChevronLeft, CornerDownLeft, Search, Settings2, Sparkles } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { StaticItemTypeIcon } from '@/app/item-ui'
 import { LoginItemIcon } from '@/app/login-item-icon'
 import { getCreateTitle, getItemTypeAccent, getItemTypeIcon } from '@/app/item-type-meta'
 import { actionKindLabel, itemInitials } from '@/app/palette-utils'
 import type { DetailAction } from '@/app/palette-types'
 import type { ResolvedAction, UserSettings } from '@/shared/types'
+import { getTotpCode } from '@/shared/totp'
 
 function TypeIcon({ itemType }: { itemType: ResolvedAction['itemType'] }) {
   if (!itemType || !getItemTypeIcon(itemType)) {
@@ -76,6 +77,44 @@ export function ReturnHint({ embedded = false }: { embedded?: boolean }) {
     <span className={embedded ? 'flex items-center justify-center text-white/50' : 'flex items-center justify-center rounded-[7px] bg-white/6 px-2 py-1 text-white/50'}>
       <CornerDownLeft size={12} strokeWidth={2.2} />
     </span>
+  )
+}
+
+function OtpRowTimer({ otp }: { otp: NonNullable<DetailAction['otp']> }) {
+  const [now, setNow] = useState(() => Date.now())
+  const code = useMemo(() => getTotpCode(otp, now), [now, otp])
+  const warning = code.remainingSeconds <= 5
+  const size = 24
+  const stroke = 2.5
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference * code.progress
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return (
+    <div className="relative flex h-6 w-6 items-center justify-center">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={warning ? 'rgba(248, 113, 113, 0.95)' : 'rgba(255,255,255,0.72)'}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+        />
+      </svg>
+      <span className={clsx('absolute text-[10px] font-medium leading-none', warning ? 'text-red-200' : 'text-white/56')}>
+        {code.remainingSeconds}
+      </span>
+    </div>
   )
 }
 
@@ -267,7 +306,8 @@ export function DetailRow({
         <Icon size={15} />
       </div>
       <div className="truncate text-[15px] font-medium text-white">{action.title}</div>
-      <div className="flex items-center justify-end text-[13px] text-white/34">
+      <div className="flex items-center justify-end gap-3 text-[13px] text-white/34">
+        {action.otp ? <OtpRowTimer otp={action.otp} /> : null}
         {action.disabled ? 'Soon' : <ReturnHint />}
       </div>
     </button>

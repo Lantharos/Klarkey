@@ -1,4 +1,4 @@
-import type { ModifierKey } from '@/shared/types'
+import type { ModifierKey, TotpDetails } from '@/shared/types'
 import type { User } from 'lucide-react'
 import type { CreatableItemType } from '@/shared/item-types'
 
@@ -10,6 +10,7 @@ export type DetailAction = {
   modifier?: ModifierKey
   disabled?: boolean
   tone?: 'default' | 'success' | 'danger'
+  otp?: TotpDetails
 }
 
 export type ItemFormValues = {
@@ -17,6 +18,7 @@ export type ItemFormValues = {
   itemName: string
   username: string
   password: string
+  otp: string
   fullName: string
   email: string
   phone: string

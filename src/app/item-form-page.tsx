@@ -2,7 +2,8 @@ import { Globe } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { KeyHint, ReturnHint, ShortcutHint } from '@/app/palette-ui'
 import type { ItemFormValues } from '@/app/palette-types'
-import type { ActionExecutionResult } from '@/shared/types'
+import { TotpField } from '@/app/totp-field'
+import type { ActionExecutionResult, TotpDetails } from '@/shared/types'
 
 const newCustomField = () => ({
   id: `field_${Math.random().toString(16).slice(2, 8)}`,
@@ -63,12 +64,14 @@ function TextField({
 export function ItemFormPage({
   mode,
   initialValue,
+  existingOtp,
   loading,
   onAutoSave,
   onSubmit,
 }: {
   mode: 'create' | 'edit'
   initialValue: ItemFormValues
+  existingOtp?: TotpDetails
   loading: boolean
   onAutoSave?: (value: ItemFormValues) => Promise<ActionExecutionResult | undefined>
   onSubmit: (value: ItemFormValues) => void
@@ -253,6 +256,14 @@ export function ItemFormPage({
                 onChange={(password) => updateValue((current) => ({ ...current, password }))}
                 onKeyDown={onFieldKeyDown}
                 placeholder={mode === 'create' ? 'Leave blank to generate one' : 'Password'}
+              />
+            </FieldShell>
+            <FieldShell label="Authenticator">
+              <TotpField
+                value={value.otp}
+                onChange={(otp) => updateValue((current) => ({ ...current, otp }))}
+                onKeyDown={onFieldKeyDown}
+                existingOtp={existingOtp}
               />
             </FieldShell>
           </>

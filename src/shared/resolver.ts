@@ -227,6 +227,19 @@ function buildResolvedActions(
         requiresUnlock: true,
         score: baseScore + 24,
       })
+    } else if (query.intent === 'insert' && query.credential === 'otp' && item.hasOtp) {
+      actions.push({
+        id: `paste:${item.id}:otp`,
+        kind: 'copy-otp',
+        title: item.itemName,
+        subtitle: itemSubtitle(item),
+        itemId: item.id,
+        itemType: item.itemType,
+        ...getLogoMeta(item),
+        primaryHint: 'Insert the current one-time code into the last selected field.',
+        requiresUnlock: true,
+        score: baseScore + 23,
+      })
     } else if (query.intent === 'insert' && query.credential === 'username' && item.username) {
       actions.push({
         id: `paste:${item.id}:username`,
@@ -255,6 +268,19 @@ function buildResolvedActions(
         },
         requiresUnlock: true,
         score: baseScore + 22,
+      })
+    } else if (query.intent === 'copy' && query.credential === 'otp' && item.hasOtp) {
+      actions.push({
+        id: `copy:${item.id}:otp`,
+        kind: 'copy-otp',
+        title: item.itemName,
+        subtitle: itemSubtitle(item),
+        itemId: item.id,
+        itemType: item.itemType,
+        ...getLogoMeta(item),
+        primaryHint: 'Copy the current one-time code to the clipboard.',
+        requiresUnlock: true,
+        score: baseScore + 21.5,
       })
     } else if (query.intent === 'copy' && query.credential === 'password' && item.hasPassword) {
       actions.push({

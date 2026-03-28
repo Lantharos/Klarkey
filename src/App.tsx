@@ -15,7 +15,8 @@ import {
 import type { ItemFormValues } from '@/app/palette-types'
 import { createFormValues } from '@/app/palette-utils'
 import { usePaletteStore } from '@/app/usePaletteStore'
-import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type UpdateItemInput } from '@/shared/types'
+import { getTotpCode } from '@/shared/totp'
+import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type TotpDetails, type UpdateItemInput } from '@/shared/types'
 
 function cleanFormValue(value: ItemFormValues): CreateItemInput {
   return {
@@ -23,6 +24,7 @@ function cleanFormValue(value: ItemFormValues): CreateItemInput {
     itemName: value.itemName.trim() || 'New item',
     username: value.itemType === 'login' ? value.username.trim() || undefined : undefined,
     password: value.itemType === 'login' ? value.password.trim() || undefined : undefined,
+    otp: value.itemType === 'login' ? value.otp.trim() : undefined,
     fullName: value.itemType === 'identity' ? value.fullName.trim() || undefined : undefined,
     email: value.itemType === 'identity' ? value.email.trim() || undefined : undefined,
     phone: value.itemType === 'identity' ? value.phone.trim() || undefined : undefined,
@@ -41,6 +43,47 @@ function cleanFormValue(value: ItemFormValues): CreateItemInput {
             .filter((field) => field.label || field.value)
         : [],
   }
+}
+
+function FooterOtpStatus({ otp }: { otp: TotpDetails }) {
+  const [now, setNow] = useState(() => Date.now())
+  const code = useMemo(() => getTotpCode(otp, now), [now, otp])
+  const warning = code.remainingSeconds <= 5
+  const size = 20
+  const stroke = 2.25
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const offset = circumference * code.progress
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return (
+    <div className="inline-flex items-center gap-3">
+      <span className={warning ? 'font-mono text-red-200' : 'font-mono text-white/78'}>{code.value}</span>
+      <div className="relative flex h-5 w-5 items-center justify-center">
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth={stroke} />
+          <circle
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={warning ? 'rgba(248, 113, 113, 0.95)' : 'rgba(255,255,255,0.72)'}
+            strokeWidth={stroke}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+          />
+        </svg>
+        <span className={warning ? 'absolute text-[9px] font-medium leading-none text-red-200' : 'absolute text-[9px] font-medium leading-none text-white/56'}>
+          {code.remainingSeconds}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function App() {
@@ -100,6 +143,7 @@ function App() {
         '',
       username: query.identityQuery || '',
       password: '',
+      otp: '',
       fullName: '',
       email: '',
       phone: '',
@@ -113,6 +157,7 @@ function App() {
   )
   const footerMessage = execution?.secret ?? execution?.message
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
+  const footerOtp = execution?.title === 'Current OTP' ? activeDetailItem?.otp : undefined
 
   useEffect(() => {
     void boot()
@@ -348,15 +393,19 @@ function App() {
               </div>
               <div className="h-px bg-white/8" />
               <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
-                <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
+                <span className={execution?.secret ? 'inline-flex items-center gap-3' : undefined}>
                   {deleteConfirmActive ? (
                     <span className="inline-flex items-center gap-2 text-red-200/86">
                       <span>Are you sure? Click</span>
                       <ReturnHint />
                       <span>to confirm</span>
                     </span>
+                  ) : footerOtp ? (
+                    <FooterOtpStatus otp={footerOtp} />
                   ) : (
-                    footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'
+                    <>
+                      <span>{footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'}</span>
+                    </>
                   )}
                 </span>
                 <div className="flex items-center gap-2">
@@ -370,6 +419,7 @@ function App() {
               mode={formMode ?? 'create'}
               loading={formLoading}
               initialValue={createFormValues(formMode === 'edit' ? formItemType : createItemType, formMode === 'edit' ? activeDetailItem : createSeed)}
+              existingOtp={activeDetailItem?.otp}
               onAutoSave={(value) => {
                 if (formMode !== 'edit' || !detailAction?.itemId) {
                   return Promise.resolve(undefined)

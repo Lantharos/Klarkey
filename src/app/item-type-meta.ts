@@ -1,7 +1,7 @@
 import { getItemTypeDefinition, type CreatableItemType, type ItemType } from '@/shared/item-types'
 import type { DetailAction } from '@/app/palette-types'
 import type { ItemDetails } from '@/shared/types'
-import { ContactRound, FileText, KeyRound, Mail, MapPinned, Pencil, Phone, ShieldCheck, Trash2, User } from 'lucide-react'
+import { ContactRound, FileText, KeyRound, Mail, MapPinned, Pencil, Phone, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
 
 export function getItemTypeIcon(itemType: ItemType) {
   if (itemType === 'identity') {
@@ -46,9 +46,12 @@ export function buildDetailActions(item?: ItemDetails): DetailAction[] {
     return [
       { id: 'paste-username', title: 'Insert username', icon: User, actionId: `paste:${item.itemId}:username` },
       { id: 'paste-password', title: 'Insert password', icon: KeyRound, actionId: `paste:${item.itemId}:password` },
+      ...(item.otp ? [{ id: 'paste-otp', title: 'Insert one-time code', icon: TimerReset, actionId: `paste:${item.itemId}:otp`, otp: item.otp }] : []),
       { id: 'copy-username', title: 'Copy username', icon: User, actionId: `copy:${item.itemId}:username` },
       { id: 'copy-password', title: 'Copy password', icon: KeyRound, actionId: `copy:${item.itemId}:password` },
+      ...(item.otp ? [{ id: 'copy-otp', title: 'Copy one-time code', icon: TimerReset, actionId: `copy:${item.itemId}:otp`, otp: item.otp }] : []),
       { id: 'show-password', title: 'Show password', icon: ShieldCheck, actionId: `show:${item.itemId}:password` },
+      ...(item.otp ? [{ id: 'show-otp', title: 'Show one-time code', icon: TimerReset, actionId: `show:${item.itemId}:otp` }] : []),
       { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
       { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
     ]
