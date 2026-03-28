@@ -1,6 +1,6 @@
 # Klarkey
 
-Klarkey is a Windows-first Electron command palette for local identity flows. Press `Alt+S`, search by service or intent, and execute identity actions without opening a traditional vault.
+Klarkey is a Windows-first Electron command palette for local item and credential flows. Press `Alt+S`, search by item or action, and execute identity actions without opening a traditional vault.
 
 ## Stack
 
@@ -14,14 +14,13 @@ Klarkey is a Windows-first Electron command palette for local identity flows. Pr
 ## What ships in this MVP
 
 - Global `Alt+S` shortcut with a centered overlay window
-- Tokenized command parsing for queries like `github`, `new login netflix`, and `insert password netflix primary`
+- Tokenized command parsing for queries like `twitter`, `create stripe`, and `insert password netflix alice`
 - Ranked action results with keyboard navigation
-- Local encrypted service and identity storage
+- Local encrypted item storage
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for usernames, passwords, websites, notes, and custom fields
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
-- Seeded demo catalogue for local development
 
 ## Development
 

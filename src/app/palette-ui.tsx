@@ -270,13 +270,11 @@ function SettingRow({
 
 export function SettingsPage({
   settings,
-  onToggleDemo,
   onToggleStartup,
   onTimeoutChange,
   pointerActive = true,
 }: {
   settings: UserSettings
-  onToggleDemo: () => void
   onToggleStartup: () => void
   onTimeoutChange: (seconds: number) => void
   pointerActive?: boolean
@@ -294,12 +292,6 @@ export function SettingsPage({
         label="Launch on startup"
         value={settings.launchOnStartup ? 'On' : 'Off'}
         onClick={onToggleStartup}
-        pointerActive={pointerActive}
-      />
-      <SettingRow
-        label="Demo data"
-        value={settings.demoDataEnabled ? 'On' : 'Off'}
-        onClick={onToggleDemo}
         pointerActive={pointerActive}
       />
     </div>

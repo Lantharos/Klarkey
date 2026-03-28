@@ -242,7 +242,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     if (execution.status !== 'error') {
       const currentDetailAction = get().detailAction
       if (currentDetailAction?.identityId === input.identityId) {
-        const title = input.serviceName?.trim() || currentDetailAction.title
+        const title = input.itemName?.trim() || currentDetailAction.title
         const username = input.username?.trim() || ''
         const subtitle = username || currentDetailAction.subtitle
 
@@ -276,9 +276,20 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     return execution
   },
   async goBackOrClose() {
-    const { page, query } = get()
+    const { page, query, formMode } = get()
 
     if (page === 'form') {
+      if (formMode === 'create') {
+        set({
+          page: 'home',
+          selectedIndex: 0,
+          detailAction: undefined,
+          formMode: undefined,
+          execution: undefined,
+        })
+        return
+      }
+
       set({ page: 'detail', selectedIndex: 0, formMode: undefined, execution: undefined })
       return
     }

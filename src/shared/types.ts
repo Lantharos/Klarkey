@@ -11,7 +11,7 @@ export type CommandIntent =
   | 'settings'
   | 'unknown'
 
-export type CommandTokenKind = 'intent' | 'item-type' | 'service' | 'credential' | 'identity'
+export type CommandTokenKind = 'intent' | 'item-type' | 'credential' | 'identity'
 export type CredentialKind = 'username' | 'password' | 'otp' | 'passkey'
 export type ModifierKey = 'none' | 'control' | 'alt'
 export type ActionKind =
@@ -40,22 +40,14 @@ export interface CommandQuery {
   tokens: CommandToken[]
   trailingText: string
   entryType?: 'login'
-  serviceQuery?: string
+  itemQuery?: string
   identityQuery?: string
   credential?: CredentialKind
 }
 
-export interface Service {
-  id: string
-  name: string
-  aliases: string[]
-  pinned: boolean
-}
-
 export interface IdentityProfile {
   id: string
-  serviceId: string
-  label: string
+  itemName: string
   username: string
   email?: string
   websites?: string[]
@@ -87,7 +79,6 @@ export interface OtpSecret {
 export interface PasskeyRecord {
   id: string
   identityId: string
-  serviceId: string
   label: string
   createdAt: string
 }
@@ -95,15 +86,9 @@ export interface PasskeyRecord {
 export interface RecentAction {
   id: string
   actionId: string
-  serviceId?: string
   identityId?: string
   label: string
   usedAt: string
-}
-
-export interface ServiceRecord {
-  service: Service
-  identities: IdentityProfile[]
 }
 
 export interface ResolvedAction {
@@ -111,7 +96,6 @@ export interface ResolvedAction {
   kind: ActionKind
   title: string
   subtitle: string
-  serviceId?: string
   identityId?: string
   primaryHint: string
   modifiers?: Partial<Record<Exclude<ModifierKey, 'none'>, string>>
@@ -126,7 +110,6 @@ export interface ActionExecutionResult {
   secret?: string
   copied?: boolean
   identityId?: string
-  serviceId?: string
 }
 
 export interface SearchResponse {
@@ -138,19 +121,16 @@ export interface UserSettings {
   hotkey: string
   clearClipboardSeconds: number
   launchOnStartup: boolean
-  demoDataEnabled: boolean
 }
 
 export interface SettingsUpdate {
   hotkey?: string
   clearClipboardSeconds?: number
   launchOnStartup?: boolean
-  demoDataEnabled?: boolean
 }
 
 export interface CreateIdentityInput {
-  serviceName: string
-  preferredLabel?: string
+  itemName: string
   username?: string
   password?: string
   notes?: string
@@ -160,8 +140,7 @@ export interface CreateIdentityInput {
 
 export interface UpdateIdentityInput {
   identityId: string
-  serviceName?: string
-  preferredLabel?: string
+  itemName?: string
   username?: string
   password?: string
   notes?: string
@@ -171,9 +150,7 @@ export interface UpdateIdentityInput {
 
 export interface ItemDetails {
   identityId: string
-  serviceId: string
-  serviceName: string
-  preferredLabel: string
+  itemName: string
   username: string
   password?: string
   notes?: string
@@ -182,7 +159,7 @@ export interface ItemDetails {
 }
 
 export interface VaultSnapshot {
-  records: ServiceRecord[]
+  items: IdentityProfile[]
   recents: RecentAction[]
 }
 
@@ -190,5 +167,4 @@ export const DEFAULT_SETTINGS: UserSettings = {
   hotkey: 'Alt+S',
   clearClipboardSeconds: 45,
   launchOnStartup: false,
-  demoDataEnabled: true,
 }

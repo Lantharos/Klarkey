@@ -151,6 +151,12 @@ export function ItemFormPage({
   const onFieldKeyDown = (
     event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) => {
+    if (mode === 'create' && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      formRef.current?.requestSubmit()
+      return
+    }
+
     if (event.key === 'Enter' && event.currentTarget instanceof HTMLInputElement) {
       const websiteIndex = event.currentTarget.dataset.websiteIndex
       const customFieldIndex = event.currentTarget.dataset.customFieldIndex
@@ -221,8 +227,8 @@ export function ItemFormPage({
         <FieldShell label="Name">
           <TextField
             autoFocus
-            value={value.serviceName}
-            onChange={(serviceName) => updateValue((current) => ({ ...current, serviceName }))}
+            value={value.itemName}
+            onChange={(itemName) => updateValue((current) => ({ ...current, itemName }))}
             onKeyDown={onFieldKeyDown}
             placeholder="Netflix"
           />
@@ -370,12 +376,17 @@ export function ItemFormPage({
                     : saveState === 'error'
                       ? 'Could not save.'
                       : 'Saved automatically.'
-                : 'Press return to save.'}
+                : 'Press Ctrl + Return to create.'}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <KeyHint>Esc</KeyHint>
-          {mode === 'create' ? <ReturnHint /> : null}
+          {mode === 'create' ? (
+            <>
+              <KeyHint>Ctrl</KeyHint>
+              <ReturnHint />
+            </>
+          ) : null}
         </div>
       </div>
     </form>

@@ -34,7 +34,6 @@ export class KlarkeyController {
 
   constructor(window: BrowserWindow) {
     this.window = window
-    this.repository.ensureSeedData(this.repository.getSettings().demoDataEnabled)
     this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
   }
 
@@ -48,7 +47,6 @@ export class KlarkeyController {
 
   updateSettings(update: SettingsUpdate) {
     const settings = this.repository.updateSettings(update)
-    this.repository.ensureSeedData(settings.demoDataEnabled)
     app.setLoginItemSettings({ openAtLogin: settings.launchOnStartup })
     return settings
   }
@@ -197,7 +195,7 @@ export class KlarkeyController {
           const password = this.repository.getPassword(action.identityId)
           if (password) {
             this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+            this.repository.remember(action.id, action.title, action.identityId)
             return {
               status: 'success',
               title: 'Password copied',
@@ -209,7 +207,7 @@ export class KlarkeyController {
         if (modifier === 'alt') {
           const password = this.repository.getPassword(action.identityId)
           if (password) {
-            this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+            this.repository.remember(action.id, action.title, action.identityId)
             return {
               status: 'info',
               title: 'Password revealed',
@@ -222,7 +220,7 @@ export class KlarkeyController {
         const username = this.repository.getUsername(action.identityId)
         if (username) {
           this.clipboard.copy(username, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+          this.repository.remember(action.id, action.title, action.identityId)
           return {
             status: 'success',
             title: 'Username copied',
@@ -240,7 +238,7 @@ export class KlarkeyController {
         const password = this.repository.getPassword(action.identityId)
         if (password) {
           this.clipboard.copy(password, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+          this.repository.remember(action.id, action.title, action.identityId)
           return {
             status: 'success',
             title: 'Password copied',
@@ -259,7 +257,7 @@ export class KlarkeyController {
         if (password) {
           if (modifier === 'control') {
             this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+            this.repository.remember(action.id, action.title, action.identityId)
             return {
               status: 'success',
               title: 'Password copied',
@@ -267,7 +265,7 @@ export class KlarkeyController {
             }
           }
 
-          this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+          this.repository.remember(action.id, action.title, action.identityId)
           return {
             status: 'info',
             title: 'Password revealed',
@@ -288,7 +286,7 @@ export class KlarkeyController {
         if (otp) {
           if (action.kind === 'copy-otp' || modifier === 'control') {
             this.clipboard.copy(otp, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+            this.repository.remember(action.id, action.title, action.identityId)
             return {
               status: 'success',
               title: 'Code copied',
@@ -296,7 +294,7 @@ export class KlarkeyController {
             }
           }
 
-          this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+          this.repository.remember(action.id, action.title, action.identityId)
           return {
             status: 'info',
             title: 'Current OTP',
@@ -308,18 +306,16 @@ export class KlarkeyController {
       }
 
       case 'create-login': {
-        const serviceName =
-          snapshot.records.find((record) => record.service.id === action.serviceId)?.service.name ??
-          action.title.replace('Create a new login for ', '')
-        const result = this.repository.createIdentity({ serviceName })
+        const itemName = action.title.replace(/^Create\s+/i, '').trim()
+        const result = this.repository.createIdentity({ itemName })
         this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
         return result
       }
 
       case 'generate-passkey': {
-        if (action.identityId && action.serviceId) {
-          this.repository.markPasskey(action.identityId, action.serviceId, action.title)
-          this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+        if (action.identityId) {
+          this.repository.markPasskey(action.identityId, action.title)
+          this.repository.remember(action.id, action.title, action.identityId)
           return {
             status: 'success',
             title: 'Passkey placeholder added',
@@ -330,11 +326,11 @@ export class KlarkeyController {
       }
 
       case 'switch-identity': {
-        this.repository.remember(action.id, action.title, action.serviceId, action.identityId)
+        this.repository.remember(action.id, action.title, action.identityId)
         return {
           status: 'success',
           title: 'Identity switched',
-          message: 'This identity is now the most recent for the service.',
+          message: 'This item is now the most recent one used.',
         }
       }
 

@@ -12,7 +12,7 @@ export type DetailAction = {
 }
 
 export type ItemFormValues = {
-  serviceName: string
+  itemName: string
   username: string
   password: string
   notes: string

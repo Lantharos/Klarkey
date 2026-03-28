@@ -1,12 +1,12 @@
 import { composeCommandRaw, parseCommand } from '@/shared/command'
 
 describe('parseCommand', () => {
-  it('detects create login intent while leaving service text in the input', () => {
+  it('detects create login intent while leaving item text in the input', () => {
     const query = parseCommand('new login netflix')
 
     expect(query.intent).toBe('create')
     expect(query.entryType).toBe('login')
-    expect(query.serviceQuery).toBe('netflix')
+    expect(query.itemQuery).toBe('netflix')
     expect(query.tokens.map((token) => token.kind)).toEqual(['intent', 'item-type'])
     expect(query.trailingText).toBe('netflix')
   })
@@ -16,17 +16,17 @@ describe('parseCommand', () => {
 
     expect(query.intent).toBe('show')
     expect(query.credential).toBe('otp')
-    expect(query.serviceQuery).toBe('discord')
+    expect(query.itemQuery).toBe('discord')
     expect(query.tokens.map((token) => token.kind)).toEqual(['intent', 'credential'])
     expect(query.trailingText).toBe('discord')
   })
 
-  it('splits service and identity for direct insert commands', () => {
+  it('splits item and identity for direct insert commands', () => {
     const query = parseCommand('insert password netflix alice')
 
     expect(query.intent).toBe('insert')
     expect(query.credential).toBe('password')
-    expect(query.serviceQuery).toBe('netflix')
+    expect(query.itemQuery).toBe('netflix')
     expect(query.identityQuery).toBe('alice')
   })
 

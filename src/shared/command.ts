@@ -85,7 +85,7 @@ export function parseCommand(rawInput: string): CommandQuery {
     (intent === 'insert' || intent === 'copy' || intent === 'show') &&
     remaining.length > 1
 
-  const rawServiceWords = shouldSplitImplicitIdentity
+  const rawItemWords = shouldSplitImplicitIdentity
     ? remaining.slice(0, 1)
     : pivot === -1
       ? remaining
@@ -96,9 +96,9 @@ export function parseCommand(rawInput: string): CommandQuery {
       ? []
       : remaining.slice(pivot + 1)
 
-  const serviceWords = rawServiceWords.filter((word) => !STOP_WORDS.has(slug(word)))
+  const itemWords = rawItemWords.filter((word) => !STOP_WORDS.has(slug(word)))
   const identityWords = rawIdentityWords.filter((word) => !STOP_WORDS.has(slug(word)))
-  const serviceQuery = serviceWords.join(' ').trim()
+  const itemQuery = itemWords.join(' ').trim()
   const identityQuery = identityWords.join(' ').trim()
   const trailingText = remaining.join(' ').trim()
 
@@ -108,7 +108,7 @@ export function parseCommand(rawInput: string): CommandQuery {
     tokens,
     trailingText,
     entryType,
-    serviceQuery: serviceQuery || undefined,
+    itemQuery: itemQuery || undefined,
     identityQuery: identityQuery || undefined,
     credential,
   }

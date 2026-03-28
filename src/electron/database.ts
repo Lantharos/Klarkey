@@ -12,25 +12,42 @@ export interface DatabaseHandle {
   close: () => void
 }
 
+function hasColumn(db: Database.Database, tableName: string, columnName: string) {
+  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>
+  return columns.some((column) => column.name === columnName)
+}
+
+function resetLegacySchema(db: Database.Database) {
+  const hasIdentitiesTable = Boolean(
+    db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identities'").get(),
+  )
+
+  if (!hasIdentitiesTable) {
+    return
+  }
+
+  if (hasColumn(db, 'identities', 'itemName')) {
+    return
+  }
+
+  db.exec('DROP TABLE IF EXISTS passkeys')
+  db.exec('DROP TABLE IF EXISTS recent_actions')
+  db.exec('DROP TABLE IF EXISTS identities')
+  db.exec('DROP TABLE IF EXISTS services')
+}
+
 export function createDatabase(): DatabaseHandle {
   const dbPath = join(app.getPath('userData'), 'klarkey.sqlite')
   mkdirSync(dirname(dbPath), { recursive: true })
   const db = new BetterSqlite3(dbPath)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
+  resetLegacySchema(db)
 
   db.exec(`
-    CREATE TABLE IF NOT EXISTS services (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      aliases TEXT NOT NULL,
-      pinned INTEGER NOT NULL DEFAULT 0
-    );
-
     CREATE TABLE IF NOT EXISTS identities (
       id TEXT PRIMARY KEY,
-      serviceId TEXT NOT NULL,
-      label TEXT NOT NULL,
+      itemName TEXT NOT NULL,
       username TEXT NOT NULL,
       email TEXT,
       websites TEXT,
@@ -41,24 +58,20 @@ export function createDatabase(): DatabaseHandle {
       hasPasskey INTEGER NOT NULL DEFAULT 0,
       lastUsedAt TEXT,
       createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL,
-      FOREIGN KEY(serviceId) REFERENCES services(id) ON DELETE CASCADE
+      updatedAt TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS passkeys (
       id TEXT PRIMARY KEY,
       identityId TEXT NOT NULL,
-      serviceId TEXT NOT NULL,
       label TEXT NOT NULL,
       createdAt TEXT NOT NULL,
-      FOREIGN KEY(identityId) REFERENCES identities(id) ON DELETE CASCADE,
-      FOREIGN KEY(serviceId) REFERENCES services(id) ON DELETE CASCADE
+      FOREIGN KEY(identityId) REFERENCES identities(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS recent_actions (
       id TEXT PRIMARY KEY,
       actionId TEXT NOT NULL,
-      serviceId TEXT,
       identityId TEXT,
       label TEXT NOT NULL,
       usedAt TEXT NOT NULL
@@ -69,18 +82,6 @@ export function createDatabase(): DatabaseHandle {
       value TEXT NOT NULL
     );
   `)
-
-  const columns = db.prepare(`PRAGMA table_info(identities)`).all() as Array<{ name: string }>
-  const names = new Set(columns.map((column) => column.name))
-  if (!names.has('websites')) {
-    db.exec('ALTER TABLE identities ADD COLUMN websites TEXT')
-  }
-  if (!names.has('notes')) {
-    db.exec('ALTER TABLE identities ADD COLUMN notes TEXT')
-  }
-  if (!names.has('customFields')) {
-    db.exec('ALTER TABLE identities ADD COLUMN customFields TEXT')
-  }
 
   return {
     db,

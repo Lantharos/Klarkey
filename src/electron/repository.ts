@@ -2,15 +2,13 @@ import { randomBytes } from 'node:crypto'
 import * as OTPAuth from 'otpauth'
 import type Database from 'better-sqlite3'
 import { decryptValue, encryptValue, type EncryptedPayload } from '@/electron/crypto'
-import { seedIdentities, seedServices } from '@/electron/seed'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
   type CreateIdentityInput,
+  type IdentityProfile,
   type ItemDetails,
   type RecentAction,
-  type Service,
-  type ServiceRecord,
   type SettingsUpdate,
   type UpdateIdentityInput,
   type UserSettings,
@@ -44,27 +42,6 @@ export class IdentityRepository {
     this.key = key
   }
 
-  ensureSeedData(enabled: boolean) {
-    const existing = this.db.prepare('SELECT COUNT(*) as count FROM services').get() as { count: number }
-    if (existing.count > 0 || !enabled) {
-      return
-    }
-
-    for (const serviceName of seedServices) {
-      this.upsertService(serviceName)
-    }
-
-    for (const seed of seedIdentities) {
-      this.createIdentity(seed)
-    }
-
-    this.db.prepare('UPDATE services SET pinned = 1 WHERE name IN (?, ?, ?)').run(
-      'GitHub',
-      'Discord',
-      'Stripe',
-    )
-  }
-
   getSettings(): UserSettings {
     const rows = this.db.prepare('SELECT key, value FROM settings').all() as Array<{
       key: keyof UserSettings
@@ -79,7 +56,6 @@ export class IdentityRepository {
       hotkey: fromDb.hotkey ?? DEFAULT_SETTINGS.hotkey,
       clearClipboardSeconds: Number(fromDb.clearClipboardSeconds ?? DEFAULT_SETTINGS.clearClipboardSeconds),
       launchOnStartup: fromDb.launchOnStartup === 'true' ? true : DEFAULT_SETTINGS.launchOnStartup,
-      demoDataEnabled: fromDb.demoDataEnabled === 'false' ? false : DEFAULT_SETTINGS.demoDataEnabled,
     }
   }
 
@@ -93,24 +69,16 @@ export class IdentityRepository {
     statement.run('hotkey', next.hotkey)
     statement.run('clearClipboardSeconds', String(next.clearClipboardSeconds))
     statement.run('launchOnStartup', String(next.launchOnStartup))
-    statement.run('demoDataEnabled', String(next.demoDataEnabled))
 
     return next
   }
 
   getSnapshot(): VaultSnapshot {
-    const services = this.db.prepare('SELECT * FROM services ORDER BY pinned DESC, name ASC').all() as Array<{
-      id: string
-      name: string
-      aliases: string
-      pinned: number
-    }>
-    const identities = this.db
-      .prepare('SELECT * FROM identities ORDER BY COALESCE(lastUsedAt, updatedAt) DESC, label ASC')
+    const items = this.db
+      .prepare('SELECT * FROM identities ORDER BY COALESCE(lastUsedAt, updatedAt) DESC, itemName ASC')
       .all() as Array<{
         id: string
-        serviceId: string
-        label: string
+        itemName: string
         username: string
         email?: string
         websites?: string
@@ -122,44 +90,33 @@ export class IdentityRepository {
         lastUsedAt?: string
       }>
     const recents = this.db
-      .prepare('SELECT * FROM recent_actions ORDER BY usedAt DESC LIMIT 25')
+      .prepare('SELECT id, actionId, identityId, label, usedAt FROM recent_actions ORDER BY usedAt DESC LIMIT 25')
       .all() as RecentAction[]
 
-    const records: ServiceRecord[] = services.map((service) => ({
-      service: {
-        id: service.id,
-        name: service.name,
-        aliases: JSON.parse(service.aliases) as string[],
-        pinned: Boolean(service.pinned),
-      },
-      identities: identities
-        .filter((identity) => identity.serviceId === service.id)
-        .map((identity) => ({
-          id: identity.id,
-          serviceId: identity.serviceId,
-          label: identity.label,
-          username: identity.username,
-          email: identity.email,
-          websites: identity.websites ? (JSON.parse(identity.websites) as string[]) : [],
-          notes: identity.notes,
-          customFields: identity.customFields
-            ? (JSON.parse(identity.customFields) as Array<{ id: string; label: string; value: string }>)
-            : [],
-          hasPassword: Boolean(identity.passwordPayload),
-          hasOtp: Boolean(identity.otpPayload),
-          hasPasskey: Boolean(identity.hasPasskey),
-          passwordPreview: identity.passwordPayload ? '••••••••••' : undefined,
-          lastUsedAt: identity.lastUsedAt,
-        })),
-    }))
-
-    return { records, recents }
+    return {
+      items: items.map((item) => ({
+        id: item.id,
+        itemName: item.itemName,
+        username: item.username,
+        email: item.email,
+        websites: item.websites ? (JSON.parse(item.websites) as string[]) : [],
+        notes: item.notes,
+        customFields: item.customFields
+          ? (JSON.parse(item.customFields) as Array<{ id: string; label: string; value: string }>)
+          : [],
+        hasPassword: Boolean(item.passwordPayload),
+        hasOtp: Boolean(item.otpPayload),
+        hasPasskey: Boolean(item.hasPasskey),
+        passwordPreview: item.passwordPayload ? '••••••••••' : undefined,
+        lastUsedAt: item.lastUsedAt,
+      })) satisfies IdentityProfile[],
+      recents,
+    }
   }
 
   createIdentity(input: CreateIdentityInput) {
-    const service = this.upsertService(input.serviceName)
-    const label = input.preferredLabel?.trim() || ''
-    const username = input.username?.trim() || `${slug(service.name)}_${randomBytes(2).toString('hex')}`
+    const itemName = input.itemName.trim()
+    const username = input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}`
     const password = input.password?.trim() || randomBytes(12).toString('base64url')
     const otp = new OTPAuth.Secret({ size: 20 }).base32
     const timestamp = now()
@@ -169,14 +126,13 @@ export class IdentityRepository {
       .prepare(
         `
         INSERT INTO identities (
-          id, serviceId, label, username, email, websites, notes, customFields, passwordPayload, otpPayload, hasPasskey, createdAt, updatedAt
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, itemName, username, email, websites, notes, customFields, passwordPayload, otpPayload, hasPasskey, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       )
       .run(
         identityId,
-        service.id,
-        label,
+        itemName,
         username,
         `${username}@klarkey.local`,
         JSON.stringify(input.websites ?? []),
@@ -191,10 +147,9 @@ export class IdentityRepository {
 
     return {
       status: 'success',
-      title: 'Login item created',
-      message: `${service.name} is ready.`,
+      title: 'Item created',
+      message: `${itemName} is ready.`,
       identityId,
-      serviceId: service.id,
     } satisfies ActionExecutionResult
   }
 
@@ -204,8 +159,7 @@ export class IdentityRepository {
       .get(input.identityId) as
       | {
           id: string
-          serviceId: string
-          label: string
+          itemName: string
           username: string
           email?: string
           websites?: string
@@ -223,10 +177,8 @@ export class IdentityRepository {
       } satisfies ActionExecutionResult
     }
 
-    const serviceName =
-      input.serviceName?.trim() ||
-      (this.db.prepare('SELECT name FROM services WHERE id = ?').get(current.serviceId) as { name: string }).name
-    const service = this.upsertService(serviceName)
+    const itemName = input.itemName?.trim() || current.itemName
+    const username = input.username?.trim() || current.username
     const password =
       input.password === undefined
         ? current.passwordPayload
@@ -236,15 +188,14 @@ export class IdentityRepository {
       .prepare(
         `
         UPDATE identities
-        SET serviceId = ?, label = ?, username = ?, email = ?, websites = ?, notes = ?, customFields = ?, passwordPayload = ?, updatedAt = ?
+        SET itemName = ?, username = ?, email = ?, websites = ?, notes = ?, customFields = ?, passwordPayload = ?, updatedAt = ?
         WHERE id = ?
       `,
       )
       .run(
-        service.id,
-        input.preferredLabel?.trim() || current.label,
-        input.username?.trim() || current.username,
-        `${(input.username?.trim() || current.username)}@klarkey.local`,
+        itemName,
+        username,
+        `${username}@klarkey.local`,
         JSON.stringify(input.websites ?? (current.websites ? JSON.parse(current.websites) : [])),
         input.notes ?? current.notes ?? null,
         JSON.stringify(input.customFields ?? (current.customFields ? JSON.parse(current.customFields) : [])),
@@ -256,28 +207,18 @@ export class IdentityRepository {
     return {
       status: 'success',
       title: 'Item updated',
-      message: `${service.name} was updated.`,
+      message: `${itemName} was updated.`,
       identityId: input.identityId,
-      serviceId: service.id,
     } satisfies ActionExecutionResult
   }
 
   getIdentityDetails(identityId: string): ItemDetails | undefined {
     const row = this.db
-      .prepare(
-        `
-        SELECT identities.*, services.name as serviceName
-        FROM identities
-        JOIN services ON services.id = identities.serviceId
-        WHERE identities.id = ?
-      `,
-      )
+      .prepare('SELECT * FROM identities WHERE id = ?')
       .get(identityId) as
       | {
           id: string
-          serviceId: string
-          serviceName: string
-          label: string
+          itemName: string
           username: string
           websites?: string
           notes?: string
@@ -292,9 +233,7 @@ export class IdentityRepository {
 
     return {
       identityId: row.id,
-      serviceId: row.serviceId,
-      serviceName: row.serviceName,
-      preferredLabel: row.label,
+      itemName: row.itemName,
       username: row.username,
       password: tryDecrypt(this.key, row.passwordPayload),
       notes: row.notes ?? undefined,
@@ -306,7 +245,8 @@ export class IdentityRepository {
   }
 
   deleteIdentity(identityId: string) {
-    const current = this.db.prepare('SELECT label FROM identities WHERE id = ?').get(identityId) as { label: string } | undefined
+    const current = this.db.prepare('SELECT itemName FROM identities WHERE id = ?').get(identityId) as { itemName: string } | undefined
+
     if (!current) {
       return {
         status: 'error',
@@ -321,7 +261,7 @@ export class IdentityRepository {
     return {
       status: 'success',
       title: 'Item deleted',
-      message: `${current.label} was deleted.`,
+      message: `${current.itemName} was deleted.`,
     } satisfies ActionExecutionResult
   }
 
@@ -350,6 +290,7 @@ export class IdentityRepository {
     if (!secret) {
       return undefined
     }
+
     const totp = new OTPAuth.TOTP({
       secret,
       issuer: 'Klarkey',
@@ -368,58 +309,25 @@ export class IdentityRepository {
     return row?.username
   }
 
-  remember(actionId: string, label: string, serviceId?: string, identityId?: string) {
+  remember(actionId: string, label: string, identityId?: string) {
     this.db
       .prepare(
         `
-        INSERT INTO recent_actions(id, actionId, serviceId, identityId, label, usedAt)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO recent_actions(id, actionId, identityId, label, usedAt)
+        VALUES (?, ?, ?, ?, ?)
       `,
       )
-      .run(id('recent'), actionId, serviceId ?? null, identityId ?? null, label, now())
+      .run(id('recent'), actionId, identityId ?? null, label, now())
 
     if (identityId) {
       this.db.prepare('UPDATE identities SET lastUsedAt = ?, updatedAt = ? WHERE id = ?').run(now(), now(), identityId)
     }
   }
 
-  markPasskey(identityId: string, serviceId: string, label: string) {
+  markPasskey(identityId: string, label: string) {
     this.db
-      .prepare('INSERT INTO passkeys(id, identityId, serviceId, label, createdAt) VALUES (?, ?, ?, ?, ?)')
-      .run(id('passkey'), identityId, serviceId, label, now())
+      .prepare('INSERT INTO passkeys(id, identityId, label, createdAt) VALUES (?, ?, ?, ?)')
+      .run(id('passkey'), identityId, label, now())
     this.db.prepare('UPDATE identities SET hasPasskey = 1, updatedAt = ? WHERE id = ?').run(now(), identityId)
-  }
-
-  private upsertService(name: string): Service {
-    const existing = this.db.prepare('SELECT * FROM services WHERE LOWER(name) = LOWER(?)').get(name) as
-      | {
-          id: string
-          name: string
-          aliases: string
-          pinned: number
-        }
-      | undefined
-
-    if (existing) {
-      return {
-        id: existing.id,
-        name: existing.name,
-        aliases: JSON.parse(existing.aliases) as string[],
-        pinned: Boolean(existing.pinned),
-      }
-    }
-
-    const service: Service = {
-      id: id('service'),
-      name,
-      aliases: [slug(name), name.toLowerCase()],
-      pinned: false,
-    }
-
-    this.db
-      .prepare('INSERT INTO services(id, name, aliases, pinned) VALUES (?, ?, ?, ?)')
-      .run(service.id, service.name, JSON.stringify(service.aliases), 0)
-
-    return service
   }
 }

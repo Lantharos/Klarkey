@@ -32,7 +32,7 @@ export function actionKindLabel(action: ResolvedAction) {
 
 export function createFormValues(seed?: Partial<ItemDetails>): ItemFormValues {
   return {
-    serviceName: seed?.serviceName ?? '',
+    itemName: seed?.itemName ?? '',
     username: seed?.username ?? '',
     password: seed?.password ?? '',
     notes: seed?.notes ?? '',

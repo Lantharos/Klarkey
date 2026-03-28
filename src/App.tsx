@@ -69,7 +69,7 @@ function detailActionsFor(identityId?: string): DetailAction[] {
 
 function cleanFormValue(value: ItemFormValues) {
   const payload = {
-    serviceName: value.serviceName.trim() || 'New item',
+    itemName: value.itemName.trim() || 'New item',
     username: value.username.trim() || undefined,
     password: value.password.trim() || undefined,
     notes: value.notes.trim() || undefined,
@@ -89,7 +89,6 @@ function cleanFormValue(value: ItemFormValues) {
 function App() {
   const hydrated = usePaletteStore((state) => state.hydrated)
   const bootError = usePaletteStore((state) => state.bootError)
-  const isLoadingResults = usePaletteStore((state) => state.isLoadingResults)
   const page = usePaletteStore((state) => state.page)
   const formMode = usePaletteStore((state) => state.formMode)
   const query = usePaletteStore((state) => state.query)
@@ -125,14 +124,14 @@ function App() {
   const formLoading = page === 'form' && formMode === 'edit' && Boolean(detailAction?.identityId) && !formSeed.identityId
   const createSeed = useMemo(
     () => ({
-      serviceName: query.serviceQuery ?? detailAction?.title.replace(/^Create\s+/i, '') ?? '',
+      itemName: query.itemQuery ?? detailAction?.title.replace(/^Create\s+/i, '') ?? '',
       username: query.identityQuery ?? '',
       password: '',
       notes: '',
       websites: [''],
       customFields: [],
     }),
-    [detailAction?.title, query.identityQuery, query.serviceQuery],
+    [detailAction?.title, query.identityQuery, query.itemQuery],
   )
   const footerMessage = execution?.secret ?? execution?.message
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
@@ -341,7 +340,7 @@ function App() {
         ) : page === 'form' ? (
           <HeaderRow
             title={formMode === 'edit' ? 'Edit item' : 'Create item'}
-            subtitle={formSeed.serviceName || undefined}
+            subtitle={formSeed.itemName || undefined}
             onBack={() => void goBackOrClose()}
             showIcon={false}
           />
@@ -362,11 +361,6 @@ function App() {
           <SettingsPage
             settings={settings ?? DEFAULT_SETTINGS}
             pointerActive={pointerActive}
-            onToggleDemo={() =>
-              void updateSettings({
-                demoDataEnabled: !(settings ?? DEFAULT_SETTINGS).demoDataEnabled,
-              })
-            }
             onToggleStartup={() =>
               void updateSettings({
                 launchOnStartup: !(settings ?? DEFAULT_SETTINGS).launchOnStartup,
@@ -450,28 +444,22 @@ function App() {
         <>
           <div className="px-5 py-3 text-[13px] text-white/34">{query.raw ? 'Results' : 'Suggestions'}</div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-            {isLoadingResults ? (
-              <div className="flex h-full items-start px-2 py-2">
-                <div className="rounded-[10px] px-3 py-3 text-[14px] text-white/42">Loading...</div>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {actions.map((action, index) => (
-                  <ResultRow
-                    key={action.id}
-                    action={action}
-                    pointerActive={pointerActive}
-                    selected={index === selectedIndex}
-                    onHover={() => setSelectedIndex(index)}
-                  />
-                ))}
-              </div>
-            )}
+            <div className="space-y-1">
+              {actions.map((action, index) => (
+                <ResultRow
+                  key={action.id}
+                  action={action}
+                  pointerActive={pointerActive}
+                  selected={index === selectedIndex}
+                  onHover={() => setSelectedIndex(index)}
+                />
+              ))}
+            </div>
           </div>
           <div className="h-px bg-white/8" />
           <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className={execution?.secret ? 'font-mono text-white/78' : undefined}>
-              {footerMessage ?? (isLoadingResults ? 'Refreshing...' : selection?.primaryHint ?? 'Type a service or action.')}
+              {footerMessage ?? selection?.primaryHint ?? 'Type an item or action.'}
             </span>
             <div className="flex items-center gap-2">
               <KeyHint>Esc</KeyHint>
