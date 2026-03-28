@@ -2,6 +2,7 @@ import { clsx } from 'clsx'
 import { ChevronLeft, CornerDownLeft, Search, Settings2, Sparkles } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { StaticItemTypeIcon } from '@/app/item-ui'
+import { LoginItemIcon } from '@/app/login-item-icon'
 import { getCreateTitle, getItemTypeAccent, getItemTypeIcon } from '@/app/item-type-meta'
 import { actionKindLabel, itemInitials } from '@/app/palette-utils'
 import type { DetailAction } from '@/app/palette-types'
@@ -35,6 +36,17 @@ export function RowIcon({ action, title }: { action?: ResolvedAction; title?: st
       <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-emerald-500/18 text-emerald-300">
         <Sparkles size={15} />
       </div>
+    )
+  }
+
+  if (action?.itemType === 'login') {
+    return (
+      <LoginItemIcon
+        key={`${title ?? action.title}:${action.logoDomain ?? ''}:${action.logoName ?? ''}`}
+        title={title ?? action.title}
+        logoDomain={action.logoDomain}
+        logoName={action.logoName}
+      />
     )
   }
 

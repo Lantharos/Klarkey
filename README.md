@@ -49,3 +49,7 @@ bun run build
 
 - Sensitive actions use an in-memory unlock window on top of OS-backed key protection.
 - Passkeys are represented as a local capability seam in this version and are ready for a future native provider bridge.
+
+<p class="attribution">
+  <a href="https://logo.dev">Logos provided by Logo.dev</a>
+</p>

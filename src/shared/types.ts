@@ -105,6 +105,8 @@ export interface ResolvedAction {
   subtitle: string
   itemId?: string
   itemType?: ItemType
+  logoDomain?: string
+  logoName?: string
   primaryHint: string
   modifiers?: Partial<Record<Exclude<ModifierKey, 'none'>, string>>
   requiresUnlock: boolean

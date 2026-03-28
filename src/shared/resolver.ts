@@ -1,4 +1,5 @@
 import { AVAILABLE_ITEM_TYPES, getItemTypeDefinition } from '@/shared/item-types'
+import { normalizeLoginLogoDomain } from '@/shared/login-logo'
 import type { ItemProfile, RecentAction, ResolvedAction, VaultSnapshot } from '@/shared/types'
 import { parseCommand } from '@/shared/command'
 
@@ -62,6 +63,11 @@ const itemSubtitle = (item: ItemProfile) =>
     : item.itemType === 'identity'
       ? item.fullName || item.email || item.itemName
       : item.content?.trim() || item.notes?.trim() || 'Text note'
+
+const getLogoMeta = (item: ItemProfile) => ({
+  logoDomain: item.itemType === 'login' ? (item.websites ?? []).map((website) => normalizeLoginLogoDomain(website)).find(Boolean) : undefined,
+  logoName: item.itemType === 'login' ? item.itemName.trim() || undefined : undefined,
+})
 
 const createTypeActions = (literalName: string) =>
   AVAILABLE_ITEM_TYPES.map((itemType, index) => {
@@ -146,6 +152,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
       subtitle: itemSubtitle(item),
       itemId: item.id,
       itemType: item.itemType,
+      ...getLogoMeta(item),
       primaryHint: `Open this ${getItemTypeDefinition(item.itemType).noun}.`,
       modifiers:
         item.itemType === 'login'
@@ -192,6 +199,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Insert the password into the last selected field.',
         requiresUnlock: true,
         score: baseScore + 24,
@@ -204,6 +212,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Insert the primary text into the last selected field.',
         requiresUnlock: false,
         score: baseScore + 24,
@@ -216,6 +225,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Reveal the one-time code.',
         modifiers: {
           control: 'Copy the one-time code to the clipboard.',
@@ -231,6 +241,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Copy the password to the clipboard.',
         requiresUnlock: true,
         score: baseScore + 21,
@@ -243,6 +254,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Reveal the password in place.',
         modifiers: {
           control: 'Copy the password to the clipboard.',
@@ -258,6 +270,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: 'Create a local placeholder for the future passkey bridge.',
         requiresUnlock: true,
         score: baseScore + 18,
@@ -270,6 +283,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: `Make this ${getItemTypeDefinition(item.itemType).noun} the current item.`,
         requiresUnlock: false,
         score: baseScore + 16,
@@ -282,6 +296,7 @@ export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')
         subtitle: itemSubtitle(item),
         itemId: item.id,
         itemType: item.itemType,
+        ...getLogoMeta(item),
         primaryHint: `Open this ${getItemTypeDefinition(item.itemType).noun}.`,
         modifiers:
           item.itemType === 'login'
