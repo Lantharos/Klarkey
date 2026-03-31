@@ -16,8 +16,8 @@ import {
 } from 'electron'
 import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
-import { runNativeMessagingHost } from '@/electron/native-host'
-import { runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
+import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native-host'
+import { readPasskeyProviderMessageSync, runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 
 protocol.registerSchemesAsPrivileged([
@@ -40,6 +40,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const isDevMode = process.argv.includes('--dev')
 const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
 const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
+const initialNativeHostRequest = isNativeMessagingHostMode ? readNativeMessageSync() : undefined
+const initialPasskeyProviderRequest = isPasskeyProviderBridgeMode ? readPasskeyProviderMessageSync() : undefined
 const rendererDistPath = () => join(app.getAppPath(), 'dist')
 const devServerUrl = () => process.env.VITE_DEV_SERVER_URL ?? (isDevMode ? 'http://127.0.0.1:5173' : undefined)
 const appIconPath = () =>
@@ -228,13 +230,13 @@ const bindIpc = () => {
 app.whenReady()
   .then(async () => {
     if (isNativeMessagingHostMode) {
-      await runNativeMessagingHost()
+      await runNativeMessagingHost(initialNativeHostRequest)
       app.quit()
       return
     }
 
     if (isPasskeyProviderBridgeMode) {
-      await runPasskeyProviderBridgeHost()
+      await runPasskeyProviderBridgeHost(initialPasskeyProviderRequest)
       app.quit()
       return
     }

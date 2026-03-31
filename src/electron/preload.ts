@@ -1,23 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '@/electron/constants'
 import type { KlarkeyApi } from '@/shared/ipc'
+import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import { PASSKEY_RP_ID, PASSKEY_RP_NAME } from '@/shared/passkeys'
 import type { CreateVaultPasskeyInput, VaultPasskeyRecord } from '@/shared/types'
-
-const encodeBase64Url = (input: ArrayBuffer | Uint8Array) => {
-  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
-  let binary = ''
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte)
-  }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
-const decodeBase64Url = (input: string) => {
-  const padded = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=')
-  const decoded = atob(padded)
-  return Uint8Array.from(decoded, (char) => char.charCodeAt(0))
-}
 
 const createChallenge = () => crypto.getRandomValues(new Uint8Array(32))
 

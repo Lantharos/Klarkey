@@ -1,21 +1,31 @@
-import { stdin, stdout } from 'node:process'
+import { readSync, writeSync } from 'node:fs'
 import { BrowserExtensionController } from '@/electron/extension-controller'
 import type { BrowserExtensionRequest, BrowserExtensionResponse } from '@/shared/browser-extension'
 
-const readNativeMessage = async () => {
-  const chunks: Buffer[] = []
-
-  for await (const chunk of stdin) {
-    chunks.push(chunk as Buffer)
-  }
-
-  const payload = Buffer.concat(chunks)
-  if (payload.byteLength < 4) {
+export const readNativeMessageSync = () => {
+  const header = Buffer.alloc(4)
+  const headerBytes = readSync(0, header, 0, header.byteLength, null)
+  if (headerBytes < 4) {
     return undefined
   }
 
-  const messageLength = payload.readUInt32LE(0)
-  const messageBuffer = payload.subarray(4, 4 + messageLength)
+  const messageLength = header.readUInt32LE(0)
+  if (messageLength <= 0) {
+    return undefined
+  }
+
+  const messageBuffer = Buffer.alloc(messageLength)
+  let offset = 0
+
+  while (offset < messageLength) {
+    const bytesRead = readSync(0, messageBuffer, offset, messageLength - offset, null)
+    if (bytesRead === 0) {
+      return undefined
+    }
+
+    offset += bytesRead
+  }
+
   return JSON.parse(messageBuffer.toString('utf8')) as BrowserExtensionRequest
 }
 
@@ -23,11 +33,10 @@ const writeNativeMessage = (response: BrowserExtensionResponse) => {
   const message = Buffer.from(JSON.stringify(response), 'utf8')
   const header = Buffer.alloc(4)
   header.writeUInt32LE(message.byteLength, 0)
-  stdout.write(Buffer.concat([header, message]))
+  writeSync(1, Buffer.concat([header, message]))
 }
 
-export async function runNativeMessagingHost() {
-  const request = await readNativeMessage()
+export async function runNativeMessagingHost(request = readNativeMessageSync()) {
   const controller = new BrowserExtensionController()
 
   try {

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "KlarkeyPasskeyProvider (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "KlarkeyPasskeyProvider (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

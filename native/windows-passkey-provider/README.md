@@ -15,7 +15,16 @@ This is the Microsoft feature documented in:
 The provider itself is not implemented yet, but the desktop-side bridge it will need now exists in the Electron app:
 
 - `electron . --passkey-provider-bridge`
-- shared protocol: [src/shared/passkey-provider-bridge.ts](C:/Users/arden/Documents/Projects/Klarkey/src/shared/passkey-provider-bridge.ts)
+- shared protocol: `src/shared/passkey-provider-bridge.ts`
+
+This folder now also includes a first native slice:
+
+- `Klarkey.PasskeyProviderBridge/`
+- a buildable .NET 9 bridge client that launches the desktop bridge process and exchanges the same length-prefixed JSON messages over stdio
+
+That client is intentionally small so the eventual WinUI/provider sample can call into it instead of reimplementing process and framing logic.
+
+There is also now a packaged WinUI 3 app scaffold in `KlarkeyPasskeyProvider/`. It currently acts as a Windows-side bridge probe UI: you can point it at the Klarkey repo and verify whether `electron . --passkey-provider-bridge` answers a ping successfully.
 
 That bridge already supports:
 
@@ -40,7 +49,7 @@ That bridge already supports:
 ## Next implementation steps
 
 1. Create a packaged WinUI 3 / Windows App SDK sample app based on the Microsoft provider sample.
-2. Add a thin native bridge client that launches `Klarkey --passkey-provider-bridge` and exchanges framed JSON over stdio.
+2. Wire that sample to the thin native bridge client in `Klarkey.PasskeyProviderBridge`.
 3. Map provider callbacks to:
    - `find-credentials`
    - `store-credential`
@@ -48,6 +57,57 @@ That bridge already supports:
 4. Add vault-unlock policy so the provider can require local user verification before returning a credential.
 5. Add installer support to register the provider and document Windows Settings enablement.
 
+## Testing
+
+### Desktop bridge library
+
+Build the reusable bridge client:
+
+```powershell
+dotnet build .\Klarkey.PasskeyProviderBridge\Klarkey.PasskeyProviderBridge.csproj
+```
+
+### WinUI bridge probe app
+
+Build the packaged WinUI app:
+
+```powershell
+$Platform = if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") { "x64" } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x86" }
+dotnet build .\KlarkeyPasskeyProvider\KlarkeyPasskeyProvider.csproj -c Debug -p:Platform=$Platform
+```
+
+Register the packaged output:
+
+```powershell
+$Platform = if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") { "x64" } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x86" }
+$Rid = if ($Platform -eq "ARM64") { "win-arm64" } elseif ($Platform -eq "x86") { "win-x86" } else { "win-x64" }
+Add-AppxPackage -Register ".\KlarkeyPasskeyProvider\bin\$Platform\Debug\net9.0-windows10.0.26100.0\$Rid\AppxManifest.xml"
+```
+
+Launch the packaged app:
+
+```powershell
+$app = Get-StartApps | Where-Object { $_.Name -eq "KlarkeyPasskeyProvider" } | Select-Object -First 1
+cmd /c start "" "shell:AppsFolder\$($app.AppID)"
+```
+
+Or use the helper script from the repo root:
+
+```powershell
+.\scripts\run-native-provider.ps1
+```
+
+Once it opens, use the defaults it detects for:
+
+- Electron executable: `node_modules\.bin\electron.cmd`
+- Klarkey app folder: the repo root
+
+Then click **Ping desktop bridge**.
+
+### Current caveat
+
+As of March 31, 2026, the WinUI app builds cleanly and launches correctly through packaged shell activation. `dotnet run` still uses the unpackaged path on this machine and hits `REGDB_E_CLASSNOTREG`, so use the packaged launch command or helper script instead.
+
 ## Caveat
 
-This folder is currently a scaffold and design anchor, not a buildable Windows provider project yet.
+This folder is still not a complete Windows provider project yet. The bridge client is buildable, but the actual packaged provider app and COM/plugin registration flow still need to be added on top of it.

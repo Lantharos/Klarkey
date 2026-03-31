@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { scoreWebsiteMatch } from '@/shared/browser-extension'
+import { normalizeCredentialId } from '@/shared/passkey-encoding'
 import { decryptValue, encryptValue, type EncryptedPayload } from '@/electron/crypto'
 import type { CreatableItemType } from '@/shared/item-types'
 import { getTotpCode, parseStoredTotp, parseTotpInput } from '@/shared/totp'
@@ -65,6 +66,14 @@ const parseJson = <Value>(payload: string | undefined, fallback: Value) => {
   }
 }
 
+const getHostname = (value: string) => {
+  try {
+    return new URL(value).hostname
+  } catch {
+    return undefined
+  }
+}
+
 type ItemDataPayload = {
   fullName?: string
   phone?: string
@@ -85,7 +94,7 @@ type PasskeyRow = {
 }
 
 type BrowserRequestCredential = {
-  id: string
+  id: unknown
   type: 'public-key'
   transports?: string[]
 }
@@ -705,7 +714,11 @@ export class VaultRepository {
       return scoreWebsiteMatch(item.websites ?? [], url) > 0 || (rpId ? passkey.rpId === rpId : false)
     })
 
-    const requestedIds = new Set((request.allowCredentials ?? []).map((credential) => credential.id))
+    const requestedIds = new Set(
+      (request.allowCredentials ?? [])
+        .map((credential) => normalizeCredentialId(credential.id))
+        .filter((credentialId): credentialId is string => Boolean(credentialId)),
+    )
     const filtered = requestedIds.size
       ? relevant.filter((passkey) => passkey.credentialId && requestedIds.has(passkey.credentialId))
       : relevant
@@ -737,11 +750,11 @@ export class VaultRepository {
 
   saveSitePasskey(url: string, requestDetailsJson: string, responseJson: string) {
     const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
-    const response = parseJson<{ id?: string; response?: { transports?: string[] } }>(responseJson, {})
-    const credentialId = response.id?.trim()
-    const rpId = request.rp?.id?.trim() || new URL(url).hostname
+    const response = parseJson<{ id?: unknown; rawId?: unknown; response?: { transports?: string[] } }>(responseJson, {})
+    const credentialId = normalizeCredentialId(response.id ?? response.rawId)
+    const rpId = request.rp?.id?.trim() || request.rpId?.trim() || getHostname(url)
     const userName = request.user?.name?.trim() || undefined
-    const itemName = request.rp?.name?.trim() || rpId
+    const itemName = request.rp?.name?.trim() || rpId || 'Saved passkey'
 
     if (!credentialId) {
       return {
@@ -828,9 +841,18 @@ export class VaultRepository {
   }
 
   rememberSitePasskeyAssertion(credentialId: string) {
+    const normalizedCredentialId = normalizeCredentialId(credentialId)
+    if (!normalizedCredentialId) {
+      return {
+        status: 'error',
+        title: 'Passkey missing',
+        message: 'The selected passkey id is invalid.',
+      } satisfies ActionExecutionResult
+    }
+
     const current = this.db
       .prepare('SELECT itemId, label FROM passkeys WHERE credentialId = ?')
-      .get(credentialId) as { itemId: string; label: string } | undefined
+      .get(normalizedCredentialId) as { itemId: string; label: string } | undefined
 
     if (!current) {
       return {
@@ -840,8 +862,8 @@ export class VaultRepository {
       } satisfies ActionExecutionResult
     }
 
-    this.db.prepare('UPDATE passkeys SET lastUsedAt = ? WHERE credentialId = ?').run(now(), credentialId)
-    this.remember(`passkey:${credentialId}`, current.label, current.itemId)
+    this.db.prepare('UPDATE passkeys SET lastUsedAt = ? WHERE credentialId = ?').run(now(), normalizedCredentialId)
+    this.remember(`passkey:${normalizedCredentialId}`, current.label, current.itemId)
 
     return {
       status: 'success',

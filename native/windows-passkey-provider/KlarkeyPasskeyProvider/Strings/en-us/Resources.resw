@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, ...</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, ...</value>
+  </resheader>
+  <data name="WindowTitle" xml:space="preserve">
+    <value>Klarkey Passkey Provider</value>
+  </data>
+  <data name="WindowTitleBar.Title" xml:space="preserve">
+    <value>Klarkey Passkey Provider</value>
+  </data>
+  <data name="MainHeading.Text" xml:space="preserve">
+    <value>Windows passkey provider bridge</value>
+  </data>
+  <data name="MainBody.Text" xml:space="preserve">
+    <value>This native app probes the Klarkey desktop bridge so we can verify the Windows-side path before wiring the full provider callbacks.</value>
+  </data>
+  <data name="ElectronPathBox.Header" xml:space="preserve">
+    <value>Electron executable</value>
+  </data>
+  <data name="ElectronPathBox.AutomationProperties.Name" xml:space="preserve">
+    <value>Electron executable path</value>
+  </data>
+  <data name="AppPathBox.Header" xml:space="preserve">
+    <value>Klarkey app folder</value>
+  </data>
+  <data name="AppPathBox.AutomationProperties.Name" xml:space="preserve">
+    <value>Klarkey app folder path</value>
+  </data>
+  <data name="PingBridgeButton.Content" xml:space="preserve">
+    <value>Ping desktop bridge</value>
+  </data>
+  <data name="PingBridgeButton.AutomationProperties.Name" xml:space="preserve">
+    <value>Ping desktop bridge</value>
+  </data>
+  <data name="InitialStatusTitle" xml:space="preserve">
+    <value>Ready to probe</value>
+  </data>
+  <data name="InitialStatusMessage" xml:space="preserve">
+    <value>Use the detected repo paths or point the app at another Klarkey checkout, then ping the desktop bridge.</value>
+  </data>
+  <data name="InitialStatusDetail" xml:space="preserve">
+    <value>The bridge launches the Electron app in passkey-provider mode and expects a length-prefixed JSON response.</value>
+  </data>
+  <data name="BridgeExecutableRequired" xml:space="preserve">
+    <value>Electron path required</value>
+  </data>
+  <data name="BridgeExecutableRequiredMessage" xml:space="preserve">
+    <value>Enter the Electron executable path before probing the desktop bridge.</value>
+  </data>
+  <data name="BridgeExecutableMissing" xml:space="preserve">
+    <value>Electron executable missing</value>
+  </data>
+  <data name="BridgeExecutableMissingMessage" xml:space="preserve">
+    <value>The Electron executable was not found at {0}.</value>
+  </data>
+  <data name="BridgeAppPathRequired" xml:space="preserve">
+    <value>Klarkey app folder required</value>
+  </data>
+  <data name="BridgeAppPathRequiredMessage" xml:space="preserve">
+    <value>Enter the Klarkey app folder before probing the desktop bridge.</value>
+  </data>
+  <data name="BridgeAppPathMissing" xml:space="preserve">
+    <value>Klarkey app folder missing</value>
+  </data>
+  <data name="BridgeAppPathMissingMessage" xml:space="preserve">
+    <value>The Klarkey app folder was not found at {0}.</value>
+  </data>
+  <data name="BridgePingSuccessTitle" xml:space="preserve">
+    <value>Desktop bridge reachable</value>
+  </data>
+  <data name="BridgePingSuccessMessage" xml:space="preserve">
+    <value>The native provider app can reach the Klarkey desktop bridge.</value>
+  </data>
+  <data name="BridgePingDetailFormat" xml:space="preserve">
+    <value>Bridge identity: {0}</value>
+  </data>
+  <data name="BridgePingFailed" xml:space="preserve">
+    <value>Desktop bridge failed</value>
+  </data>
+  <data name="BridgePingFailedMessage" xml:space="preserve">
+    <value>The desktop bridge returned an error: {0}</value>
+  </data>
+  <data name="BridgePingException" xml:space="preserve">
+    <value>Desktop bridge unavailable</value>
+  </data>
+  <data name="BridgePingExceptionMessage" xml:space="preserve">
+    <value>The desktop bridge could not be started: {0}</value>
+  </data>
+  <data name="BridgeUnknownError" xml:space="preserve">
+    <value>Unknown bridge failure</value>
+  </data>
+</root>

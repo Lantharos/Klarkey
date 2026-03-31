@@ -76,6 +76,67 @@ For local Windows registration of the desktop bridge, run:
 
 That registers native-messaging manifests for Chrome, Edge, Brave, and Firefox against the local development wrapper in `dist-extension/native-host`.
 
+## Testing
+
+### Desktop app
+
+Install dependencies once:
+
+```bash
+bun install
+```
+
+Run the renderer:
+
+```bash
+bun run dev
+```
+
+Run the Electron shell:
+
+```bash
+bun run dev:desktop
+```
+
+### Browser extension
+
+Build the extension bundles:
+
+```bash
+bun run build:extension
+```
+
+Register the local native host on Windows:
+
+```powershell
+./scripts/install-browser-host.ps1 -ChromiumExtensionId "<your chromium extension id>"
+```
+
+Then:
+
+1. Load `dist-extension/chromium` as an unpacked extension in Chrome or Edge.
+2. Keep Klarkey desktop running.
+3. Visit a login form and use the inline trigger or the extension popup to fill or save a login.
+4. In Chromium, test a site that uses `navigator.credentials.create()` or `.get()` to exercise the passkey proxy path.
+
+### Windows passkey provider work
+
+The native Windows provider work lives in `native/windows-passkey-provider`.
+
+The reusable bridge library and the WinUI probe app both build now:
+
+```powershell
+dotnet build .\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\Klarkey.PasskeyProviderBridge.csproj
+$Platform = if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") { "x64" } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x86" }
+dotnet build .\native\windows-passkey-provider\KlarkeyPasskeyProvider\KlarkeyPasskeyProvider.csproj -c Debug -p:Platform=$Platform
+```
+
+Launch the packaged WinUI probe app:
+
+```powershell
+.\scripts\run-native-provider.ps1
+```
+
 <p class="attribution">
   <a href="https://logo.dev">Logos provided by Logo.dev</a>
 </p>

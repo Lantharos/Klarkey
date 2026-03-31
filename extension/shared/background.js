@@ -3,9 +3,19 @@ const nativeHostName = 'app.klarkey.desktop'
 const isChromium = Boolean(globalThis.chrome?.webAuthenticationProxy)
 let proxyAttached = false
 let proxySyncPromise
+const OPERATION_TIMEOUT_MS = 4000
+const HOST_TIMEOUT_MS = 15000
 
 const createRequestId = () =>
   `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
+
+const withTimeout = (promise, message, timeoutMs = OPERATION_TIMEOUT_MS) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      globalThis.setTimeout(() => reject(new Error(message)), timeoutMs)
+    }),
+  ])
 
 const withCallback = (fn, ...args) =>
   new Promise((resolve, reject) => {
@@ -21,17 +31,27 @@ const withCallback = (fn, ...args) =>
   })
 
 const queryTabs = (queryInfo) =>
-  runtimeApi.tabs.query.length === 1 ? runtimeApi.tabs.query(queryInfo) : withCallback(runtimeApi.tabs.query, queryInfo)
+  withTimeout(
+    runtimeApi.tabs.query.length === 1 ? runtimeApi.tabs.query(queryInfo) : withCallback(runtimeApi.tabs.query, queryInfo),
+    'Timed out while reading the active tab.',
+  )
 
 const sendTabMessage = (tabId, message) =>
-  runtimeApi.tabs.sendMessage.length <= 2
-    ? runtimeApi.tabs.sendMessage(tabId, message)
-    : withCallback(runtimeApi.tabs.sendMessage, tabId, message)
+  withTimeout(
+    runtimeApi.tabs.sendMessage.length <= 2
+      ? runtimeApi.tabs.sendMessage(tabId, message)
+      : withCallback(runtimeApi.tabs.sendMessage, tabId, message),
+    'Timed out while contacting the page.',
+  )
 
 const sendNativeMessage = (message) =>
-  runtimeApi.runtime.sendNativeMessage.length === 2
-    ? runtimeApi.runtime.sendNativeMessage(nativeHostName, message)
-    : withCallback(runtimeApi.runtime.sendNativeMessage, nativeHostName, message)
+  withTimeout(
+    runtimeApi.runtime.sendNativeMessage.length === 2
+      ? runtimeApi.runtime.sendNativeMessage(nativeHostName, message)
+      : withCallback(runtimeApi.runtime.sendNativeMessage, nativeHostName, message),
+    'Timed out while contacting the Klarkey desktop bridge.',
+    HOST_TIMEOUT_MS,
+  )
 
 async function getActiveTab() {
   const [tab] = await queryTabs({ active: true, currentWindow: true })
@@ -86,12 +106,18 @@ async function syncProxyAttachment() {
     const connected = await ensureDesktopConnected().catch(() => false)
 
     if (connected && !proxyAttached) {
-      await globalThis.chrome.webAuthenticationProxy.attach().catch(() => undefined)
+      await withTimeout(
+        globalThis.chrome.webAuthenticationProxy.attach().catch(() => undefined),
+        'Timed out while attaching the Chromium passkey proxy.',
+      ).catch(() => undefined)
       proxyAttached = true
     }
 
     if (!connected && proxyAttached) {
-      await globalThis.chrome.webAuthenticationProxy.detach().catch(() => undefined)
+      await withTimeout(
+        globalThis.chrome.webAuthenticationProxy.detach().catch(() => undefined),
+        'Timed out while detaching the Chromium passkey proxy.',
+      ).catch(() => undefined)
       proxyAttached = false
     }
 
@@ -285,37 +311,25 @@ async function handlePasskeyCreateRequest(requestInfo) {
 }
 
 async function loadPopupState() {
-  const tab = await getActiveTab()
-  const pageContext = await getPageContext(tab)
-  const chromiumProxyReady = await syncProxyAttachment().catch(() => false)
+  const tab = await getActiveTab().catch(() => undefined)
+  const pageContext = await getPageContext(tab).catch(() => ({
+    url: tab?.url,
+    title: tab?.title,
+  }))
+  const chromiumProxyReady = await withTimeout(
+    syncProxyAttachment().catch(() => false),
+    'Timed out while checking the Chromium passkey proxy.',
+    1000,
+  ).catch(() => false)
 
-  try {
-    const [ping, matches, passkeys] = await Promise.all([
-      requestHost({ type: 'ping' }),
-      pageContext.url ? requestHost({ type: 'list-logins', url: pageContext.url, title: pageContext.title }) : undefined,
-      pageContext.url && isChromium
-        ? requestHost({ type: 'passkeys-status', url: pageContext.url })
-        : Promise.resolve({
-            ok: true,
-            result: {
-              supported: false,
-              reason: 'This browser does not expose a passkey interception API like Chromium webAuthenticationProxy.',
-            },
-          }),
-    ])
+  const ping = await requestHost({ type: 'ping' }).catch((error) => ({
+    ok: false,
+    error: {
+      message: error instanceof Error ? error.message : 'Klarkey desktop is not connected.',
+    },
+  }))
 
-    return {
-      connected: Boolean(ping?.ok),
-      desktopRequired: true,
-      url: pageContext.url,
-      title: pageContext.title,
-      matches: matches?.ok ? matches.result.matches : [],
-      form: pageContext.form,
-      passkeys: passkeys?.ok ? passkeys.result : undefined,
-      chromiumProxyReady,
-      error: matches?.ok ? undefined : matches?.error?.message,
-    }
-  } catch (error) {
+  if (!ping?.ok) {
     return {
       connected: false,
       desktopRequired: true,
@@ -323,9 +337,54 @@ async function loadPopupState() {
       title: pageContext.title,
       matches: [],
       form: pageContext.form,
+      passkeys: {
+        supported: false,
+        reason: ping?.error?.message || 'Klarkey desktop is not connected.',
+      },
       chromiumProxyReady,
-      error: error instanceof Error ? error.message : 'Klarkey desktop is not connected.',
+      error: ping?.error?.message || 'Klarkey desktop is not connected.',
     }
+  }
+
+  const matches = pageContext.url
+    ? await requestHost({ type: 'list-logins', url: pageContext.url, title: pageContext.title }).catch((error) => ({
+        ok: false,
+        error: {
+          message: error instanceof Error ? error.message : 'Klarkey could not load matching items.',
+        },
+      }))
+    : undefined
+
+  const passkeys = pageContext.url && isChromium
+    ? await requestHost({ type: 'passkeys-status', url: pageContext.url }).catch((error) => ({
+        ok: false,
+        error: {
+          message: error instanceof Error ? error.message : 'Passkey state unavailable.',
+        },
+      }))
+    : {
+        ok: true,
+        result: {
+          supported: false,
+          reason: 'This browser does not expose a passkey interception API like Chromium webAuthenticationProxy.',
+        },
+      }
+
+  return {
+    connected: true,
+    desktopRequired: true,
+    url: pageContext.url,
+    title: pageContext.title,
+    matches: matches?.ok ? matches.result.matches : [],
+    form: pageContext.form,
+    passkeys: passkeys?.ok
+      ? passkeys.result
+      : {
+          supported: false,
+          reason: passkeys?.error?.message || 'Passkey state unavailable.',
+        },
+    chromiumProxyReady,
+    error: matches?.ok ? undefined : matches?.error?.message,
   }
 }
 

@@ -1,4 +1,5 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,12 +24,27 @@ for (const browser of browsers) {
 const nativeHostRoot = join(distRoot, 'native-host')
 mkdirSync(nativeHostRoot, { recursive: true })
 
+execFileSync(
+  'dotnet',
+  [
+    'publish',
+    join(root, 'scripts', 'Klarkey.NativeHostLauncher', 'Klarkey.NativeHostLauncher.csproj'),
+    '-c',
+    'Release',
+    '-o',
+    nativeHostRoot,
+  ],
+  {
+    cwd: root,
+    stdio: 'inherit',
+  },
+)
+
 writeFileSync(
   join(nativeHostRoot, 'klarkey-native-host.cmd'),
   `@echo off
 setlocal
-set "ROOT=%~dp0..\\.."
-call "%ROOT%\\node_modules\\.bin\\electron.cmd" "%ROOT%" --native-messaging-host
+"%~dp0\\Klarkey.NativeHostLauncher.exe"
 `,
 )
 

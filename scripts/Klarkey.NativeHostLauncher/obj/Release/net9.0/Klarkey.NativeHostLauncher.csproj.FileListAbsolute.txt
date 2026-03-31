@@ -1,0 +1,15 @@
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\bin\Release\net9.0\Klarkey.NativeHostLauncher.exe
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\bin\Release\net9.0\Klarkey.NativeHostLauncher.deps.json
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\bin\Release\net9.0\Klarkey.NativeHostLauncher.runtimeconfig.json
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\bin\Release\net9.0\Klarkey.NativeHostLauncher.dll
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\bin\Release\net9.0\Klarkey.NativeHostLauncher.pdb
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.GeneratedMSBuildEditorConfig.editorconfig
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.AssemblyInfoInputs.cache
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.AssemblyInfo.cs
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.csproj.CoreCompileInputs.cache
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.sourcelink.json
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.dll
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\refint\Klarkey.NativeHostLauncher.dll
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.pdb
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\Klarkey.NativeHostLauncher.genruntimeconfig.cache
+E:\Desktop\klarkey\scripts\Klarkey.NativeHostLauncher\obj\Release\net9.0\ref\Klarkey.NativeHostLauncher.dll

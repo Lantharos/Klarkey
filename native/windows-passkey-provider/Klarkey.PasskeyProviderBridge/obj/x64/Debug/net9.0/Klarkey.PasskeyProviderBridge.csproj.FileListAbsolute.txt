@@ -1,0 +1,12 @@
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\bin\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.deps.json
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\bin\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.dll
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\bin\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.pdb
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.GeneratedMSBuildEditorConfig.editorconfig
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.AssemblyInfoInputs.cache
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.AssemblyInfo.cs
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.csproj.CoreCompileInputs.cache
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.sourcelink.json
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.dll
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\refint\Klarkey.PasskeyProviderBridge.dll
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\Klarkey.PasskeyProviderBridge.pdb
+E:\Desktop\klarkey\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\obj\x64\Debug\net9.0\ref\Klarkey.PasskeyProviderBridge.dll

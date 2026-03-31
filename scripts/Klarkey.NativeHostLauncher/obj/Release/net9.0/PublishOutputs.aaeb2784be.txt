@@ -1,0 +1,5 @@
+E:\Desktop\klarkey\dist-extension\native-host\Klarkey.NativeHostLauncher.exe
+E:\Desktop\klarkey\dist-extension\native-host\Klarkey.NativeHostLauncher.dll
+E:\Desktop\klarkey\dist-extension\native-host\Klarkey.NativeHostLauncher.deps.json
+E:\Desktop\klarkey\dist-extension\native-host\Klarkey.NativeHostLauncher.runtimeconfig.json
+E:\Desktop\klarkey\dist-extension\native-host\Klarkey.NativeHostLauncher.pdb

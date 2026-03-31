@@ -12,12 +12,12 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $hostRoot = Join-Path $repoRoot "dist-extension\native-host"
-$hostWrapper = Join-Path $hostRoot "klarkey-native-host.cmd"
+$hostWrapper = Join-Path $hostRoot "Klarkey.NativeHostLauncher.exe"
 $manifestRoot = Join-Path $hostRoot "manifests"
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
 
 if (-not (Test-Path $hostWrapper)) {
-  throw "Build the project first so dist-extension/native-host/klarkey-native-host.cmd exists."
+  throw "Build the project first so dist-extension/native-host/Klarkey.NativeHostLauncher.exe exists."
 }
 
 function Write-NativeManifest {
