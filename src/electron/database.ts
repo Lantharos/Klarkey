@@ -75,8 +75,22 @@ export function createDatabase(): DatabaseHandle {
       id TEXT PRIMARY KEY,
       itemId TEXT NOT NULL,
       label TEXT NOT NULL,
+      credentialId TEXT,
+      rpId TEXT,
+      userName TEXT,
+      transports TEXT,
+      lastUsedAt TEXT,
       createdAt TEXT NOT NULL,
       FOREIGN KEY(itemId) REFERENCES identities(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS vault_passkeys (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      credentialId TEXT NOT NULL UNIQUE,
+      transports TEXT,
+      createdAt TEXT NOT NULL,
+      lastUsedAt TEXT
     );
 
     CREATE TABLE IF NOT EXISTS recent_actions (
@@ -105,6 +119,13 @@ export function createDatabase(): DatabaseHandle {
     ensureColumn(db, 'passkeys', 'itemId', 'TEXT')
     db.exec('UPDATE passkeys SET itemId = identityId WHERE itemId IS NULL')
   }
+
+  ensureColumn(db, 'passkeys', 'credentialId', 'TEXT')
+  ensureColumn(db, 'passkeys', 'rpId', 'TEXT')
+  ensureColumn(db, 'passkeys', 'userName', 'TEXT')
+  ensureColumn(db, 'passkeys', 'transports', 'TEXT')
+  ensureColumn(db, 'passkeys', 'lastUsedAt', 'TEXT')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS passkeys_credential_id_idx ON passkeys(credentialId) WHERE credentialId IS NOT NULL')
 
   return {
     db,

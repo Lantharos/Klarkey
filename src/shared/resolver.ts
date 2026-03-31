@@ -119,6 +119,20 @@ function buildResolvedActions(
     return [settingsAction]
   }
 
+  if (query.intent === 'generate' && query.credential === 'passkey') {
+    return [
+      {
+        ...settingsAction,
+        id: 'settings:passkeys',
+        title: 'Manage passkeys',
+        subtitle: 'Vault passkeys',
+        primaryHint: 'Create or verify a provider-backed passkey for this Klarkey vault.',
+        score: 100,
+      },
+      settingsAction,
+    ]
+  }
+
   if (query.intent === 'create') {
     const literalName = query.itemQuery?.trim() || ''
 
@@ -310,19 +324,6 @@ function buildResolvedActions(
         },
         requiresUnlock: true,
         score: baseScore + 20,
-      })
-    } else if (query.intent === 'generate' && item.itemType === 'login') {
-      actions.push({
-        id: `generate-passkey:${item.id}`,
-        kind: 'generate-passkey',
-        title: item.itemName,
-        subtitle: itemSubtitle(item),
-        itemId: item.id,
-        itemType: item.itemType,
-        ...getLogoMeta(item),
-        primaryHint: 'Create a local placeholder for the future passkey bridge.',
-        requiresUnlock: true,
-        score: baseScore + 18,
       })
     } else if (query.intent === 'switch') {
       actions.push({

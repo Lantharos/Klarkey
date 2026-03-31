@@ -1,11 +1,16 @@
 import { randomBytes } from 'node:crypto'
 import type Database from 'better-sqlite3'
+import { scoreWebsiteMatch } from '@/shared/browser-extension'
 import { decryptValue, encryptValue, type EncryptedPayload } from '@/electron/crypto'
 import type { CreatableItemType } from '@/shared/item-types'
 import { getTotpCode, parseStoredTotp, parseTotpInput } from '@/shared/totp'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
+  type BrowserFillLogin,
+  type BrowserSaveLoginInput,
+  type BrowserSiteMatch,
+  type CreateVaultPasskeyInput,
   type CreateItemInput,
   type ItemDetails,
   type ItemProfile,
@@ -13,6 +18,7 @@ import {
   type SettingsUpdate,
   type UpdateItemInput,
   type UserSettings,
+  type VaultPasskeyRecord,
   type VaultSnapshot,
 } from '@/shared/types'
 
@@ -64,6 +70,37 @@ type ItemDataPayload = {
   phone?: string
   address?: string
   content?: string
+}
+
+type PasskeyRow = {
+  id: string
+  itemId: string
+  label: string
+  credentialId?: string
+  rpId?: string
+  userName?: string
+  transports?: string
+  createdAt: string
+  lastUsedAt?: string
+}
+
+type BrowserRequestCredential = {
+  id: string
+  type: 'public-key'
+  transports?: string[]
+}
+
+type BrowserRequestOptions = {
+  rpId?: string
+  allowCredentials?: BrowserRequestCredential[]
+  user?: {
+    name?: string
+    displayName?: string
+  }
+  rp?: {
+    id?: string
+    name?: string
+  }
 }
 
 const sanitizeItemData = (itemType: CreatableItemType, input: Partial<CreateItemInput>) => {
@@ -447,5 +484,370 @@ export class VaultRepository {
       .prepare('INSERT INTO passkeys(id, itemId, label, createdAt) VALUES (?, ?, ?, ?)')
       .run(id('passkey'), itemId, label, now())
     this.db.prepare('UPDATE identities SET hasPasskey = 1, updatedAt = ? WHERE id = ?').run(now(), itemId)
+  }
+
+  listVaultPasskeys(): VaultPasskeyRecord[] {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT id, label, credentialId, transports, createdAt, lastUsedAt
+        FROM vault_passkeys
+        ORDER BY COALESCE(lastUsedAt, createdAt) DESC, createdAt DESC
+      `,
+      )
+      .all() as Array<{
+        id: string
+        label: string
+        credentialId: string
+        transports?: string
+        createdAt: string
+        lastUsedAt?: string
+      }>
+
+    return rows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      credentialId: row.credentialId,
+      transports: parseJson<string[]>(row.transports, []),
+      createdAt: row.createdAt,
+      lastUsedAt: row.lastUsedAt,
+    }))
+  }
+
+  createVaultPasskey(input: CreateVaultPasskeyInput) {
+    const label = input.label.trim() || 'Klarkey passkey'
+    const existing = this.db
+      .prepare('SELECT id, label FROM vault_passkeys WHERE credentialId = ?')
+      .get(input.credentialId) as { id: string; label: string } | undefined
+
+    if (existing) {
+      this.db
+        .prepare('UPDATE vault_passkeys SET label = ?, transports = ?, lastUsedAt = ? WHERE id = ?')
+        .run(label, JSON.stringify(input.transports ?? []), now(), existing.id)
+
+      return {
+        status: 'success',
+        title: 'Passkey ready',
+        message: `${existing.label} is already enrolled on this device.`,
+      } satisfies ActionExecutionResult
+    }
+
+    this.db
+      .prepare(
+        `
+        INSERT INTO vault_passkeys(id, label, credentialId, transports, createdAt, lastUsedAt)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run(id('vault_passkey'), label, input.credentialId, JSON.stringify(input.transports ?? []), now(), now())
+
+    return {
+      status: 'success',
+      title: 'Passkey created',
+      message: `${label} can now verify this Klarkey vault.`,
+    } satisfies ActionExecutionResult
+  }
+
+  touchVaultPasskey(credentialId: string) {
+    const current = this.db
+      .prepare('SELECT id, label FROM vault_passkeys WHERE credentialId = ?')
+      .get(credentialId) as { id: string; label: string } | undefined
+
+    if (!current) {
+      return {
+        status: 'error',
+        title: 'Passkey missing',
+        message: 'That passkey is not enrolled in this vault yet.',
+      } satisfies ActionExecutionResult
+    }
+
+    this.db.prepare('UPDATE vault_passkeys SET lastUsedAt = ? WHERE id = ?').run(now(), current.id)
+
+    return {
+      status: 'success',
+      title: 'Passkey verified',
+      message: `${current.label} completed a provider-backed passkey check.`,
+    } satisfies ActionExecutionResult
+  }
+
+  deleteVaultPasskey(passkeyId: string) {
+    const current = this.db
+      .prepare('SELECT label FROM vault_passkeys WHERE id = ?')
+      .get(passkeyId) as { label: string } | undefined
+
+    if (!current) {
+      return {
+        status: 'error',
+        title: 'Passkey missing',
+        message: 'This passkey could not be found.',
+      } satisfies ActionExecutionResult
+    }
+
+    this.db.prepare('DELETE FROM vault_passkeys WHERE id = ?').run(passkeyId)
+
+    return {
+      status: 'success',
+      title: 'Passkey removed',
+      message: `${current.label} was removed from this vault.`,
+    } satisfies ActionExecutionResult
+  }
+
+  listBrowserSiteMatches(url: string) {
+    const matches = this.getSnapshot()
+      .items
+      .filter((item) => item.itemType === 'login')
+      .map((item) => ({
+        item,
+        score: scoreWebsiteMatch(item.websites ?? [], url),
+      }))
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        return left.item.itemName.localeCompare(right.item.itemName)
+      })
+
+    return matches.map(({ item }) => ({
+      itemId: item.id,
+      itemName: item.itemName,
+      username: item.username,
+      websites: item.websites ?? [],
+      hasPassword: item.hasPassword,
+      hasOtp: item.hasOtp,
+      hasPasskey: item.hasPasskey,
+      lastUsedAt: item.lastUsedAt,
+    })) satisfies BrowserSiteMatch[]
+  }
+
+  getBrowserFillLogin(itemId: string) {
+    const item = this.getItemDetails(itemId)
+    if (!item || item.itemType !== 'login') {
+      return undefined
+    }
+
+    return {
+      itemId: item.itemId,
+      itemName: item.itemName,
+      username: item.username || undefined,
+      password: item.password,
+      otp: item.otp ? getTotpCode(item.otp).value : undefined,
+      websites: item.websites,
+      hasPasskey: this.getSnapshot().items.find((candidate) => candidate.id === itemId)?.hasPasskey ?? false,
+    } satisfies BrowserFillLogin
+  }
+
+  saveBrowserLogin(input: BrowserSaveLoginInput) {
+    const url = input.url.trim()
+    const username = input.username?.trim() || undefined
+    const password = input.password?.trim() || undefined
+    const matches = this.listBrowserSiteMatches(url)
+    const existing = matches.find((match) => match.username === username)
+
+    if (existing) {
+      const current = this.getItemDetails(existing.itemId)
+      if (!current || current.itemType !== 'login') {
+        return {
+          status: 'error',
+          title: 'Item missing',
+          message: 'The matching login could not be updated.',
+        } satisfies ActionExecutionResult
+      }
+
+      const nextWebsites = Array.from(new Set([...current.websites, url].filter(Boolean)))
+      return this.updateItem({
+        itemId: existing.itemId,
+        itemType: 'login',
+        itemName: current.itemName,
+        username: username ?? current.username,
+        password: password ?? current.password,
+        otp: undefined,
+        notes: current.notes,
+        websites: nextWebsites,
+        customFields: current.customFields,
+      })
+    }
+
+    const title = input.title?.trim()
+    const fallbackName = title || username || url.replace(/^https?:\/\//i, '')
+    return this.createItem({
+      itemType: 'login',
+      itemName: fallbackName,
+      username,
+      password,
+      websites: [url],
+    })
+  }
+
+  getPasskeysForBrowserRequest(url: string, requestDetailsJson: string) {
+    const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
+    const rpId = request.rpId?.trim() || request.rp?.id?.trim()
+    const knownPasskeys = this.db
+      .prepare(
+        `
+        SELECT p.id, p.itemId, p.label, p.credentialId, p.rpId, p.userName, p.transports, p.createdAt, p.lastUsedAt
+        FROM passkeys p
+        INNER JOIN identities i ON i.id = p.itemId
+        WHERE p.credentialId IS NOT NULL
+          AND (p.rpId = ? OR p.rpId IS NULL)
+        ORDER BY COALESCE(p.lastUsedAt, i.lastUsedAt, p.createdAt) DESC
+      `,
+      )
+      .all(rpId ?? null) as PasskeyRow[]
+
+    const relevant = knownPasskeys.filter((passkey) => {
+      const item = this.getSnapshot().items.find((candidate) => candidate.id === passkey.itemId)
+      if (!item) {
+        return false
+      }
+
+      return scoreWebsiteMatch(item.websites ?? [], url) > 0 || (rpId ? passkey.rpId === rpId : false)
+    })
+
+    const requestedIds = new Set((request.allowCredentials ?? []).map((credential) => credential.id))
+    const filtered = requestedIds.size
+      ? relevant.filter((passkey) => passkey.credentialId && requestedIds.has(passkey.credentialId))
+      : relevant
+
+    if (filtered.length === 0) {
+      return {
+        status: 'error',
+        title: 'No passkey saved',
+        message: 'Klarkey does not have a saved passkey for this site yet.',
+      } satisfies ActionExecutionResult
+    }
+
+    const nextRequest = {
+      ...request,
+      allowCredentials: filtered
+        .filter((passkey) => passkey.credentialId)
+        .map((passkey) => ({
+          id: passkey.credentialId!,
+          type: 'public-key',
+          transports: parseJson<string[]>(passkey.transports, []),
+        })),
+    }
+
+    return {
+      requestDetailsJson: JSON.stringify(nextRequest),
+      selectedCredentialIds: filtered.flatMap((passkey) => (passkey.credentialId ? [passkey.credentialId] : [])),
+    }
+  }
+
+  saveSitePasskey(url: string, requestDetailsJson: string, responseJson: string) {
+    const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
+    const response = parseJson<{ id?: string; response?: { transports?: string[] } }>(responseJson, {})
+    const credentialId = response.id?.trim()
+    const rpId = request.rp?.id?.trim() || new URL(url).hostname
+    const userName = request.user?.name?.trim() || undefined
+    const itemName = request.rp?.name?.trim() || rpId
+
+    if (!credentialId) {
+      return {
+        status: 'error',
+        title: 'Passkey missing',
+        message: 'The browser did not return a passkey credential id.',
+      } satisfies ActionExecutionResult
+    }
+
+    const existing = this.db
+      .prepare('SELECT id, itemId, label FROM passkeys WHERE credentialId = ?')
+      .get(credentialId) as { id: string; itemId: string; label: string } | undefined
+
+    const siteMatches = this.listBrowserSiteMatches(url)
+    const linkedItem =
+      siteMatches.find((match) => match.username === userName) ??
+      siteMatches[0]
+
+    let itemId = linkedItem?.itemId
+    if (!itemId) {
+      const created = this.createItem({
+        itemType: 'login',
+        itemName,
+        username: userName,
+        websites: [url],
+      })
+
+      if (!created.itemId) {
+        return created
+      }
+
+      itemId = created.itemId
+    }
+
+    if (existing) {
+      this.db
+        .prepare(
+          `
+          UPDATE passkeys
+          SET itemId = ?, label = ?, rpId = ?, userName = ?, transports = ?, lastUsedAt = ?
+          WHERE id = ?
+        `,
+        )
+        .run(
+          itemId,
+          itemName,
+          rpId,
+          userName ?? null,
+          JSON.stringify(response.response?.transports ?? []),
+          now(),
+          existing.id,
+        )
+    } else {
+      this.db
+        .prepare(
+          `
+          INSERT INTO passkeys(id, itemId, label, credentialId, rpId, userName, transports, lastUsedAt, createdAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        )
+        .run(
+          id('passkey'),
+          itemId,
+          itemName,
+          credentialId,
+          rpId,
+          userName ?? null,
+          JSON.stringify(response.response?.transports ?? []),
+          now(),
+          now(),
+        )
+    }
+
+    const details = this.getItemDetails(itemId)
+    const websites = Array.from(new Set([...(details?.websites ?? []), url]))
+    this.db.prepare('UPDATE identities SET hasPasskey = 1, websites = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(websites), now(), itemId)
+
+    return {
+      status: 'success',
+      title: 'Passkey saved',
+      message: `${itemName} is now linked to this site in Klarkey.`,
+      itemId,
+    } satisfies ActionExecutionResult
+  }
+
+  rememberSitePasskeyAssertion(credentialId: string) {
+    const current = this.db
+      .prepare('SELECT itemId, label FROM passkeys WHERE credentialId = ?')
+      .get(credentialId) as { itemId: string; label: string } | undefined
+
+    if (!current) {
+      return {
+        status: 'error',
+        title: 'Passkey missing',
+        message: 'The selected passkey is not known to Klarkey.',
+      } satisfies ActionExecutionResult
+    }
+
+    this.db.prepare('UPDATE passkeys SET lastUsedAt = ? WHERE credentialId = ?').run(now(), credentialId)
+    this.remember(`passkey:${credentialId}`, current.label, current.itemId)
+
+    return {
+      status: 'success',
+      title: 'Passkey approved',
+      message: `${current.label} was used through the browser bridge.`,
+      itemId: current.itemId,
+    } satisfies ActionExecutionResult
   }
 }

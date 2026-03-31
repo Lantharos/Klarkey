@@ -6,7 +6,7 @@ import { LoginItemIcon } from '@/app/login-item-icon'
 import { getCreateTitle, getItemTypeAccent, getItemTypeIcon } from '@/app/item-type-meta'
 import { actionKindLabel, itemInitials } from '@/app/palette-utils'
 import type { DetailAction } from '@/app/palette-types'
-import type { ResolvedAction, UserSettings } from '@/shared/types'
+import type { ActionExecutionResult, PasskeySupport, ResolvedAction, UserSettings, VaultPasskeyRecord } from '@/shared/types'
 import { getTotpCode } from '@/shared/totp'
 
 function TypeIcon({ itemType }: { itemType: ResolvedAction['itemType'] }) {
@@ -352,13 +352,42 @@ export function SettingsPage({
   settings,
   onToggleStartup,
   onTimeoutChange,
+  passkeySupport,
+  passkeys,
+  passkeyBusy,
+  passkeyExecution,
+  onCreatePasskey,
+  onVerifyPasskey,
+  onDeletePasskey,
   pointerActive = true,
 }: {
   settings: UserSettings
   onToggleStartup: () => void
   onTimeoutChange: (seconds: number) => void
+  passkeySupport?: PasskeySupport
+  passkeys: VaultPasskeyRecord[]
+  passkeyBusy: boolean
+  passkeyExecution?: ActionExecutionResult
+  onCreatePasskey: () => void
+  onVerifyPasskey: () => void
+  onDeletePasskey: (passkeyId: string) => void
   pointerActive?: boolean
 }) {
+  const providerValue = !passkeySupport
+    ? 'Loading'
+    : !passkeySupport.available
+      ? 'Unavailable'
+      : passkeySupport.platformAuthenticatorAvailable
+        ? 'Ready'
+        : 'Browser-managed'
+  const passkeyHint = !passkeySupport
+    ? 'Checking passkey support...'
+    : !passkeySupport.available
+      ? 'Klarkey needs a secure WebAuthn context before passkeys can run.'
+      : passkeySupport.platform === 'linux' && !passkeySupport.safeStorageAvailable
+        ? 'Linux support depends on a working desktop credential store such as Secret Service or KWallet.'
+        : `Uses ${passkeySupport.origin} with RP ID ${passkeySupport.relyingPartyId}.`
+
   return (
     <div className="space-y-1 px-2 py-3">
       <SettingRow label="Shortcut" value={settings.hotkey} pointerActive={pointerActive} />
@@ -374,6 +403,72 @@ export function SettingsPage({
         onClick={onToggleStartup}
         pointerActive={pointerActive}
       />
+      <div className="rounded-[10px] border border-white/8 bg-white/[0.03] px-4 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-[15px] text-white">Vault passkeys</div>
+            <div className="mt-1 max-w-[460px] text-[13px] leading-5 text-white/46">{passkeyHint}</div>
+          </div>
+          <div className="rounded-[8px] bg-white/6 px-2.5 py-1 text-[12px] text-white/54">{providerValue}</div>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={passkeyBusy || !passkeySupport?.available}
+            onClick={onCreatePasskey}
+            className="rounded-[9px] bg-white/10 px-3 py-2 text-[13px] text-white transition hover:bg-white/14 disabled:cursor-default disabled:opacity-40"
+          >
+            Create passkey
+          </button>
+          <button
+            type="button"
+            disabled={passkeyBusy || passkeys.length === 0 || !passkeySupport?.available}
+            onClick={onVerifyPasskey}
+            className="rounded-[9px] bg-white/6 px-3 py-2 text-[13px] text-white/84 transition hover:bg-white/10 disabled:cursor-default disabled:opacity-40"
+          >
+            Verify passkey
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {passkeys.length === 0 ? (
+            <div className="rounded-[9px] bg-white/[0.035] px-3 py-3 text-[13px] text-white/42">
+              No Klarkey passkeys are enrolled on this vault yet.
+            </div>
+          ) : (
+            passkeys.map((passkey) => (
+              <div key={passkey.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[9px] bg-white/[0.035] px-3 py-3">
+                <div className="min-w-0">
+                  <div className="truncate text-[14px] text-white">{passkey.label}</div>
+                  <div className="truncate text-[12px] text-white/38">
+                    {passkey.lastUsedAt
+                      ? `Last used ${new Date(passkey.lastUsedAt).toLocaleString()}`
+                      : `Created ${new Date(passkey.createdAt).toLocaleString()}`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={passkeyBusy}
+                  onClick={() => onDeletePasskey(passkey.id)}
+                  className="rounded-[8px] px-2.5 py-1 text-[12px] text-red-200/82 transition hover:bg-red-500/10 disabled:cursor-default disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+        {passkeyExecution ? (
+          <div
+            className={clsx(
+              'mt-4 rounded-[9px] px-3 py-3 text-[13px]',
+              passkeyExecution.status === 'error' ? 'bg-red-500/10 text-red-100' : 'bg-emerald-500/10 text-emerald-100',
+            )}
+          >
+            <div className="font-medium">{passkeyExecution.title}</div>
+            <div className="mt-1 text-current/80">{passkeyExecution.message}</div>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

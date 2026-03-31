@@ -1,6 +1,136 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '@/electron/constants'
 import type { KlarkeyApi } from '@/shared/ipc'
+import { PASSKEY_RP_ID, PASSKEY_RP_NAME } from '@/shared/passkeys'
+import type { CreateVaultPasskeyInput, VaultPasskeyRecord } from '@/shared/types'
+
+const encodeBase64Url = (input: ArrayBuffer | Uint8Array) => {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  let binary = ''
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte)
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+const decodeBase64Url = (input: string) => {
+  const padded = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=')
+  const decoded = atob(padded)
+  return Uint8Array.from(decoded, (char) => char.charCodeAt(0))
+}
+
+const createChallenge = () => crypto.getRandomValues(new Uint8Array(32))
+
+const createPasskeyLabel = () =>
+  `Klarkey ${new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date())}`
+
+const getBrowserPasskeySupport = async () => {
+  const browserHasWebAuthn = typeof window !== 'undefined' && 'PublicKeyCredential' in window
+  const secureContext = window.isSecureContext
+  const platformAuthenticatorAvailable =
+    browserHasWebAuthn && typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
+      ? await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(() => false)
+      : false
+  const conditionalMediationAvailable =
+    browserHasWebAuthn && typeof PublicKeyCredential.isConditionalMediationAvailable === 'function'
+      ? await PublicKeyCredential.isConditionalMediationAvailable().catch(() => false)
+      : false
+
+  return {
+    browserHasWebAuthn,
+    secureContext,
+    platformAuthenticatorAvailable,
+    conditionalMediationAvailable,
+  }
+}
+
+const createPasskeyCredential = async (label?: string) => {
+  const resolvedLabel = label?.trim() || createPasskeyLabel()
+  const userId = crypto.getRandomValues(new Uint8Array(32))
+  const credential = await navigator.credentials.create({
+    publicKey: {
+      challenge: createChallenge(),
+      rp: {
+        id: PASSKEY_RP_ID,
+        name: PASSKEY_RP_NAME,
+      },
+      user: {
+        id: userId,
+        name: `vault-${encodeBase64Url(userId)}@klarkey.local`,
+        displayName: resolvedLabel,
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      authenticatorSelection: {
+        residentKey: 'required',
+        userVerification: 'preferred',
+      },
+      timeout: 60_000,
+      attestation: 'none',
+    },
+  })
+
+  if (!(credential instanceof PublicKeyCredential)) {
+    throw new Error('No passkey credential was returned by the provider.')
+  }
+
+  const response = credential.response as AuthenticatorAttestationResponse
+  return {
+    label: resolvedLabel,
+    credentialId: encodeBase64Url(credential.rawId),
+    transports: response.getTransports?.() ?? [],
+  } satisfies CreateVaultPasskeyInput
+}
+
+const getPasskeyCredential = async (passkeys: VaultPasskeyRecord[]) => {
+  const credential = await navigator.credentials.get({
+    publicKey: {
+      challenge: createChallenge(),
+      rpId: PASSKEY_RP_ID,
+      allowCredentials: passkeys.map((passkey) => ({
+        id: decodeBase64Url(passkey.credentialId),
+        type: 'public-key',
+        transports: passkey.transports as AuthenticatorTransport[],
+      })),
+      userVerification: 'preferred',
+      timeout: 60_000,
+    },
+  })
+
+  if (!(credential instanceof PublicKeyCredential)) {
+    throw new Error('No passkey assertion was returned by the provider.')
+  }
+
+  return encodeBase64Url(credential.rawId)
+}
+
+const formatPasskeyError = (error: unknown) => {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') {
+      return 'The passkey prompt was cancelled or timed out.'
+    }
+
+    if (error.name === 'InvalidStateError') {
+      return 'This passkey is already enrolled for Klarkey on this device.'
+    }
+
+    if (error.name === 'SecurityError') {
+      return 'Passkeys require a secure app origin. Restart Klarkey after the update if this persists.'
+    }
+
+    return error.message
+  }
+
+  return error instanceof Error ? error.message : 'Passkey operation failed.'
+}
 
 const api: KlarkeyApi = {
   palette: {
@@ -28,6 +158,76 @@ const api: KlarkeyApi = {
   settings: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
     set: (update) => ipcRenderer.invoke(IPC_CHANNELS.settingsSet, update),
+  },
+  passkeys: {
+    getSupport: async () => {
+      const [browserSupport, systemSupport] = await Promise.all([
+        getBrowserPasskeySupport(),
+        ipcRenderer.invoke(IPC_CHANNELS.passkeySupport),
+      ])
+
+      return {
+        ...systemSupport,
+        available: browserSupport.browserHasWebAuthn && browserSupport.secureContext,
+        secureContext: browserSupport.secureContext,
+        platformAuthenticatorAvailable: browserSupport.platformAuthenticatorAvailable,
+        conditionalMediationAvailable: browserSupport.conditionalMediationAvailable,
+      }
+    },
+    list: () => ipcRenderer.invoke(IPC_CHANNELS.passkeyList),
+    create: async (label) => {
+      const support = await api.passkeys.getSupport()
+      if (!support.available) {
+        return {
+          status: 'error',
+          title: 'Passkeys unavailable',
+          message: 'This build is not running in a secure WebAuthn context yet.',
+        }
+      }
+
+      try {
+        const payload = await createPasskeyCredential(label)
+        return await ipcRenderer.invoke(IPC_CHANNELS.passkeyCreate, payload)
+      } catch (error) {
+        return {
+          status: 'error',
+          title: 'Passkey setup failed',
+          message: formatPasskeyError(error),
+        }
+      }
+    },
+    authenticate: async () => {
+      const support = await api.passkeys.getSupport()
+      if (!support.available) {
+        return {
+          status: 'error',
+          title: 'Passkeys unavailable',
+          message: 'This build is not running in a secure WebAuthn context yet.',
+        }
+      }
+
+      const passkeys = await ipcRenderer.invoke(IPC_CHANNELS.passkeyList) as VaultPasskeyRecord[]
+      if (passkeys.length === 0) {
+        return {
+          status: 'error',
+          title: 'No passkeys yet',
+          message: 'Create a Klarkey passkey before trying to verify one.',
+        }
+      }
+
+      try {
+        const credentialId = await getPasskeyCredential(passkeys)
+        return await ipcRenderer.invoke(IPC_CHANNELS.passkeyAuthenticate, credentialId)
+      } catch (error) {
+        return {
+          status: 'error',
+          title: 'Passkey verification failed',
+          message: formatPasskeyError(error),
+        }
+      }
+    },
+    save: (input) => ipcRenderer.invoke(IPC_CHANNELS.passkeyCreate, input),
+    remove: (passkeyId) => ipcRenderer.invoke(IPC_CHANNELS.passkeyDelete, passkeyId),
   },
   onPrepareOpen: (callback) => {
     const listener = () => callback()

@@ -42,6 +42,23 @@ const fallbackApi: KlarkeyApi = {
     get: async () => DEFAULT_SETTINGS,
     set: async () => DEFAULT_SETTINGS,
   },
+  passkeys: {
+    getSupport: async () => ({
+      available: false,
+      secureContext: false,
+      platformAuthenticatorAvailable: false,
+      conditionalMediationAvailable: false,
+      platform: 'unknown',
+      safeStorageAvailable: false,
+      relyingPartyId: 'app.klarkey',
+      origin: 'klarkey://app',
+    }),
+    list: async () => [],
+    create: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+    authenticate: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+    save: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+    remove: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+  },
   onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
 }

@@ -1,24 +1,28 @@
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import { ClipboardManager } from '@/electron/clipboard'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
 import { captureForegroundWindow, captureForegroundWindowAsync, pasteIntoWindow } from '@/electron/windows'
+import { PASSKEY_ORIGIN, PASSKEY_RP_ID } from '@/shared/passkeys'
 import { parseCommand } from '@/shared/command'
 import { resolveActions, resolveSearchResponse } from '@/shared/resolver'
 import type {
   ActionExecutionResult,
   CommandQuery,
+  CreateVaultPasskeyInput,
   CreateItemInput,
   ItemDetails,
   ModifierKey,
+  PasskeySupport,
   ResolvedAction,
   SearchResponse,
   SettingsUpdate,
   UpdateItemInput,
   UserSettings,
+  VaultPasskeyRecord,
 } from '@/shared/types'
 
 const LOCK_WINDOW_MS = Number.POSITIVE_INFINITY
@@ -67,6 +71,36 @@ export class KlarkeyController {
 
   deleteItem(itemId: string) {
     return this.repository.deleteItem(itemId)
+  }
+
+  getPasskeySupport(): PasskeySupport {
+    return {
+      available: true,
+      secureContext: true,
+      platformAuthenticatorAvailable: false,
+      conditionalMediationAvailable: false,
+      platform: process.platform,
+      safeStorageAvailable: safeStorage.isEncryptionAvailable(),
+      relyingPartyId: PASSKEY_RP_ID,
+      origin: PASSKEY_ORIGIN,
+    }
+  }
+
+  listVaultPasskeys(): VaultPasskeyRecord[] {
+    return this.repository.listVaultPasskeys()
+  }
+
+  createVaultPasskey(input: CreateVaultPasskeyInput): ActionExecutionResult {
+    return this.repository.createVaultPasskey(input)
+  }
+
+  authenticateVaultPasskey(credentialId: string): ActionExecutionResult {
+    this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
+    return this.repository.touchVaultPasskey(credentialId)
+  }
+
+  deleteVaultPasskey(passkeyId: string): ActionExecutionResult {
+    return this.repository.deleteVaultPasskey(passkeyId)
   }
 
   parseCommand(_: IpcMainInvokeEvent, raw: string) {
@@ -430,16 +464,11 @@ export class KlarkeyController {
       }
 
       case 'generate-passkey': {
-        if (action.itemId) {
-          this.repository.markPasskey(action.itemId, action.title)
-          this.repository.remember(action.id, action.title, action.itemId)
-          return {
-            status: 'success',
-            title: 'Passkey placeholder added',
-            message: 'The local passkey bridge is marked and ready for a later provider adapter.',
-          }
+        return {
+          status: 'info',
+          title: 'Manage passkeys in Settings',
+          message: 'Klarkey passkeys are configured in Settings because website passkeys need the site origin itself.',
         }
-        break
       }
 
       case 'switch-item': {

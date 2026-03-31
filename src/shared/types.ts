@@ -94,6 +94,60 @@ export interface PasskeyRecord {
   createdAt: string
 }
 
+export interface VaultPasskeyRecord {
+  id: string
+  label: string
+  credentialId: string
+  transports: string[]
+  createdAt: string
+  lastUsedAt?: string
+}
+
+export interface PasskeySupport {
+  available: boolean
+  secureContext: boolean
+  platformAuthenticatorAvailable: boolean
+  conditionalMediationAvailable: boolean
+  platform: NodeJS.Platform | 'unknown'
+  safeStorageAvailable: boolean
+  relyingPartyId: string
+  origin: string
+}
+
+export interface CreateVaultPasskeyInput {
+  label: string
+  credentialId: string
+  transports: string[]
+}
+
+export interface BrowserSiteMatch {
+  itemId: string
+  itemName: string
+  username?: string
+  websites: string[]
+  hasPassword: boolean
+  hasOtp: boolean
+  hasPasskey: boolean
+  lastUsedAt?: string
+}
+
+export interface BrowserFillLogin {
+  itemId: string
+  itemName: string
+  username?: string
+  password?: string
+  otp?: string
+  websites: string[]
+  hasPasskey: boolean
+}
+
+export interface BrowserSaveLoginInput {
+  url: string
+  title?: string
+  username?: string
+  password?: string
+}
+
 export interface RecentAction {
   id: string
   actionId: string

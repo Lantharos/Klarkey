@@ -1,0 +1,30 @@
+{
+  "manifest_version": 2,
+  "name": "Klarkey",
+  "version": "0.1.0",
+  "description": "Desktop-only autofill bridge for Klarkey.",
+  "permissions": ["activeTab", "tabs", "nativeMessaging", "<all_urls>"],
+  "browser_action": {
+    "default_title": "Klarkey",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": ["page-bridge.js", "icons/klarkey-128.png"],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "klarkey@example.local"
+    }
+  },
+  "icons": {
+    "128": "icons/klarkey-128.png"
+  }
+}

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Klarkey</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="header">
+        <div class="brand">Klarkey</div>
+        <div id="statusBadge" class="status">Desktop required</div>
+      </header>
+      <h1 id="title">Connecting…</h1>
+      <p id="statusMessage" class="message">Loading available items from the desktop app.</p>
+
+      <section class="section">
+        <div class="section-row">
+          <div class="section-title">Current site</div>
+          <button id="saveButton" class="button">Save current form</button>
+        </div>
+        <div id="siteUrl" class="value">No active page</div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">Matches</div>
+        <div id="matches" class="list"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">Passkeys</div>
+        <p id="passkeys" class="detail">Loading passkey bridge status…</p>
+        <p id="passkeyHint" class="detail secondary"></p>
+      </section>
+    </main>
+    <script src="./popup.js"></script>
+  </body>
+</html>

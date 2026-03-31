@@ -11,6 +11,11 @@ export const IPC_CHANNELS = {
   vaultUnlock: 'vault.unlock',
   settingsGet: 'settings.get',
   settingsSet: 'settings.set',
+  passkeySupport: 'passkey.support',
+  passkeyList: 'passkey.list',
+  passkeyCreate: 'passkey.create',
+  passkeyAuthenticate: 'passkey.authenticate',
+  passkeyDelete: 'passkey.delete',
   palettePrepare: 'palette.prepare',
   paletteFocus: 'palette.focus',
 } as const

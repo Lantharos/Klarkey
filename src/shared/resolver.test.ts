@@ -75,4 +75,11 @@ describe('resolveActions', () => {
 
     expect(actions.some((action) => action.itemType === 'identity')).toBe(true)
   })
+
+  it('routes passkey generation to settings management', () => {
+    const actions = resolveActions(snapshot, parseCommand('generate passkey'))
+
+    expect(actions[0]?.kind).toBe('open-settings')
+    expect(actions[0]?.title).toBe('Manage passkeys')
+  })
 })

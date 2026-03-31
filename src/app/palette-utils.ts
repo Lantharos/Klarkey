@@ -16,8 +16,6 @@ export function actionKindLabel(action: ResolvedAction) {
       return 'Command'
     case 'create-item':
       return 'Create'
-    case 'generate-passkey':
-      return 'Passkey'
     case 'show-otp':
     case 'copy-otp':
       return 'Code'

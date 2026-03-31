@@ -1,5 +1,5 @@
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   app,
   BrowserWindow,
@@ -7,28 +7,68 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  net,
   nativeImage,
+  protocol,
   screen,
   session,
   Tray,
 } from 'electron'
 import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
+import { runNativeMessagingHost } from '@/electron/native-host'
+import { runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
+import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: PASSKEY_SCHEME,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+    },
+  },
+])
 
 let windowRef: BrowserWindow | null = null
 let controllerRef: KlarkeyController | null = null
 let isQuitting = false
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isDevMode = process.argv.includes('--dev')
-const rendererEntry = () => join(app.getAppPath(), 'dist', 'index.html')
+const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
+const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
+const rendererDistPath = () => join(app.getAppPath(), 'dist')
 const devServerUrl = () => process.env.VITE_DEV_SERVER_URL ?? (isDevMode ? 'http://127.0.0.1:5173' : undefined)
 const appIconPath = () =>
   isDevMode ? join(app.getAppPath(), 'public', 'klarkey.png') : join(app.getAppPath(), 'dist', 'klarkey.png')
 const appIcon = () => nativeImage.createFromPath(appIconPath())
-const hasSingleInstanceLock = app.requestSingleInstanceLock()
+const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode ? true : app.requestSingleInstanceLock()
 
 if (!hasSingleInstanceLock) {
   app.quit()
+}
+
+const resolveAppAssetPath = (pathname: string) => {
+  const distPath = rendererDistPath()
+  const requestedPath = pathname === '/' ? '/index.html' : pathname
+  const normalizedPath = /\.[a-z0-9]+$/i.test(requestedPath) ? requestedPath : '/index.html'
+  const resolvedPath = resolve(distPath, `.${decodeURIComponent(normalizedPath)}`)
+
+  return resolvedPath.startsWith(distPath) ? resolvedPath : resolve(distPath, 'index.html')
+}
+
+const registerAppProtocol = () => {
+  protocol.handle(PASSKEY_SCHEME, (request) => {
+    const url = new URL(request.url)
+    if (url.host !== PASSKEY_HOST) {
+      return new Response('Not found', { status: 404 })
+    }
+
+    return net.fetch(pathToFileURL(resolveAppAssetPath(url.pathname)).toString())
+  })
 }
 
 const createWindow = async () => {
@@ -93,7 +133,7 @@ const createWindow = async () => {
   if (liveUrl) {
     await window.loadURL(liveUrl)
   } else {
-    await window.loadFile(rendererEntry())
+    await window.loadURL(PASSKEY_ORIGIN)
   }
 
   window.once('ready-to-show', () => {
@@ -176,10 +216,29 @@ const bindIpc = () => {
     registerHotkey()
     return next
   })
+  ipcMain.handle(IPC_CHANNELS.passkeySupport, () => controllerRef?.getPasskeySupport())
+  ipcMain.handle(IPC_CHANNELS.passkeyList, () => controllerRef?.listVaultPasskeys())
+  ipcMain.handle(IPC_CHANNELS.passkeyCreate, (_, input) => controllerRef?.createVaultPasskey(input))
+  ipcMain.handle(IPC_CHANNELS.passkeyAuthenticate, (_, credentialId) =>
+    controllerRef?.authenticateVaultPasskey(credentialId),
+  )
+  ipcMain.handle(IPC_CHANNELS.passkeyDelete, (_, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId))
 }
 
 app.whenReady()
   .then(async () => {
+    if (isNativeMessagingHostMode) {
+      await runNativeMessagingHost()
+      app.quit()
+      return
+    }
+
+    if (isPasskeyProviderBridgeMode) {
+      await runPasskeyProviderBridgeHost()
+      app.quit()
+      return
+    }
+
     session.defaultSession.setDisplayMediaRequestHandler(
       async (_, callback) => {
         const sources = await desktopCapturer.getSources({
@@ -196,6 +255,7 @@ app.whenReady()
     )
 
     bindIpc()
+    registerAppProtocol()
     await createWindow()
     createTray()
     registerHotkey()

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { ItemDetailOverview } from '@/app/item-detail-overview'
 import { ItemFormPage } from '@/app/item-form-page'
@@ -16,7 +16,16 @@ import type { ItemFormValues } from '@/app/palette-types'
 import { createFormValues } from '@/app/palette-utils'
 import { usePaletteStore } from '@/app/usePaletteStore'
 import { getTotpCode } from '@/shared/totp'
-import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type TotpDetails, type UpdateItemInput } from '@/shared/types'
+import {
+  DEFAULT_SETTINGS,
+  type ActionExecutionResult,
+  type CreateItemInput,
+  type ItemDetails,
+  type PasskeySupport,
+  type TotpDetails,
+  type UpdateItemInput,
+  type VaultPasskeyRecord,
+} from '@/shared/types'
 
 function cleanFormValue(value: ItemFormValues): CreateItemInput {
   return {
@@ -121,6 +130,10 @@ function App() {
   const [pointerActive, setPointerActive] = useState(false)
   const [isPreparingOpen, setIsPreparingOpen] = useState(false)
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false)
+  const [passkeySupport, setPasskeySupport] = useState<PasskeySupport>()
+  const [vaultPasskeys, setVaultPasskeys] = useState<VaultPasskeyRecord[]>([])
+  const [passkeyBusy, setPasskeyBusy] = useState(false)
+  const [passkeyExecution, setPasskeyExecution] = useState<ActionExecutionResult>()
   const selection = actions[selectedIndex]
   const activeDetailItem = detailAction?.itemId === detailItem?.itemId ? detailItem : undefined
   const detailActions = useMemo(() => buildDetailActions(activeDetailItem), [activeDetailItem])
@@ -159,9 +172,31 @@ function App() {
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
   const footerOtp = execution?.title === 'Current OTP' ? activeDetailItem?.otp : undefined
 
+  const refreshPasskeys = useCallback(async () => {
+    if (!window.klarkey) {
+      return
+    }
+
+    const [support, passkeys] = await Promise.all([
+      window.klarkey.passkeys.getSupport(),
+      window.klarkey.passkeys.list(),
+    ])
+
+    setPasskeySupport(support)
+    setVaultPasskeys(passkeys)
+  }, [])
+
   useEffect(() => {
     void boot()
   }, [boot])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshPasskeys()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [refreshPasskeys])
 
   useEffect(() => {
     if (!window.klarkey) {
@@ -363,6 +398,10 @@ function App() {
             <div className="min-h-0 flex-1 overflow-y-auto">
               <SettingsPage
                 settings={settings ?? DEFAULT_SETTINGS}
+                passkeySupport={passkeySupport}
+                passkeys={vaultPasskeys}
+                passkeyBusy={passkeyBusy}
+                passkeyExecution={passkeyExecution}
                 pointerActive={pointerActive}
                 onToggleStartup={() =>
                   void updateSettings({
@@ -370,6 +409,36 @@ function App() {
                   })
                 }
                 onTimeoutChange={(seconds) => void updateSettings({ clearClipboardSeconds: seconds })}
+                onCreatePasskey={() => {
+                  setPasskeyBusy(true)
+                  setPasskeyExecution(undefined)
+                  void window.klarkey?.passkeys.create().then(async (result) => {
+                    setPasskeyExecution(result)
+                    await refreshPasskeys()
+                  }).finally(() => {
+                    setPasskeyBusy(false)
+                  })
+                }}
+                onVerifyPasskey={() => {
+                  setPasskeyBusy(true)
+                  setPasskeyExecution(undefined)
+                  void window.klarkey?.passkeys.authenticate().then(async (result) => {
+                    setPasskeyExecution(result)
+                    await refreshPasskeys()
+                  }).finally(() => {
+                    setPasskeyBusy(false)
+                  })
+                }}
+                onDeletePasskey={(passkeyId) => {
+                  setPasskeyBusy(true)
+                  setPasskeyExecution(undefined)
+                  void window.klarkey?.passkeys.remove(passkeyId).then(async (result) => {
+                    setPasskeyExecution(result)
+                    await refreshPasskeys()
+                  }).finally(() => {
+                    setPasskeyBusy(false)
+                  })
+                }}
               />
             </div>
           ) : page === 'detail' ? (
