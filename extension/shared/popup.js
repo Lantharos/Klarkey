@@ -30,7 +30,8 @@ const elements = {
 }
 
 const setStatus = (message, connected) => {
-  elements.statusBadge.textContent = connected ? 'Desktop connected' : 'Desktop offline'
+  elements.statusBadge.textContent = connected ? 'Connected' : 'Offline'
+  elements.statusBadge.classList.toggle('connected', connected)
   elements.statusMessage.textContent = message
 }
 
@@ -130,3 +131,9 @@ elements.saveButton.addEventListener('click', async () => {
 })
 
 void loadPopup()
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    void loadPopup()
+  }
+})

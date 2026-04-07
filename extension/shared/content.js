@@ -5,6 +5,7 @@ let pageState = {
   url: window.location.href,
   title: document.title,
   matches: [],
+  lastListUrl: '',
   overlayInput: undefined,
   formSnapshot: undefined,
   activeMenuButtons: [],
@@ -14,6 +15,9 @@ let pageState = {
   menuOpen: false,
 }
 
+let matchFetchGeneration = 0
+let savePromptTimer
+
 const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
 
 const overlayRoot = document.createElement('div')
@@ -21,49 +25,67 @@ const overlayStyle = document.createElement('style')
 
 overlayStyle.textContent = `
   .klarkey-inline-root {
+    --klarkey-surface: rgba(22, 22, 24, 0.94);
+    --klarkey-elevated: rgba(32, 33, 36, 0.98);
+    --klarkey-border: rgba(255, 255, 255, 0.09);
+    --klarkey-accent: #3b9eff;
+    --klarkey-text: rgba(255, 255, 255, 0.92);
+    --klarkey-muted: rgba(255, 255, 255, 0.48);
     position: fixed;
     inset: 0;
     pointer-events: none;
     z-index: 2147483646;
-    font: 13px/1.4 "Segoe UI", sans-serif;
-    color: #fff;
+    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--klarkey-text);
+    letter-spacing: 0.01em;
   }
 
   .klarkey-inline-menu {
     position: fixed;
-    min-width: 280px;
-    max-width: 360px;
-    background: #1a1a1b;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 14px;
-    box-shadow: 0 18px 44px rgba(0,0,0,0.38);
+    min-width: 288px;
+    max-width: 380px;
+    background: var(--klarkey-surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--klarkey-border);
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 24px 48px rgba(0, 0, 0, 0.45);
     overflow: hidden;
     pointer-events: auto;
   }
 
   .klarkey-inline-trigger {
     position: fixed;
-    width: 28px;
-    height: 28px;
+    width: 30px;
+    height: 30px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0;
-    border: 1px solid rgba(255,255,255,0.08);
+    border: 1px solid var(--klarkey-border);
     border-radius: 8px;
-    background: #202123;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+    background: var(--klarkey-elevated);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
     cursor: pointer;
     pointer-events: auto;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
   }
 
   .klarkey-inline-trigger:hover {
-    background: #26282b;
+    border-color: rgba(59, 158, 255, 0.45);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  }
+
+  .klarkey-inline-trigger:focus-visible {
+    outline: 2px solid var(--klarkey-accent);
+    outline-offset: 2px;
   }
 
   .klarkey-inline-trigger img {
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     display: block;
   }
 
@@ -72,89 +94,108 @@ overlayStyle.textContent = `
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 11px 13px;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-    color: rgba(255,255,255,0.68);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--klarkey-border);
+    color: var(--klarkey-muted);
   }
 
   .klarkey-inline-brand {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--klarkey-text);
   }
 
   .klarkey-inline-subtle {
-    color: rgba(255,255,255,0.46);
+    font-size: 12px;
+    color: var(--klarkey-muted);
   }
 
   .klarkey-inline-list {
     display: grid;
     gap: 1px;
-    background: rgba(255,255,255,0.06);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .klarkey-inline-loading {
+    padding: 14px 13px;
+    background: var(--klarkey-elevated);
+    color: var(--klarkey-muted);
+    font-size: 13px;
   }
 
   .klarkey-inline-item {
     display: grid;
     gap: 4px;
     width: 100%;
-    padding: 11px 13px;
+    padding: 10px 12px;
     border: 0;
-    background: #202123;
+    background: var(--klarkey-elevated);
     color: inherit;
     text-align: left;
     cursor: pointer;
+    transition: background 100ms ease;
   }
 
   .klarkey-inline-item:hover {
-    background: #26282b;
+    background: rgba(42, 44, 48, 0.98);
   }
 
   .klarkey-inline-item.active,
   .klarkey-inline-action.active {
-    background: #2a2c30;
+    background: rgba(59, 158, 255, 0.12);
   }
 
   .klarkey-inline-title {
     font-size: 14px;
-    font-weight: 500;
-    color: rgba(255,255,255,0.92);
+    font-weight: 600;
+    color: var(--klarkey-text);
   }
 
   .klarkey-inline-meta {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    color: rgba(255,255,255,0.48);
+    color: var(--klarkey-muted);
   }
 
   .klarkey-inline-token {
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.06);
   }
 
   .klarkey-inline-empty,
   .klarkey-inline-footer {
     padding: 12px 13px;
-    background: #202123;
-    color: rgba(255,255,255,0.56);
+    background: var(--klarkey-elevated);
+    color: var(--klarkey-muted);
+    font-size: 13px;
   }
 
   .klarkey-inline-actions {
     display: grid;
     gap: 1px;
-    background: rgba(255,255,255,0.06);
-    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.05);
+    border-top: 1px solid var(--klarkey-border);
   }
 
   .klarkey-inline-action {
-    padding: 11px 13px;
+    padding: 10px 12px;
     border: 0;
-    background: #202123;
-    color: rgba(255,255,255,0.82);
+    background: var(--klarkey-elevated);
+    color: rgba(255, 255, 255, 0.86);
     text-align: left;
     cursor: pointer;
+    font-size: 13px;
+    transition: background 100ms ease;
   }
 
   .klarkey-inline-action:hover {
-    background: #26282b;
+    background: rgba(42, 44, 48, 0.98);
   }
 
   .klarkey-save-banner {
@@ -162,15 +203,19 @@ overlayStyle.textContent = `
     top: 16px;
     right: 16px;
     width: min(360px, calc(100vw - 32px));
-    background: #1a1a1b;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 14px;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.42);
-    padding: 14px;
+    background: var(--klarkey-surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--klarkey-border);
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.35),
+      0 24px 56px rgba(0, 0, 0, 0.5);
+    padding: 14px 16px;
     pointer-events: auto;
     transform: translateX(0);
     transition: transform 180ms ease, opacity 180ms ease;
-    animation: klarkey-slide-in 180ms ease;
+    animation: klarkey-slide-in 200ms ease;
   }
 
   .klarkey-save-banner.hidden {
@@ -179,14 +224,17 @@ overlayStyle.textContent = `
   }
 
   .klarkey-save-title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
     margin: 0 0 6px;
+    letter-spacing: -0.02em;
   }
 
   .klarkey-save-copy {
     margin: 0;
-    color: rgba(255,255,255,0.58);
+    color: var(--klarkey-muted);
+    font-size: 13px;
+    line-height: 1.45;
   }
 
   .klarkey-save-actions {
@@ -196,25 +244,29 @@ overlayStyle.textContent = `
   }
 
   .klarkey-save-button {
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 10px;
+    border: 1px solid var(--klarkey-border);
+    border-radius: 8px;
     padding: 8px 12px;
-    background: rgba(255,255,255,0.04);
-    color: rgba(255,255,255,0.88);
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.88);
     cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 120ms ease, border-color 120ms ease;
   }
 
   .klarkey-save-button:hover {
-    background: rgba(255,255,255,0.08);
+    background: rgba(255, 255, 255, 0.09);
   }
 
   .klarkey-save-button.primary {
-    background: rgba(255,255,255,0.92);
-    color: #111315;
+    background: var(--klarkey-accent);
+    border-color: rgba(59, 158, 255, 0.6);
+    color: #0a0a0b;
   }
 
   .klarkey-save-button.primary:hover {
-    background: #ffffff;
+    background: #5aadff;
   }
 
   @keyframes klarkey-slide-in {
@@ -341,6 +393,20 @@ const injectPageBridge = () => {
   document.documentElement.dataset.klarkeyPageBridge = 'ready'
   ;(document.head || document.documentElement).appendChild(script)
   script.remove()
+}
+
+const ensurePageBridgeReady = async () => {
+  injectPageBridge()
+  const start = Date.now()
+  while (Date.now() - start < 4000) {
+    if (document.documentElement.getAttribute('data-klarkey-bridge') === 'ready') {
+      return
+    }
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 8)
+    })
+  }
 }
 
 const pickForm = (preferredInput) => {
@@ -473,13 +539,27 @@ const showSaveBanner = ({ username, password, reason }) => {
   overlayRoot.appendChild(banner)
 }
 
+const openMenuFromTrigger = (input) => {
+  const generation = ++matchFetchGeneration
+  pageState.overlayInput = input
+  renderInlineMenu(input, pageState.matches, { loading: true })
+  void refreshMatches().then(() => {
+    if (generation !== matchFetchGeneration || pageState.overlayInput !== input) {
+      return
+    }
+
+    renderInlineMenu(input, pageState.matches, { loading: false })
+  })
+}
+
 const renderInlineTrigger = (input, onOpen) => {
   const rect = input.getBoundingClientRect()
   const trigger = document.createElement('button')
   trigger.type = 'button'
   trigger.className = 'klarkey-inline-trigger'
-  trigger.style.top = `${Math.max(8, rect.top + (rect.height - 28) / 2)}px`
-  trigger.style.left = `${Math.max(8, Math.min(rect.right - 32, window.innerWidth - 36))}px`
+  trigger.setAttribute('aria-label', 'Open Klarkey')
+  trigger.style.top = `${Math.max(8, rect.top + (rect.height - 30) / 2)}px`
+  trigger.style.left = `${Math.max(8, Math.min(rect.right - 34, window.innerWidth - 38))}px`
   trigger.innerHTML = `<img alt="Klarkey" src="${runtime.getURL('icons/klarkey-128.png')}" />`
   trigger.addEventListener('mousedown', (event) => {
     event.preventDefault()
@@ -496,26 +576,28 @@ const renderInlineTrigger = (input, onOpen) => {
 
 const inputModeFor = (input) => (isPasswordInput(input) ? 'password' : 'username')
 
-const renderInlineMenu = (input, matches) => {
+const renderInlineMenu = (input, matches, options = {}) => {
+  const { loading = false } = options
   removeInlineUi()
-  renderInlineTrigger(input, () => renderInlineMenu(input, pageState.matches))
+  renderInlineTrigger(input, () => openMenuFromTrigger(input))
   pageState.menuOpen = true
 
   const rect = input.getBoundingClientRect()
   const menu = document.createElement('section')
   menu.className = 'klarkey-inline-menu'
-  const estimatedHeight = 280
+  menu.setAttribute('role', 'menu')
+  const estimatedHeight = 300
   const prefersAbove = rect.bottom + estimatedHeight > window.innerHeight - 16 && rect.top > estimatedHeight
   const top = prefersAbove ? Math.max(12, rect.top - estimatedHeight - 8) : Math.min(window.innerHeight - 24, rect.bottom + 8)
   menu.style.top = `${top}px`
-  menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 372))}px`
+  menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 392))}px`
 
   const showGenerator = isPasswordInput(input)
   const inputMode = inputModeFor(input)
   menu.innerHTML = `
     <div class="klarkey-inline-header">
       <div class="klarkey-inline-brand">Klarkey</div>
-      <div class="klarkey-inline-subtle">${inputMode === 'password' ? 'Password field' : 'Username field'}</div>
+      <div class="klarkey-inline-subtle">${inputMode === 'password' ? 'Password' : 'Username'}</div>
     </div>
     <div class="klarkey-inline-list"></div>
     <div class="klarkey-inline-actions"></div>
@@ -524,23 +606,32 @@ const renderInlineMenu = (input, matches) => {
   const list = menu.querySelector('.klarkey-inline-list')
   const actions = menu.querySelector('.klarkey-inline-actions')
 
-  if (!matches.length) {
+  if (loading) {
+    const loadingEl = document.createElement('div')
+    loadingEl.className = 'klarkey-inline-loading'
+    loadingEl.textContent = 'Loading vault matches…'
+    list.appendChild(loadingEl)
+  } else if (!matches.length) {
     const empty = document.createElement('div')
     empty.className = 'klarkey-inline-empty'
-    empty.textContent = 'No matching items yet.'
+    empty.textContent = 'No matching items for this site.'
     list.appendChild(empty)
   } else {
     for (const match of matches.slice(0, 4)) {
       const item = document.createElement('button')
       item.type = 'button'
       item.className = 'klarkey-inline-item'
-      item.innerHTML = `
-        <div class="klarkey-inline-title">${match.itemName}</div>
-        <div class="klarkey-inline-subtle">${match.username || 'No username'}</div>
-        <div class="klarkey-inline-meta"></div>
-      `
-
-      const meta = item.querySelector('.klarkey-inline-meta')
+      const titleEl = document.createElement('div')
+      titleEl.className = 'klarkey-inline-title'
+      titleEl.textContent = match.itemName
+      const subtitleEl = document.createElement('div')
+      subtitleEl.className = 'klarkey-inline-subtle'
+      subtitleEl.textContent = match.username || 'No username'
+      const meta = document.createElement('div')
+      meta.className = 'klarkey-inline-meta'
+      item.appendChild(titleEl)
+      item.appendChild(subtitleEl)
+      item.appendChild(meta)
       if (match.hasOtp) {
         const token = document.createElement('span')
         token.className = 'klarkey-inline-token'
@@ -586,13 +677,14 @@ const renderInlineMenu = (input, matches) => {
   saveAction.type = 'button'
   saveAction.className = 'klarkey-inline-action'
   saveAction.textContent = inputMode === 'password' ? 'Save current login' : 'Save account for this site'
+  saveAction.disabled = loading
   saveAction.addEventListener('click', async () => {
     const snapshot = collectFormSnapshot(input)
     if (!snapshot.password && inputMode === 'password') {
       return
     }
 
-    await sendMessage({
+    const response = await sendMessage({
       type: 'save-login-payload',
       payload: {
         url: window.location.href,
@@ -600,7 +692,14 @@ const renderInlineMenu = (input, matches) => {
         username: snapshot.username,
         password: snapshot.password,
       },
-    }).catch(() => undefined)
+    }).catch(() => ({ ok: false, message: 'Could not save.' }))
+
+    if (response?.ok) {
+      pageState.matches = []
+      pageState.lastSavePromptKey = `${window.location.hostname}|${snapshot.username}|${snapshot.password}`
+      setPendingUsername(snapshot.username || '')
+    }
+
     removeInlineUi()
   })
   actions.appendChild(saveAction)
@@ -611,6 +710,7 @@ const renderInlineMenu = (input, matches) => {
     generator.type = 'button'
     generator.className = 'klarkey-inline-action'
     generator.textContent = 'Generate password'
+    generator.disabled = loading
     generator.addEventListener('click', () => {
       const generated = randomPassword()
       const inputs = getInputs(input)
@@ -630,6 +730,7 @@ const renderInlineMenu = (input, matches) => {
     carryForward.type = 'button'
     carryForward.className = 'klarkey-inline-action'
     carryForward.textContent = 'Use this account on the next step'
+    carryForward.disabled = loading
     carryForward.addEventListener('click', () => {
       const snapshot = collectFormSnapshot(input)
       if (snapshot.username) {
@@ -647,13 +748,19 @@ const renderInlineMenu = (input, matches) => {
 
 const renderInlineTriggerOnly = (input) => {
   removeInlineUi()
-  renderInlineTrigger(input, () => renderInlineMenu(input, pageState.matches))
+  renderInlineTrigger(input, () => openMenuFromTrigger(input))
 }
 
 const refreshMatches = async () => {
+  const href = window.location.href
+  if (pageState.lastListUrl !== href) {
+    pageState.lastListUrl = href
+    pageState.matches = []
+  }
+
   const response = await sendMessage({
     type: 'list-logins-for-url',
-    url: window.location.href,
+    url: href,
     title: document.title,
   }).catch((error) => ({
     ok: false,
@@ -724,15 +831,32 @@ window.addEventListener('message', (event) => {
   }
 
   pendingPageRequests.delete(event.data.id)
-  pending(event.data.payload)
+  pending.resolve(event.data.payload)
 })
 
-const runPagePasskeyOperation = (operation, requestDetailsJson) => {
-  injectPageBridge()
+const runPagePasskeyOperation = async (operation, requestDetailsJson) => {
+  await ensurePageBridgeReady()
   const id = `page_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
 
   return new Promise((resolve) => {
-    pendingPageRequests.set(id, resolve)
+    const timer = window.setTimeout(() => {
+      pendingPageRequests.delete(id)
+      resolve({
+        ok: false,
+        error: {
+          name: 'NotAllowedError',
+          message: 'The passkey request timed out.',
+        },
+      })
+    }, 120000)
+
+    pendingPageRequests.set(id, {
+      resolve: (payload) => {
+        window.clearTimeout(timer)
+        resolve(payload)
+      },
+    })
+
     window.postMessage(
       {
         source: 'klarkey-page-bridge-request',
@@ -757,11 +881,33 @@ document.addEventListener('focusin', async (event) => {
     return
   }
 
+  if (pageState.lastListUrl !== window.location.href) {
+    pageState.lastListUrl = window.location.href
+    pageState.matches = []
+  }
+
+  const generation = ++matchFetchGeneration
   pageState.overlayInput = target
-  const matches = await refreshMatches()
+
   renderInlineTriggerOnly(target)
-  if ((matches.length || isPasswordInput(target)) && target.dataset.klarkeyAutoOpen !== 'false') {
-    renderInlineMenu(target, matches)
+
+  const autoOpen = target.dataset.klarkeyAutoOpen !== 'false'
+  const shouldPrimeMenu = autoOpen && (isPasswordInput(target) || pageState.matches.length > 0)
+
+  if (shouldPrimeMenu) {
+    renderInlineMenu(target, pageState.matches, { loading: true })
+  }
+
+  await refreshMatches()
+
+  if (generation !== matchFetchGeneration || pageState.overlayInput !== target) {
+    return
+  }
+
+  const showMenu = autoOpen && (isPasswordInput(target) || pageState.matches.length > 0)
+
+  if (showMenu) {
+    renderInlineMenu(target, pageState.matches, { loading: false })
   }
 })
 
@@ -809,7 +955,7 @@ document.addEventListener('submit', () => {
     password: inputs.password?.value?.trim() || '',
   }
 
-   if (pageState.formSnapshot.username) {
+  if (pageState.formSnapshot.username) {
     setPendingUsername(pageState.formSnapshot.username)
   }
 
@@ -817,6 +963,31 @@ document.addEventListener('submit', () => {
     void maybePromptToSave(inputs.password || inputs.username, true)
   }, 180)
 }, true)
+
+document.addEventListener(
+  'blur',
+  (event) => {
+    const target = event.target
+    if (!(target instanceof HTMLInputElement) || !isPasswordInput(target)) {
+      return
+    }
+
+    const password = target.value?.trim()
+    if (!password) {
+      return
+    }
+
+    window.clearTimeout(savePromptTimer)
+    savePromptTimer = window.setTimeout(() => {
+      void maybePromptToSave(target, false)
+    }, 450)
+  },
+  true,
+)
+
+window.addEventListener('popstate', () => {
+  pageState.lastListUrl = ''
+})
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
@@ -881,4 +1052,7 @@ if (runtime) {
       return true
     }
   })
+
+  injectPageBridge()
+  void refreshMatches()
 }

@@ -65,6 +65,19 @@
     }
 
     const { id, payload } = event.data
+    const serializeCredential = (credential) => {
+      if (credential && typeof credential.toJSON === 'function') {
+        return JSON.stringify(credential.toJSON())
+      }
+
+      return JSON.stringify({
+        id: credential?.id,
+        rawId: credential?.rawId,
+        type: credential?.type,
+        response: credential?.response,
+      })
+    }
+
     try {
       if (payload.operation === 'create') {
         const credential = await navigator.credentials.create({
@@ -72,7 +85,7 @@
         })
         respond(id, {
           ok: true,
-          responseJson: JSON.stringify(credential.toJSON()),
+          responseJson: serializeCredential(credential),
           credentialId: credential.id,
         })
         return
@@ -84,7 +97,7 @@
         })
         respond(id, {
           ok: true,
-          responseJson: JSON.stringify(credential.toJSON()),
+          responseJson: serializeCredential(credential),
           credentialId: credential.id,
         })
         return
@@ -104,4 +117,7 @@
       })
     }
   })
+
+  document.documentElement.setAttribute('data-klarkey-bridge', 'ready')
+  document.documentElement.dispatchEvent(new CustomEvent('klarkey-page-bridge-ready', { bubbles: true }))
 })()
