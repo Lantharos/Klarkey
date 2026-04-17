@@ -22,6 +22,7 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
 - Browser extension foundation for desktop-only native-messaging autofill and save flows
 - Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge and attached to login items
+- Windows Hello-backed user verification for browser passkeys on Windows when a site asks for platform verification
 - Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
@@ -58,7 +59,7 @@ bun run build
 ## Notes
 
 - Sensitive actions use an in-memory unlock window on top of OS-backed key protection.
-- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, and stores them on the related login item.
+- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses the native Windows Hello helper for UV-capable Windows flows.
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
@@ -124,15 +125,22 @@ Then:
 
 The native Windows provider work lives in `native/windows-passkey-provider`.
 
-The reusable bridge library and the WinUI probe app both build now:
+The native Windows folder now covers three slices:
+
+- desktop bridge probing for the future OS-level provider path
+- the packaged WinUI probe app for the future provider flow
+- the unpackaged `Klarkey.WindowsHelloVerifier` helper for browser passkey UV on Windows
 
 ```powershell
 dotnet build .\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\Klarkey.PasskeyProviderBridge.csproj
 $Platform = if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") { "x64" } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x86" }
 dotnet build .\native\windows-passkey-provider\KlarkeyPasskeyProvider\KlarkeyPasskeyProvider.csproj -c Debug -p:Platform=$Platform
+dotnet build .\native\windows-passkey-provider\Klarkey.WindowsHelloVerifier\Klarkey.WindowsHelloVerifier.csproj
 ```
 
-Launch the packaged WinUI probe app:
+The browser passkey path looks for the built `Klarkey.WindowsHelloVerifier` helper under `native\windows-passkey-provider\Klarkey.WindowsHelloVerifier\bin\Debug\...` and uses it to run Windows Hello before setting the WebAuthn UV flag.
+
+Launch the packaged WinUI app for the bridge probe UI:
 
 ```powershell
 .\scripts\run-native-provider.ps1

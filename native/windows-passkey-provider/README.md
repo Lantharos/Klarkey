@@ -24,13 +24,25 @@ This folder now also includes a first native slice:
 
 That client is intentionally small so the eventual WinUI/provider sample can call into it instead of reimplementing process and framing logic.
 
-There is also now a packaged WinUI 3 app scaffold in `KlarkeyPasskeyProvider/`. It currently acts as a Windows-side bridge probe UI: you can point it at the Klarkey repo and verify whether `electron . --passkey-provider-bridge` answers a ping successfully.
+There is also now a packaged WinUI 3 app scaffold in `KlarkeyPasskeyProvider/`. It still covers the bridge probe UI you can point at a Klarkey checkout.
+
+A separate unpackaged helper now handles the browser-side Windows Hello path:
+
+- `Klarkey.WindowsHelloVerifier/`
+- a small WinForms-hosted verifier that Electron can spawn directly and use for real Windows Hello-backed user verification during browser passkey create/get flows
 
 That bridge already supports:
 
 - finding saved credentials for a WebAuthn request
 - storing newly created passkeys into Klarkey
 - touching usage metadata after assertions
+
+The unpackaged verifier supports command-line verification modes:
+
+- `--mode check-availability`
+- `--mode verify-user --message "..."`
+
+Both modes write a JSON result to the path passed through `--response-file`.
 
 ## Proposed architecture
 
@@ -103,6 +115,22 @@ Once it opens, use the defaults it detects for:
 - Klarkey app folder: the repo root
 
 Then click **Ping desktop bridge**.
+
+### Windows Hello verifier helper
+
+Build the unpackaged Windows Hello helper:
+
+```powershell
+dotnet build .\Klarkey.WindowsHelloVerifier\Klarkey.WindowsHelloVerifier.csproj
+```
+
+Smoke-test the helper directly:
+
+```powershell
+$Response = Join-Path $env:TEMP "klarkey-hello-response.json"
+.\Klarkey.WindowsHelloVerifier\bin\Debug\net9.0-windows10.0.26100.0\Klarkey.WindowsHelloVerifier.exe --mode check-availability --response-file $Response
+Get-Content -Raw $Response
+```
 
 ### Current caveat
 

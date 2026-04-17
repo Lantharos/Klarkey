@@ -880,10 +880,13 @@ if (isChromium) {
   })
 
   globalThis.chrome.webAuthenticationProxy.onIsUvpaaRequest.addListener((requestInfo) => {
-    void globalThis.chrome.webAuthenticationProxy.completeIsUvpaaRequest({
-      requestId: requestInfo.requestId,
-      isUvpaa: true,
-    })
+    void (async () => {
+      const capabilities = await readDesktopCapabilities().catch(() => undefined)
+      await globalThis.chrome.webAuthenticationProxy.completeIsUvpaaRequest({
+        requestId: requestInfo.requestId,
+        isUvpaa: Boolean(capabilities?.nativeUserVerificationReady),
+      })
+    })()
   })
 
   globalThis.chrome.webAuthenticationProxy.onRequestCanceled.addListener((requestId) => {

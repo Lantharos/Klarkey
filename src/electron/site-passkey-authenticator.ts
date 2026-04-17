@@ -27,6 +27,7 @@ type BrowserCreationOptions = {
   authenticatorSelection?: {
     residentKey?: 'discouraged' | 'preferred' | 'required'
     requireResidentKey?: boolean
+    userVerification?: 'discouraged' | 'preferred' | 'required'
   }
   extensions?: {
     credProps?: boolean
@@ -38,6 +39,7 @@ type BrowserRequestOptions = {
   challenge?: string
   rpId?: string
   allowCredentials?: BrowserCredentialDescriptor[]
+  userVerification?: 'discouraged' | 'preferred' | 'required'
 }
 
 type StoredSitePasskey = {
@@ -61,12 +63,14 @@ type CreateSitePasskeyInput = {
   origin: string
   requestDetailsJson: string
   existingCredentialIds?: string[]
+  userVerified?: boolean
 }
 
 type GetSitePasskeyInput = {
   origin: string
   requestDetailsJson: string
   passkey: StoredSitePasskey
+  userVerified?: boolean
 }
 
 const AAGUID = new Uint8Array(16)
@@ -275,7 +279,12 @@ const serializeGetResponse = ({
   },
 })
 
-export const createSitePasskeyCredential = ({ origin, requestDetailsJson, existingCredentialIds = [] }: CreateSitePasskeyInput) => {
+export const createSitePasskeyCredential = ({
+  origin,
+  requestDetailsJson,
+  existingCredentialIds = [],
+  userVerified = false,
+}: CreateSitePasskeyInput) => {
   const options = parseCreationOptions(requestDetailsJson)
   validateEs256Support(options)
 
@@ -303,7 +312,7 @@ export const createSitePasskeyCredential = ({ origin, requestDetailsJson, existi
   const publicKeySpki = exportSpkiPublicKey(publicKey as KeyObject)
   const authenticatorData = buildAuthenticatorData({
     rpId,
-    flags: AUTH_DATA_UP | AUTH_DATA_UV | AUTH_DATA_AT,
+    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0) | AUTH_DATA_AT,
     signCount: 0,
     credentialId,
     publicKey: publicKeyCose,
@@ -346,7 +355,7 @@ export const createSitePasskeyCredential = ({ origin, requestDetailsJson, existi
   }
 }
 
-export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey }: GetSitePasskeyInput) => {
+export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey, userVerified = false }: GetSitePasskeyInput) => {
   const options = parseRequestOptions(requestDetailsJson)
   const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a passkey challenge.')
   const rpId = resolveRpId(origin, options.rpId)
@@ -354,7 +363,7 @@ export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey }:
   const nextSignCount = passkey.signCount + 1
   const authenticatorData = buildAuthenticatorData({
     rpId,
-    flags: AUTH_DATA_UP | AUTH_DATA_UV,
+    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0),
     signCount: nextSignCount,
   })
   const signatureBase = joinBytes(authenticatorData, sha256(clientDataJSON))

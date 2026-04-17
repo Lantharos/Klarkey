@@ -16,6 +16,8 @@ dist-ssr
 bin
 scripts/Klarkey.NativeHostLauncher/bin/
 scripts/Klarkey.NativeHostLauncher/obj/
+native/windows-passkey-provider/*/bin/
+native/windows-passkey-provider/*/obj/
 
 # Editor directories and files
 .vscode/*

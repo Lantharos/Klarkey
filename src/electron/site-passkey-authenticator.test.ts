@@ -112,6 +112,26 @@ describe('site passkey authenticator', () => {
     })
   })
 
+  it('only sets the UV flag when native verification succeeded during registration', () => {
+    const unverified = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+      userVerified: false,
+    })
+    const verified = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+      userVerified: true,
+    })
+    const unverifiedResponse = JSON.parse(unverified.responseJson)
+    const verifiedResponse = JSON.parse(verified.responseJson)
+    const unverifiedAuthData = Buffer.from(decodeBase64Url(unverifiedResponse.response.authenticatorData))
+    const verifiedAuthData = Buffer.from(decodeBase64Url(verifiedResponse.response.authenticatorData))
+
+    expect(unverifiedAuthData[32] & 0x04).toBe(0)
+    expect(verifiedAuthData[32] & 0x04).toBe(0x04)
+  })
+
   it('creates an assertion for a stored passkey and increments the sign count', () => {
     const created = createSitePasskeyCredential({
       origin: 'https://example.com',
@@ -145,5 +165,49 @@ describe('site passkey authenticator', () => {
     expect(response.id).toBe(created.credentialId)
     expect(response.response.signature).toBeTruthy()
     expect(response.response.userHandle).toBe(created.userHandle)
+  })
+
+  it('only sets the UV flag on assertions after native verification succeeds', () => {
+    const created = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+    const unverifiedAssertion = getSitePasskeyAssertion({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify({
+        challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+        rpId: 'example.com',
+      }),
+      passkey: {
+        credentialId: created.credentialId,
+        rpId: created.rpId,
+        userHandle: created.userHandle,
+        signCount: 0,
+        privateKeyJwk: created.privateKeyJwk,
+      },
+      userVerified: false,
+    })
+    const verifiedAssertion = getSitePasskeyAssertion({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify({
+        challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+        rpId: 'example.com',
+      }),
+      passkey: {
+        credentialId: created.credentialId,
+        rpId: created.rpId,
+        userHandle: created.userHandle,
+        signCount: 0,
+        privateKeyJwk: created.privateKeyJwk,
+      },
+      userVerified: true,
+    })
+    const unverifiedResponse = JSON.parse(unverifiedAssertion.responseJson)
+    const verifiedResponse = JSON.parse(verifiedAssertion.responseJson)
+    const unverifiedAuthData = Buffer.from(decodeBase64Url(unverifiedResponse.response.authenticatorData))
+    const verifiedAuthData = Buffer.from(decodeBase64Url(verifiedResponse.response.authenticatorData))
+
+    expect(unverifiedAuthData[32] & 0x04).toBe(0)
+    expect(verifiedAuthData[32] & 0x04).toBe(0x04)
   })
 })

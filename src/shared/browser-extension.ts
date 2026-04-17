@@ -125,6 +125,7 @@ export type BrowserExtensionResponse =
             protocolVersion: number
             desktopRequired: true
             passkeyProviderReady: boolean
+            nativeUserVerificationReady: boolean
           }
         | {
             matches: BrowserSiteMatch[]

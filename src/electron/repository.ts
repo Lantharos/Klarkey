@@ -1413,12 +1413,13 @@ export class VaultRepository {
     return this.planBrowserPasskeySave(url, requestDetailsJson)
   }
 
-  prepareBrowserSitePasskey(url: string, origin: string, requestDetailsJson: string) {
+  prepareBrowserSitePasskey(url: string, origin: string, requestDetailsJson: string, userVerified = false) {
     const plan = this.planBrowserPasskeySave(url, requestDetailsJson)
     const createdPasskey = createSitePasskeyCredential({
       origin,
       requestDetailsJson,
       existingCredentialIds: this.getKnownPasskeyCredentialIds(),
+      userVerified,
     })
     const pendingPasskeyId = id('pending_passkey')
 
@@ -1628,7 +1629,7 @@ export class VaultRepository {
     }
   }
 
-  getBrowserSitePasskey(url: string, origin: string, requestDetailsJson: string, credentialId?: string) {
+  getBrowserSitePasskey(url: string, origin: string, requestDetailsJson: string, credentialId?: string, userVerified = false) {
     const usablePasskeys = this.listUsableBrowserPasskeys(url, requestDetailsJson)
     const selectedPasskey = credentialId
       ? usablePasskeys.find((passkey) => passkey.credentialId === credentialId)
@@ -1656,6 +1657,7 @@ export class VaultRepository {
     const assertion = getSitePasskeyAssertion({
       origin,
       requestDetailsJson,
+      userVerified,
       passkey: {
         credentialId: selectedPasskey.credentialId,
         rpId: selectedPasskey.rpId,
