@@ -22,6 +22,7 @@ let pageState = {
 
 let matchFetchGeneration = 0
 let savePromptTimer
+let autoSubmitTimer
 
 const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
 const pendingOtpStorageKey = `klarkey:pending-otp:${window.location.hostname}`
@@ -713,6 +714,125 @@ const writePasswordGroup = (preferredInput, value) => {
   }
 }
 
+const isSatisfiedField = (field) => {
+  if (field.disabled || !visible(field)) {
+    return true
+  }
+
+  if (field instanceof HTMLInputElement) {
+    if (['hidden', 'button', 'submit', 'reset', 'image'].includes(field.type)) {
+      return true
+    }
+
+    if (field.type === 'checkbox' || field.type === 'radio') {
+      return field.checked
+    }
+
+    if (field.type === 'file') {
+      return Boolean(field.files?.length)
+    }
+
+    return Boolean(field.value?.trim())
+  }
+
+  if (field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
+    return Boolean(field.value?.trim())
+  }
+
+  return true
+}
+
+const hasVisibleCaptcha = (form) => {
+  const root = form || document
+  return Array.from(
+    root.querySelectorAll(`
+      iframe[src*="recaptcha"],
+      iframe[src*="hcaptcha"],
+      iframe[src*="turnstile"],
+      .g-recaptcha,
+      .h-captcha,
+      [data-sitekey],
+      [name="cf-turnstile-response"],
+      [name="g-recaptcha-response"],
+      [name="h-captcha-response"],
+      [id*="captcha"],
+      [name*="captcha"]
+    `),
+  ).some((element) => element instanceof HTMLElement && visible(element))
+}
+
+const findSubmitter = (form) =>
+  Array.from(form.querySelectorAll('button, input[type="submit"], input[type="image"], [role="button"]')).find((element) => {
+    if (!(element instanceof HTMLElement) || !visible(element) || element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') {
+      return false
+    }
+
+    if (element instanceof HTMLButtonElement) {
+      return element.type !== 'button'
+    }
+
+    if (element instanceof HTMLInputElement) {
+      return element.type === 'submit' || element.type === 'image'
+    }
+
+    return true
+  })
+
+const canAutoSubmitLogin = (preferredInput) => {
+  if (!preferredInput || detectAuthFlow(preferredInput) !== 'login') {
+    return false
+  }
+
+  const inputs = getInputs(preferredInput)
+  if (!inputs.form || hasVisibleCaptcha(inputs.form)) {
+    return false
+  }
+
+  if (!inputs.username?.value?.trim() || !inputs.password?.value?.trim()) {
+    return false
+  }
+
+  if (inputs.otp && visible(inputs.otp) && !inputs.otp.value?.trim()) {
+    return false
+  }
+
+  const requiredFields = Array.from(inputs.form.querySelectorAll('input, select, textarea')).filter(
+    (field) =>
+      (field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) &&
+      (field.required || field.getAttribute('aria-required') === 'true'),
+  )
+
+  return requiredFields.every((field) => isSatisfiedField(field))
+}
+
+const scheduleLoginAutoSubmit = (preferredInput) => {
+  window.clearTimeout(autoSubmitTimer)
+  if (!canAutoSubmitLogin(preferredInput)) {
+    return
+  }
+
+  autoSubmitTimer = window.setTimeout(() => {
+    if (!canAutoSubmitLogin(preferredInput)) {
+      return
+    }
+
+    const { form } = getInputs(preferredInput)
+    if (!form) {
+      return
+    }
+
+    const submitter = findSubmitter(form)
+    if (typeof form.requestSubmit === 'function') {
+      submitter ? form.requestSubmit(submitter) : form.requestSubmit()
+      return
+    }
+
+    if (submitter instanceof HTMLElement) {
+      submitter.click()
+    }
+  }, 120)
+}
+
 const collectFormSnapshot = (preferredInput) => {
   const inputs = getInputs(preferredInput)
   const directUsername = inputs.username?.value?.trim() || ''
@@ -1261,6 +1381,7 @@ const applyLoginFill = (input, login) => {
   setPendingUsername(login.username || '')
   setPendingOtp(login.otp || '')
   removeInlineUi()
+  scheduleLoginAutoSubmit(input)
 }
 
 const getFillableFields = (preferredInput) => {
@@ -1852,13 +1973,15 @@ if (runtime) {
 
     if (message?.type === 'fill-login') {
       const inputs = getInputs()
-      suppressInlineMenu()
+      const preferredInput = inputs.password || inputs.username
+      suppressInlineMenu(preferredInput)
       writeValue(inputs.username, message.login?.username)
       writeValue(inputs.password, message.login?.password)
       writeValue(inputs.otp, message.login?.otp)
       setPendingUsername(message.login?.username || '')
       setPendingOtp(message.login?.otp || '')
       removeInlineUi()
+      scheduleLoginAutoSubmit(preferredInput)
 
       sendResponse({
         ok: true,
