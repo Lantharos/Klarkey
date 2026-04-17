@@ -157,16 +157,14 @@ const openPalette = () => {
 
   windowRef.setPosition(x, y, false)
   windowRef.moveTop()
+  controllerRef?.rememberExternalWindow()
   windowRef.webContents.send(IPC_CHANNELS.palettePrepare)
 
   setTimeout(() => {
     windowRef?.showInactive()
-
-    void controllerRef?.rememberExternalWindowAsync().finally(() => {
-      windowRef?.focus()
-      windowRef?.webContents.focus()
-      controllerRef?.focus()
-    })
+    windowRef?.focus()
+    windowRef?.webContents.focus()
+    controllerRef?.focus()
   }, 16)
 }
 
@@ -213,6 +211,7 @@ const bindIpc = () => {
   ipcMain.handle(IPC_CHANNELS.itemDelete, (_, itemId) => controllerRef?.deleteItem(itemId))
   ipcMain.handle(IPC_CHANNELS.vaultUnlock, () => controllerRef?.unlock())
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => controllerRef?.getSettings())
+  ipcMain.handle(IPC_CHANNELS.paletteTargetGet, () => controllerRef?.getExternalWindowContext())
   ipcMain.handle(IPC_CHANNELS.settingsSet, (_, update) => {
     const next = controllerRef?.updateSettings(update)
     registerHotkey()

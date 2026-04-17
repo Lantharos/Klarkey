@@ -300,10 +300,14 @@ export function DetailRow({
               ? 'bg-red-500/14 text-red-200/78'
               : action.tone === 'success'
                 ? 'bg-emerald-500/16 text-emerald-200/82'
-              : 'bg-white/8 text-white/68',
+                : 'bg-white/8 text-white/68',
         )}
       >
-        <Icon size={15} />
+        {action.iconUrl ? (
+          <img src={action.iconUrl} alt="" className="h-4 w-4 rounded-[4px] object-contain" />
+        ) : (
+          <Icon size={15} />
+        )}
       </div>
       <div className="truncate text-[15px] font-medium text-white">{action.title}</div>
       <div className="flex items-center justify-end gap-3 text-[13px] text-white/34">

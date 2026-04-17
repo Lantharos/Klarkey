@@ -171,6 +171,14 @@ export interface ResolvedAction {
   score: number
 }
 
+export interface ExternalWindowContext {
+  handle: string
+  appName?: string
+  windowTitle?: string
+  iconDataUrl?: string
+  processPath?: string
+}
+
 export interface ActionExecutionResult {
   status: 'success' | 'error' | 'locked' | 'info'
   title: string

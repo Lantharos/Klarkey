@@ -20,6 +20,7 @@ import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
   type CreateItemInput,
+  type ExternalWindowContext,
   type ItemDetails,
   type PasskeySupport,
   type TotpDetails,
@@ -128,15 +129,15 @@ function App() {
 
   const [detailItem, setDetailItem] = useState<ItemDetails>()
   const [pointerActive, setPointerActive] = useState(false)
-  const [isPreparingOpen, setIsPreparingOpen] = useState(false)
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false)
   const [passkeySupport, setPasskeySupport] = useState<PasskeySupport>()
   const [vaultPasskeys, setVaultPasskeys] = useState<VaultPasskeyRecord[]>([])
   const [passkeyBusy, setPasskeyBusy] = useState(false)
   const [passkeyExecution, setPasskeyExecution] = useState<ActionExecutionResult>()
+  const [targetWindow, setTargetWindow] = useState<ExternalWindowContext>()
   const selection = actions[selectedIndex]
   const activeDetailItem = detailAction?.itemId === detailItem?.itemId ? detailItem : undefined
-  const detailActions = useMemo(() => buildDetailActions(activeDetailItem), [activeDetailItem])
+  const detailActions = useMemo(() => buildDetailActions(activeDetailItem, targetWindow), [activeDetailItem, targetWindow])
   const selectedDetailAction = detailActions[selectedIndex]
   const formLoading = page === 'form' && formMode === 'edit' && Boolean(detailAction?.itemId) && !activeDetailItem
   const createItemType =
@@ -203,17 +204,29 @@ function App() {
       return undefined
     }
 
+    void window.klarkey.targetWindow.get().then((context) => {
+      setTargetWindow(context)
+    })
+
+    return window.klarkey.onTargetWindowChange((context) => {
+      setTargetWindow(context)
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!window.klarkey) {
+      return undefined
+    }
+
     return window.klarkey.onPrepareOpen(() => {
       setPointerActive(false)
-      setIsPreparingOpen(true)
       setPendingDeleteConfirm(false)
       setDetailItem(undefined)
       primeHome()
-      void resetToHome().finally(() => {
-        setIsPreparingOpen(false)
-      })
+      focusInput()
+      void resetToHome()
     })
-  }, [primeHome, resetToHome])
+  }, [focusInput, primeHome, resetToHome])
 
   useEffect(() => {
     if (!window.klarkey) {
@@ -343,54 +356,48 @@ function App() {
         }
       }}
     >
-      {isPreparingOpen ? (
-        <div className="flex h-full min-h-full items-center justify-center px-6 py-5 text-[15px] text-white/42">
-          Loading...
-        </div>
-      ) : (
-        <>
-          <div className="flex items-center gap-4 px-5 pb-3 pt-4">
-            {page === 'home' ? (
-              <SearchBar
-                query={query}
-                onChange={(value) => {
-                  void setTrailingText(value)
-                }}
-                onRemoveToken={(tokenId) => {
-                  const token = query.tokens.find((candidate) => candidate.id === tokenId)
-                  if (token) {
-                    removeToken(token)
-                  }
-                }}
-                onBackspaceEmpty={() => {
-                  const token = query.tokens[query.tokens.length - 1]
-                  if (token) {
-                    removeToken(token)
-                  }
-                }}
-                onMoveSelection={moveSelection}
-                onEnter={() => {
-                  void executeSelection()
-                }}
-              />
-            ) : page === 'settings' ? (
-              <HeaderRow title="Settings" subtitle="Preferences" onBack={() => void goBackOrClose()} showIcon={false} />
-            ) : page === 'form' ? (
-              <HeaderRow
-                title={formMode === 'edit' ? 'Edit item' : 'Create item'}
-                subtitle={activeDetailItem?.itemName || createSeed.itemName || undefined}
-                onBack={() => void goBackOrClose()}
-                showIcon={false}
-              />
-            ) : (
-              <HeaderRow
-                title={detailAction?.title ?? 'Item'}
-                subtitle={detailAction?.subtitle}
-                onBack={() => void goBackOrClose()}
-                showIcon={false}
-              />
-            )}
-          </div>
+      <div className="flex items-center gap-4 px-5 pb-3 pt-4">
+        {page === 'home' ? (
+          <SearchBar
+            query={query}
+            onChange={(value) => {
+              void setTrailingText(value)
+            }}
+            onRemoveToken={(tokenId) => {
+              const token = query.tokens.find((candidate) => candidate.id === tokenId)
+              if (token) {
+                removeToken(token)
+              }
+            }}
+            onBackspaceEmpty={() => {
+              const token = query.tokens[query.tokens.length - 1]
+              if (token) {
+                removeToken(token)
+              }
+            }}
+            onMoveSelection={moveSelection}
+            onEnter={() => {
+              void executeSelection()
+            }}
+          />
+        ) : page === 'settings' ? (
+          <HeaderRow title="Settings" subtitle="Preferences" onBack={() => void goBackOrClose()} showIcon={false} />
+        ) : page === 'form' ? (
+          <HeaderRow
+            title={formMode === 'edit' ? 'Edit item' : 'Create item'}
+            subtitle={activeDetailItem?.itemName || createSeed.itemName || undefined}
+            onBack={() => void goBackOrClose()}
+            showIcon={false}
+          />
+        ) : (
+          <HeaderRow
+            title={detailAction?.title ?? 'Item'}
+            subtitle={detailAction?.subtitle}
+            onBack={() => void goBackOrClose()}
+            showIcon={false}
+          />
+        )}
+      </div>
 
           <div className="h-px bg-white/8" />
 
@@ -555,8 +562,6 @@ function App() {
               </div>
             </>
           )}
-        </>
-      )}
     </div>
   )
 }

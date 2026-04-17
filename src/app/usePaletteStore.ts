@@ -59,16 +59,22 @@ const fallbackApi: KlarkeyApi = {
     save: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
     remove: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
   },
+  targetWindow: {
+    get: async () => undefined,
+  },
   onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
+  onTargetWindowChange: () => () => undefined,
 }
 
 const api = window.klarkey ?? fallbackApi
+let nextResolveKey = 0
 
 interface PaletteState {
   hydrated: boolean
   isLoadingResults: boolean
   isLoadingMore: boolean
+  resolveKey: number
   bootError?: string
   execution?: ActionExecutionResult
   page: 'home' | 'settings' | 'detail' | 'form'
@@ -114,6 +120,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   hydrated: false,
   isLoadingResults: false,
   isLoadingMore: false,
+  resolveKey: 0,
   bootError: undefined,
   execution: undefined,
   page: 'home',
@@ -127,8 +134,10 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   async boot() {
     try {
+      const resolveKey = ++nextResolveKey
       const settings = await api.settings.get()
       set({
+        resolveKey,
         settings,
         page: 'home',
         detailAction: undefined,
@@ -143,6 +152,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         isLoadingMore: false,
       })
       const response = await api.search.resolve({ query: defaultQuery, offset: 0, limit: searchPageSize })
+      if (get().resolveKey !== resolveKey) {
+        return
+      }
       set({
         actions: response.actions,
         hasMoreResults: response.hasMore,
@@ -157,7 +169,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     }
   },
   primeHome() {
+    const resolveKey = ++nextResolveKey
     set({
+      resolveKey,
       page: 'home',
       query: defaultQuery,
       actions: [],
@@ -172,9 +186,12 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     })
   },
   async resetToHome() {
-    get().primeHome()
+    const resolveKey = get().resolveKey
     try {
       const response = await api.search.resolve({ query: defaultQuery, offset: 0, limit: searchPageSize })
+      if (get().resolveKey !== resolveKey) {
+        return
+      }
       set({
         actions: response.actions,
         hasMoreResults: response.hasMore,
@@ -182,13 +199,17 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         isLoadingResults: false,
       })
     } catch {
-      set({ isLoadingResults: false })
+      if (get().resolveKey === resolveKey) {
+        set({ isLoadingResults: false })
+      }
     }
   },
   async refresh(raw) {
     const query = await api.command.parse(raw)
     const previousActions = get().actions
+    const resolveKey = ++nextResolveKey
     set({
+      resolveKey,
       page: 'home',
       query,
       actions: previousActions,
@@ -203,6 +224,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     })
     try {
       const response = await api.search.resolve({ query, offset: 0, limit: searchPageSize })
+      if (get().resolveKey !== resolveKey) {
+        return
+      }
       set({
         actions: response.actions,
         hasMoreResults: response.hasMore,
@@ -210,7 +234,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         isLoadingResults: false,
       })
     } catch {
-      set({ isLoadingResults: false })
+      if (get().resolveKey === resolveKey) {
+        set({ isLoadingResults: false })
+      }
     }
   },
   async setTrailingText(value) {
@@ -385,7 +411,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ settings })
   },
   async loadMoreActions() {
-    const { hasMoreResults, isLoadingMore, isLoadingResults, nextOffset, query, page } = get()
+    const { hasMoreResults, isLoadingMore, isLoadingResults, nextOffset, query, page, resolveKey } = get()
 
     if (!hasMoreResults || isLoadingMore || isLoadingResults || page !== 'home') {
       return
@@ -399,6 +425,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         offset: nextOffset,
         limit: searchPageSize,
       })
+      if (get().resolveKey !== resolveKey) {
+        return
+      }
 
       set((state) => ({
         actions: [...state.actions, ...response.actions],

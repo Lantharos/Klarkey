@@ -13,6 +13,7 @@ import type {
   ActionExecutionResult,
   CommandQuery,
   CreateVaultPasskeyInput,
+  ExternalWindowContext,
   CreateItemInput,
   ItemDetails,
   ModifierKey,
@@ -27,6 +28,10 @@ import type {
 
 const LOCK_WINDOW_MS = Number.POSITIVE_INFINITY
 const INSERT_CLIPBOARD_CLEAR_SECONDS = 5
+const encodeWindowHandle = (buffer: Buffer) =>
+  Array.from(buffer)
+    .reduce((value, byte, index) => value | (BigInt(byte) << BigInt(index * 8)), 0n)
+    .toString()
 
 export class KlarkeyController {
   private readonly keyManager = new KeyManager()
@@ -34,12 +39,15 @@ export class KlarkeyController {
   private readonly repository = new VaultRepository(this.database.db, this.keyManager.getKey())
   private readonly clipboard = new ClipboardManager()
   private readonly window: BrowserWindow
+  private readonly paletteWindowHandle: string
   private unlockedUntil = 0
   private lastExternalWindow?: string
+  private externalWindow?: ExternalWindowContext
   private actionCache = new Map<string, ResolvedAction>()
 
   constructor(window: BrowserWindow) {
     this.window = window
+    this.paletteWindowHandle = encodeWindowHandle(window.getNativeWindowHandle())
     this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
   }
 
@@ -84,6 +92,10 @@ export class KlarkeyController {
       relyingPartyId: PASSKEY_RP_ID,
       origin: PASSKEY_ORIGIN,
     }
+  }
+
+  getExternalWindowContext() {
+    return this.externalWindow
   }
 
   listVaultPasskeys(): VaultPasskeyRecord[] {
@@ -508,18 +520,43 @@ export class KlarkeyController {
     this.window.webContents.send(IPC_CHANNELS.paletteFocus)
   }
 
-  rememberExternalWindow() {
-    const handle = captureForegroundWindow()
-    if (handle) {
-      this.lastExternalWindow = handle
+  private setExternalWindowContext(context?: ExternalWindowContext) {
+    if (!context || context.handle === this.paletteWindowHandle) {
+      return
     }
+
+    this.externalWindow = context
+    this.lastExternalWindow = context.handle
+    this.window.webContents.send(IPC_CHANNELS.paletteTargetChanged, context)
+
+    if (context.iconDataUrl || !context.processPath) {
+      return
+    }
+
+    void app.getFileIcon(context.processPath, { size: 'small' }).then((icon) => {
+      if (icon.isEmpty()) {
+        return
+      }
+
+      if (this.externalWindow?.handle !== context.handle) {
+        return
+      }
+
+      const iconDataUrl = icon.resize({ width: 16, height: 16 }).toDataURL()
+      this.externalWindow = {
+        ...this.externalWindow,
+        iconDataUrl,
+      }
+      this.window.webContents.send(IPC_CHANNELS.paletteTargetChanged, this.externalWindow)
+    }).catch(() => undefined)
+  }
+
+  rememberExternalWindow() {
+    this.setExternalWindowContext(captureForegroundWindow())
   }
 
   async rememberExternalWindowAsync() {
-    const handle = await captureForegroundWindowAsync()
-    if (handle) {
-      this.lastExternalWindow = handle
-    }
+    this.setExternalWindowContext(await captureForegroundWindowAsync())
   }
 
   private isLocked() {

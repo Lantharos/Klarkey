@@ -2,6 +2,7 @@ import type {
   ActionExecutionResult,
   CommandQuery,
   CreateVaultPasskeyInput,
+  ExternalWindowContext,
   ItemDetails,
   ModifierKey,
   PasskeySupport,
@@ -49,6 +50,10 @@ export interface KlarkeyApi {
     save: (input: CreateVaultPasskeyInput) => Promise<ActionExecutionResult>
     remove: (passkeyId: string) => Promise<ActionExecutionResult>
   }
+  targetWindow: {
+    get: () => Promise<ExternalWindowContext | undefined>
+  }
   onPrepareOpen: (callback: () => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
+  onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
 }

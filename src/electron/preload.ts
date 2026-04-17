@@ -3,7 +3,7 @@ import { IPC_CHANNELS } from '@/electron/constants'
 import type { KlarkeyApi } from '@/shared/ipc'
 import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import { PASSKEY_RP_ID, PASSKEY_RP_NAME } from '@/shared/passkeys'
-import type { CreateVaultPasskeyInput, VaultPasskeyRecord } from '@/shared/types'
+import type { CreateVaultPasskeyInput, ExternalWindowContext, VaultPasskeyRecord } from '@/shared/types'
 
 const createChallenge = () => crypto.getRandomValues(new Uint8Array(32))
 
@@ -215,6 +215,9 @@ const api: KlarkeyApi = {
     save: (input) => ipcRenderer.invoke(IPC_CHANNELS.passkeyCreate, input),
     remove: (passkeyId) => ipcRenderer.invoke(IPC_CHANNELS.passkeyDelete, passkeyId),
   },
+  targetWindow: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.paletteTargetGet),
+  },
   onPrepareOpen: (callback) => {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.palettePrepare, listener)
@@ -224,6 +227,11 @@ const api: KlarkeyApi = {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.paletteFocus, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.paletteFocus, listener)
+  },
+  onTargetWindowChange: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, context: ExternalWindowContext) => callback(context)
+    ipcRenderer.on(IPC_CHANNELS.paletteTargetChanged, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.paletteTargetChanged, listener)
   },
 }
 

@@ -16,6 +16,8 @@ export const IPC_CHANNELS = {
   passkeyCreate: 'passkey.create',
   passkeyAuthenticate: 'passkey.authenticate',
   passkeyDelete: 'passkey.delete',
+  paletteTargetGet: 'palette.target.get',
   palettePrepare: 'palette.prepare',
   paletteFocus: 'palette.focus',
+  paletteTargetChanged: 'palette.target.changed',
 } as const

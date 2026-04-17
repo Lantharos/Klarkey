@@ -6,6 +6,7 @@ export type DetailAction = {
   id: string
   title: string
   icon: typeof User
+  iconUrl?: string
   actionId?: string
   modifier?: ModifierKey
   disabled?: boolean
