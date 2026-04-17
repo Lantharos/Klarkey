@@ -10,6 +10,7 @@ type BrowserCredentialDescriptor = {
 
 type BrowserCreationOptions = {
   challenge?: string
+  attestation?: 'none' | 'direct' | 'indirect' | 'enterprise'
   rp?: {
     id?: string
     name?: string
@@ -168,6 +169,30 @@ const buildClientExtensionResults = (options: BrowserCreationOptions) => {
   }
 }
 
+const shouldUsePackedAttestation = (options: BrowserCreationOptions) => {
+  const preference = options.attestation?.trim().toLowerCase()
+  return preference === 'direct' || preference === 'indirect' || preference === 'enterprise'
+}
+
+const buildPackedSelfAttestationStatement = ({
+  authenticatorData,
+  clientDataJSON,
+  privateKeyJwk,
+}: {
+  authenticatorData: Uint8Array
+  clientDataJSON: Uint8Array
+  privateKeyJwk: JsonWebKey
+}) => {
+  const clientDataHash = sha256(clientDataJSON)
+  const signatureBase = joinBytes(authenticatorData, clientDataHash)
+  const sig = sign('sha256', signatureBase, createPrivateKey({ format: 'jwk', key: privateKeyJwk }))
+
+  return new Map<string, unknown>([
+    ['alg', -7],
+    ['sig', Buffer.from(sig)],
+  ])
+}
+
 const buildAuthenticatorData = ({
   rpId,
   flags,
@@ -283,16 +308,24 @@ export const createSitePasskeyCredential = ({ origin, requestDetailsJson, existi
     credentialId,
     publicKey: publicKeyCose,
   })
+  const clientDataJSON = buildClientDataJson('webauthn.create', challenge, origin)
+  const usesPackedAttestation = shouldUsePackedAttestation(options)
+  const attestationStatement = usesPackedAttestation
+    ? buildPackedSelfAttestationStatement({
+        authenticatorData,
+        clientDataJSON,
+        privateKeyJwk,
+      })
+    : new Map()
   const attestationObject = Buffer.from(
     cborEncoder.encode(
       new Map<string, unknown>([
-        ['fmt', 'none'],
-        ['attStmt', new Map()],
+        ['fmt', usesPackedAttestation ? 'packed' : 'none'],
+        ['attStmt', attestationStatement],
         ['authData', Buffer.from(authenticatorData)],
       ]),
     ),
   )
-  const clientDataJSON = buildClientDataJson('webauthn.create', challenge, origin)
   const clientExtensionResults = buildClientExtensionResults(options)
 
   return {

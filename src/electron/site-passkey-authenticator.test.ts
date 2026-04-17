@@ -71,6 +71,25 @@ describe('site passkey authenticator', () => {
     expect(readDecodedField(attestationObject, 'attStmt')).toEqual({})
   })
 
+  it('emits packed self attestation when the site requests attestation', () => {
+    const result = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify({
+        ...createOptions,
+        attestation: 'direct',
+      }),
+    })
+    const response = JSON.parse(result.responseJson)
+    const attestationObject = decodeCbor(decodeBase64Url(response.response.attestationObject))
+    const attStmt = readDecodedField(attestationObject, 'attStmt') as Map<string, unknown> | Record<string, unknown>
+    const alg = readDecodedField(attStmt, 'alg')
+    const sig = readDecodedField(attStmt, 'sig')
+
+    expect(readDecodedField(attestationObject, 'fmt')).toBe('packed')
+    expect(alg).toBe(-7)
+    expect(Buffer.from(sig as Uint8Array).length).toBeGreaterThan(0)
+  })
+
   it('reports resident key properties when credProps is requested', () => {
     const result = createSitePasskeyCredential({
       origin: 'https://example.com',
