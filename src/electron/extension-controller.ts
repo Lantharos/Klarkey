@@ -42,6 +42,15 @@ export class BrowserExtensionController {
           },
         }
 
+      case 'list-field-suggestions':
+        return {
+          id: request.id,
+          ok: true,
+          result: {
+            suggestions: this.repository.listBrowserFieldSuggestions(request.field, request.url),
+          },
+        }
+
       case 'save-login':
         return {
           id: request.id,

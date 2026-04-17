@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Klarkey",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyvLORYis20sYdXDCvS0Ees8nitiUUzX5ZfJCRLnyQL0reiw91dvJz65eUiP9cT97n5mslCKHrPCr/FtuNV5RlojQUuBKPRSQdVB3QTZ7DIazKEAsIbYbEMKec6T1sm+VoafC8TMEmINOUtGNBtufdytUj50v5Cz60XjQRQyC6MlLa+4Fs6g6rI0ftuAa/vzh1dVHf1JHWJSQz9zXtVorEUSUQRux8T33Qd8lxHtJ7PJtJN8aJoRU0T9CqB3lwM28ClTruUJAsCV4E4YtNxHBCVY7+IA/mQEOuzNhxsm1mat/VIFjC8qSUY5ls1vqPBrBmgm+0I4pga26hhc3m2J5lQIDAQAB",
   "description": "Desktop-only autofill bridge for Klarkey.",
   "permissions": ["activeTab", "tabs", "nativeMessaging", "webAuthenticationProxy"],
   "host_permissions": ["<all_urls>"],

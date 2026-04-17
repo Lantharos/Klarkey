@@ -14,6 +14,7 @@ import {
   session,
   Tray,
 } from 'electron'
+import { ensureNativeMessagingHostRegistration } from '@/electron/browser-host-registration'
 import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native-host'
@@ -257,6 +258,11 @@ app.whenReady()
 
     bindIpc()
     registerAppProtocol()
+    try {
+      ensureNativeMessagingHostRegistration()
+    } catch (error) {
+      console.error('Failed to register the browser native host', error)
+    }
     await createWindow()
     createTray()
     registerHotkey()

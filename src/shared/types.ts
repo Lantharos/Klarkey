@@ -131,6 +131,20 @@ export interface BrowserSiteMatch {
   lastUsedAt?: string
 }
 
+export type BrowserSuggestionField = 'username' | 'email'
+export type BrowserFieldSuggestionSource = 'login-username' | 'identity-email'
+
+export interface BrowserFieldSuggestion {
+  id: string
+  itemId: string
+  itemName: string
+  value: string
+  field: BrowserSuggestionField
+  source: BrowserFieldSuggestionSource
+  lastUsedAt?: string
+  fromSiteMatch: boolean
+}
+
 export interface BrowserFillLogin {
   itemId: string
   itemName: string

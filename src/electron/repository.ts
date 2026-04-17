@@ -8,9 +8,11 @@ import { getTotpCode, parseStoredTotp, parseTotpInput } from '@/shared/totp'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
+  type BrowserFieldSuggestion,
   type BrowserFillLogin,
   type BrowserSaveLoginInput,
   type BrowserSiteMatch,
+  type BrowserSuggestionField,
   type CreateVaultPasskeyInput,
   type CreateItemInput,
   type ItemDetails,
@@ -73,6 +75,8 @@ const getHostname = (value: string) => {
     return undefined
   }
 }
+
+const hasText = (value?: string) => Boolean(value?.trim())
 
 type ItemDataPayload = {
   fullName?: string
@@ -628,6 +632,122 @@ export class VaultRepository {
       hasPasskey: item.hasPasskey,
       lastUsedAt: item.lastUsedAt,
     })) satisfies BrowserSiteMatch[]
+  }
+
+  listBrowserFieldSuggestions(field: BrowserSuggestionField, url: string) {
+    const suggestions = new Map<
+      string,
+      BrowserFieldSuggestion & {
+        score: number
+        priority: number
+      }
+    >()
+
+    const pushSuggestion = ({
+      itemId,
+      itemName,
+      value,
+      source,
+      lastUsedAt,
+      fromSiteMatch,
+      score,
+      priority,
+    }: {
+      itemId: string
+      itemName: string
+      value?: string
+      source: BrowserFieldSuggestion['source']
+      lastUsedAt?: string
+      fromSiteMatch: boolean
+      score: number
+      priority: number
+    }) => {
+      const nextValue = value?.trim()
+      if (!nextValue) {
+        return
+      }
+
+      if (field === 'email' && !nextValue.includes('@')) {
+        return
+      }
+
+      const key = nextValue.toLowerCase()
+      const current = suggestions.get(key)
+      if (current && (current.score > score || (current.score === score && current.priority <= priority))) {
+        return
+      }
+
+      suggestions.set(key, {
+        id: `${itemId}:${source}:${key}`,
+        itemId,
+        itemName,
+        value: nextValue,
+        field,
+        source,
+        lastUsedAt,
+        fromSiteMatch,
+        score,
+        priority,
+      })
+    }
+
+    for (const item of this.getSnapshot().items) {
+      if (item.itemType === 'login' && hasText(item.username)) {
+        const score = scoreWebsiteMatch(item.websites ?? [], url)
+        pushSuggestion({
+          itemId: item.id,
+          itemName: item.itemName,
+          value: item.username,
+          source: 'login-username',
+          lastUsedAt: item.lastUsedAt,
+          fromSiteMatch: score > 0,
+          score,
+          priority: 0,
+        })
+      }
+
+      if (item.itemType === 'identity' && hasText(item.email)) {
+        pushSuggestion({
+          itemId: item.id,
+          itemName: item.itemName,
+          value: item.email,
+          source: 'identity-email',
+          lastUsedAt: item.lastUsedAt,
+          fromSiteMatch: false,
+          score: field === 'email' ? 40 : 10,
+          priority: 1,
+        })
+      }
+    }
+
+    return Array.from(suggestions.values())
+      .sort((left, right) => {
+        if (right.score !== left.score) {
+          return right.score - left.score
+        }
+
+        const leftTime = left.lastUsedAt ? Date.parse(left.lastUsedAt) : 0
+        const rightTime = right.lastUsedAt ? Date.parse(right.lastUsedAt) : 0
+        if (rightTime !== leftTime) {
+          return rightTime - leftTime
+        }
+
+        if (left.priority !== right.priority) {
+          return left.priority - right.priority
+        }
+
+        return left.value.localeCompare(right.value)
+      })
+      .map((suggestion) => ({
+        id: suggestion.id,
+        itemId: suggestion.itemId,
+        itemName: suggestion.itemName,
+        value: suggestion.value,
+        field: suggestion.field,
+        source: suggestion.source,
+        lastUsedAt: suggestion.lastUsedAt,
+        fromSiteMatch: suggestion.fromSiteMatch,
+      })) satisfies BrowserFieldSuggestion[]
   }
 
   getBrowserFillLogin(itemId: string) {

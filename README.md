@@ -68,13 +68,15 @@ bun run build
 
 After `bun run build`, unpacked extension builds are written to `dist-extension/chromium` and `dist-extension/firefox`.
 
-For local Windows registration of the desktop bridge, run:
+Opening Klarkey on Windows now registers the native-messaging bridge for the bundled Chromium and Firefox extension IDs automatically.
+
+If you want to force a local re-registration by hand, run:
 
 ```powershell
-./scripts/install-browser-host.ps1 -ChromiumExtensionId "<your chromium extension id>"
+./scripts/install-browser-host.ps1
 ```
 
-That registers native-messaging manifests for Chrome, Edge, Brave, and Firefox against the local development wrapper in `dist-extension/native-host`.
+That writes native-messaging manifests for Chrome, Edge, Brave, Chromium, and Firefox against the local desktop bridge.
 
 ## Testing
 
@@ -109,7 +111,7 @@ bun run build:extension
 Register the local native host on Windows:
 
 ```powershell
-./scripts/install-browser-host.ps1 -ChromiumExtensionId "<your chromium extension id>"
+./scripts/install-browser-host.ps1
 ```
 
 Then:

@@ -1,5 +1,5 @@
 param(
-  [string]$ChromiumExtensionId,
+  [string]$ChromiumExtensionId = "gbdmdcmboinmeckelhacpljieaphedgn",
   [string]$FirefoxExtensionId = "klarkey@example.local",
   [switch]$Chrome = $true,
   [switch]$Edge = $true,
@@ -58,10 +58,6 @@ function Set-RegistryHost {
 $chromiumOrigins = @()
 if ($ChromiumExtensionId) {
   $chromiumOrigins += "chrome-extension://$ChromiumExtensionId/"
-}
-
-if (($Chrome -or $Edge -or $Brave -or $Chromium) -and -not $chromiumOrigins.Count) {
-  throw "Provide -ChromiumExtensionId for Chromium-based browsers."
 }
 
 if ($Chrome -or $Edge -or $Brave -or $Chromium) {

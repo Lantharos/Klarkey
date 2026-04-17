@@ -9,23 +9,24 @@
   <body>
     <main class="shell">
       <header class="header">
-        <div class="brand">Klarkey</div>
-        <div id="statusBadge" class="status">Desktop required</div>
+        <div class="brand-row">
+          <div class="brand">Klarkey</div>
+          <div id="siteHost" class="site-host"></div>
+        </div>
+        <div id="statusBadge" class="status">Offline</div>
       </header>
-      <h1 id="title">Connecting…</h1>
-      <p id="statusMessage" class="message">Loading available items from the desktop app.</p>
 
-      <section class="section">
+      <h1 id="title">Connecting…</h1>
+      <p id="statusMessage" class="message">Checking the desktop bridge for this browser.</p>
+
+      <section class="section actions">
         <div class="section-row">
-          <div class="section-title">Current site</div>
+          <div class="section-copy">
+            <div class="section-title">Current page</div>
+            <div id="siteUrl" class="section-value">No active page</div>
+          </div>
           <button id="saveButton" class="button">Save current form</button>
         </div>
-        <div id="siteUrl" class="value">No active page</div>
-      </section>
-
-      <section class="section">
-        <div class="section-title">Matches</div>
-        <div id="matches" class="list"></div>
       </section>
 
       <section class="section">

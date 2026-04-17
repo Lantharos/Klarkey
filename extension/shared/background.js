@@ -482,6 +482,22 @@ async function listLoginsForUrl(url, title) {
   }
 }
 
+async function listFieldSuggestions(field, url, title) {
+  const response = await requestHost({ type: 'list-field-suggestions', field, url, title })
+  if (!response?.ok) {
+    return {
+      ok: false,
+      message: response?.error?.message || 'Klarkey could not load suggestions.',
+      suggestions: [],
+    }
+  }
+
+  return {
+    ok: true,
+    suggestions: response.result.suggestions || [],
+  }
+}
+
 async function saveLoginPayload(payload) {
   const response = await requestHost({
     type: 'save-login',
@@ -550,6 +566,9 @@ runtimeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return
       case 'list-logins-for-url':
         sendResponse(await listLoginsForUrl(message.url, message.title))
+        return
+      case 'list-field-suggestions':
+        sendResponse(await listFieldSuggestions(message.field, message.url, message.title))
         return
       case 'save-login-payload':
         sendResponse(await saveLoginPayload(message.payload))
