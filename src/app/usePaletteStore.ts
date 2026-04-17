@@ -317,8 +317,12 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     if (execution.status !== 'error') {
       const currentDetailAction = get().detailAction
       const nextTitle = input.itemName?.trim()
+      const nextFullName = [input.firstName, input.middleName, input.lastName]
+        .map((value) => value?.trim())
+        .filter(Boolean)
+        .join(' ')
       const nextSubtitle =
-        input.username?.trim() || input.fullName?.trim() || input.content?.trim() || currentDetailAction?.subtitle
+        input.username?.trim() || input.fullName?.trim() || nextFullName || input.content?.trim() || currentDetailAction?.subtitle
 
       const nextActions = get().actions.map((action) =>
         action.itemId === input.itemId

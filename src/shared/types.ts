@@ -53,9 +53,18 @@ export interface ItemProfile {
   itemName: string
   username?: string
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   email?: string
   phone?: string
   address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
   content?: string
   websites?: string[]
   notes?: string
@@ -131,8 +140,23 @@ export interface BrowserSiteMatch {
   lastUsedAt?: string
 }
 
-export type BrowserSuggestionField = 'username' | 'email'
-export type BrowserFieldSuggestionSource = 'login-username' | 'identity-email'
+export type BrowserSuggestionField =
+  | 'username'
+  | 'email'
+  | 'fullName'
+  | 'firstName'
+  | 'middleName'
+  | 'lastName'
+  | 'phone'
+  | 'address'
+  | 'addressLine1'
+  | 'addressLine2'
+  | 'city'
+  | 'state'
+  | 'postalCode'
+  | 'country'
+export type BrowserAuthFlow = 'login' | 'register'
+export type BrowserFieldSuggestionSource = 'login-username' | 'identity'
 
 export interface BrowserFieldSuggestion {
   id: string
@@ -153,6 +177,25 @@ export interface BrowserFillLogin {
   otp?: string
   websites: string[]
   hasPasskey: boolean
+}
+
+export interface BrowserFillIdentity {
+  itemId: string
+  itemName: string
+  username?: string
+  fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
+  email?: string
+  phone?: string
+  address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
 }
 
 export interface BrowserSaveLoginInput {
@@ -234,9 +277,18 @@ export interface CreateItemInput {
   password?: string
   otp?: string
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   email?: string
   phone?: string
   address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -251,9 +303,18 @@ export interface UpdateItemInput {
   password?: string
   otp?: string
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   email?: string
   phone?: string
   address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -268,9 +329,18 @@ export interface ItemDetails {
   password?: string
   otp?: TotpDetails
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   email?: string
   phone?: string
   address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
   content?: string
   notes?: string
   websites: string[]

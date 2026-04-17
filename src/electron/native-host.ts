@@ -40,20 +40,25 @@ export async function runNativeMessagingHost(request = readNativeMessageSync()) 
   const controller = new BrowserExtensionController()
 
   try {
-    if (!request) {
-      writeNativeMessage({
-        id: 'unknown',
-        ok: false,
-        error: {
-          code: 'invalid_message',
-          message: 'No native messaging request was received.',
-        },
-      })
-      return
-    }
+    let nextRequest = request
 
-    const response = await controller.handle(request)
-    writeNativeMessage(response)
+    while (nextRequest) {
+      try {
+        const response = await controller.handle(nextRequest)
+        writeNativeMessage(response)
+      } catch (error) {
+        writeNativeMessage({
+          id: nextRequest.id ?? 'unknown',
+          ok: false,
+          error: {
+            code: 'native_host_failure',
+            message: error instanceof Error ? error.message : 'The native messaging host failed.',
+          },
+        })
+      }
+
+      nextRequest = readNativeMessageSync()
+    }
   } catch (error) {
     writeNativeMessage({
       id: request?.id ?? 'unknown',

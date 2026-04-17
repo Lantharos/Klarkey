@@ -29,7 +29,7 @@ export class BrowserExtensionController {
           id: request.id,
           ok: true,
           result: {
-            matches: this.repository.listBrowserSiteMatches(request.url),
+            matches: this.repository.listBrowserSiteMatches(request.url, request.title),
           },
         }
 
@@ -42,12 +42,21 @@ export class BrowserExtensionController {
           },
         }
 
+      case 'get-identity':
+        return {
+          id: request.id,
+          ok: true,
+          result: {
+            identity: this.repository.getBrowserFillIdentity(request.itemId),
+          },
+        }
+
       case 'list-field-suggestions':
         return {
           id: request.id,
           ok: true,
           result: {
-            suggestions: this.repository.listBrowserFieldSuggestions(request.field, request.url),
+            suggestions: this.repository.listBrowserFieldSuggestions(request.field, request.flow, request.url, request.title),
           },
         }
 

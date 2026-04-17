@@ -1,6 +1,8 @@
 import type {
   ActionExecutionResult,
+  BrowserAuthFlow,
   BrowserFieldSuggestion,
+  BrowserFillIdentity,
   BrowserFillLogin,
   BrowserSaveLoginInput,
   BrowserSiteMatch,
@@ -32,8 +34,14 @@ export type BrowserExtensionRequest =
     }
   | {
       id: string
+      type: 'get-identity'
+      itemId: string
+    }
+  | {
+      id: string
       type: 'list-field-suggestions'
       field: BrowserSuggestionField
+      flow: BrowserAuthFlow
       url: string
       title?: string
     }
@@ -82,6 +90,9 @@ export type BrowserExtensionResponse =
           }
         | {
             login?: BrowserFillLogin
+          }
+        | {
+            identity?: BrowserFillIdentity
           }
         | {
             suggestions: BrowserFieldSuggestion[]

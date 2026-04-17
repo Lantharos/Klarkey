@@ -3,6 +3,15 @@ const nativeHostName = 'app.klarkey.desktop'
 const isChromium = Boolean(globalThis.chrome?.webAuthenticationProxy)
 let proxyAttached = false
 let proxySyncPromise
+let nativePort
+let nativePortPromise
+let nativePortGeneration = 0
+const nativePortRequests = new Map()
+let desktopState = {
+  connected: false,
+  lastError: 'Klarkey desktop is not connected.',
+  updatedAt: 0,
+}
 const OPERATION_TIMEOUT_MS = 4000
 const HOST_TIMEOUT_MS = 15000
 
@@ -44,14 +53,80 @@ const sendTabMessage = (tabId, message) =>
     'Timed out while contacting the page.',
   )
 
-const sendNativeMessage = (message) =>
-  withTimeout(
-    runtimeApi.runtime.sendNativeMessage.length === 2
-      ? runtimeApi.runtime.sendNativeMessage(nativeHostName, message)
-      : withCallback(runtimeApi.runtime.sendNativeMessage, nativeHostName, message),
-    'Timed out while contacting the Klarkey desktop bridge.',
-    HOST_TIMEOUT_MS,
-  )
+const rejectPendingNativeRequests = (message) => {
+  for (const { reject, timeoutId } of nativePortRequests.values()) {
+    globalThis.clearTimeout(timeoutId)
+    reject(new Error(message))
+  }
+  nativePortRequests.clear()
+}
+
+const updateDesktopState = (connected, lastError) => {
+  desktopState = {
+    connected,
+    lastError,
+    updatedAt: Date.now(),
+  }
+}
+
+const attachNativePortListeners = (port, generation) => {
+  port.onMessage.addListener((response) => {
+    if (!response?.id) {
+      return
+    }
+
+    const pending = nativePortRequests.get(response.id)
+    if (!pending) {
+      return
+    }
+
+    nativePortRequests.delete(response.id)
+    globalThis.clearTimeout(pending.timeoutId)
+    updateDesktopState(true, undefined)
+    pending.resolve(response)
+  })
+
+  port.onDisconnect.addListener(() => {
+    if (generation !== nativePortGeneration) {
+      return
+    }
+
+    const message = runtimeApi.runtime.lastError?.message || 'Klarkey desktop is not connected.'
+    nativePort = undefined
+    updateDesktopState(false, message)
+    rejectPendingNativeRequests(message)
+  })
+}
+
+const ensureNativePort = async () => {
+  if (nativePort) {
+    return nativePort
+  }
+
+  if (nativePortPromise) {
+    return nativePortPromise
+  }
+
+  nativePortPromise = Promise.resolve()
+    .then(() => runtimeApi.runtime.connectNative(nativeHostName))
+    .then((port) => {
+      nativePortGeneration += 1
+      nativePort = port
+      attachNativePortListeners(port, nativePortGeneration)
+      updateDesktopState(true, undefined)
+      return port
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : 'Klarkey desktop is not connected.'
+      updateDesktopState(false, message)
+      throw new Error(message)
+    })
+    .finally(() => {
+      nativePortPromise = undefined
+    })
+
+  return nativePortPromise
+}
 
 async function getActiveTab() {
   const [tab] = await queryTabs({ active: true, currentWindow: true })
@@ -82,15 +157,59 @@ async function getPageContext(tab) {
 }
 
 async function requestHost(payload) {
-  return sendNativeMessage({
-    id: createRequestId(),
-    ...payload,
-  })
+  const port = await ensureNativePort()
+  const id = createRequestId()
+
+  return withTimeout(
+    new Promise((resolve, reject) => {
+      const timeoutId = globalThis.setTimeout(() => {
+        nativePortRequests.delete(id)
+        reject(new Error('Timed out while contacting the Klarkey desktop bridge.'))
+      }, HOST_TIMEOUT_MS)
+
+      nativePortRequests.set(id, {
+        resolve,
+        reject,
+        timeoutId,
+      })
+
+      try {
+        port.postMessage({
+          id,
+          ...payload,
+        })
+      } catch (error) {
+        nativePortRequests.delete(id)
+        globalThis.clearTimeout(timeoutId)
+        reject(error instanceof Error ? error : new Error('Klarkey desktop is not connected.'))
+      }
+    }),
+    'Timed out while contacting the Klarkey desktop bridge.',
+    HOST_TIMEOUT_MS,
+  )
 }
 
 async function ensureDesktopConnected() {
   const ping = await requestHost({ type: 'ping' })
   return Boolean(ping?.ok)
+}
+
+async function readDesktopConnectionState() {
+  if (desktopState.connected) {
+    return { connected: true }
+  }
+
+  const connected = await ensureDesktopConnected().catch((error) => {
+    updateDesktopState(false, error instanceof Error ? error.message : 'Klarkey desktop is not connected.')
+    return false
+  })
+
+  return connected
+    ? { connected: true }
+    : {
+        connected: false,
+        error: desktopState.lastError || 'Klarkey desktop is not connected.',
+      }
 }
 
 async function syncProxyAttachment() {
@@ -321,39 +440,23 @@ async function loadPopupState() {
     'Timed out while checking the Chromium passkey proxy.',
     1000,
   ).catch(() => false)
+  const connection = await readDesktopConnectionState()
 
-  const ping = await requestHost({ type: 'ping' }).catch((error) => ({
-    ok: false,
-    error: {
-      message: error instanceof Error ? error.message : 'Klarkey desktop is not connected.',
-    },
-  }))
-
-  if (!ping?.ok) {
+  if (!connection.connected) {
     return {
       connected: false,
       desktopRequired: true,
       url: pageContext.url,
       title: pageContext.title,
-      matches: [],
       form: pageContext.form,
       passkeys: {
         supported: false,
-        reason: ping?.error?.message || 'Klarkey desktop is not connected.',
+        reason: connection.error || 'Klarkey desktop is not connected.',
       },
       chromiumProxyReady,
-      error: ping?.error?.message || 'Klarkey desktop is not connected.',
+      error: connection.error || 'Klarkey desktop is not connected.',
     }
   }
-
-  const matches = pageContext.url
-    ? await requestHost({ type: 'list-logins', url: pageContext.url, title: pageContext.title }).catch((error) => ({
-        ok: false,
-        error: {
-          message: error instanceof Error ? error.message : 'Klarkey could not load matching items.',
-        },
-      }))
-    : undefined
 
   const passkeys = pageContext.url && isChromium
     ? await requestHost({ type: 'passkeys-status', url: pageContext.url }).catch((error) => ({
@@ -375,7 +478,6 @@ async function loadPopupState() {
     desktopRequired: true,
     url: pageContext.url,
     title: pageContext.title,
-    matches: matches?.ok ? matches.result.matches : [],
     form: pageContext.form,
     passkeys: passkeys?.ok
       ? passkeys.result
@@ -384,7 +486,7 @@ async function loadPopupState() {
           reason: passkeys?.error?.message || 'Passkey state unavailable.',
         },
     chromiumProxyReady,
-    error: matches?.ok ? undefined : matches?.error?.message,
+    error: undefined,
   }
 }
 
@@ -482,8 +584,21 @@ async function listLoginsForUrl(url, title) {
   }
 }
 
-async function listFieldSuggestions(field, url, title) {
-  const response = await requestHost({ type: 'list-field-suggestions', field, url, title })
+async function fetchIdentity(itemId) {
+  const response = await requestHost({ type: 'get-identity', itemId })
+  if (!response?.ok || !response.result.identity) {
+    return { ok: false, message: response?.error?.message || 'The selected identity could not be loaded.' }
+  }
+
+  return {
+    ok: true,
+    identity: response.result.identity,
+    message: 'Identity loaded.',
+  }
+}
+
+async function listFieldSuggestions(field, flow, url, title) {
+  const response = await requestHost({ type: 'list-field-suggestions', field, flow, url, title })
   if (!response?.ok) {
     return {
       ok: false,
@@ -564,11 +679,14 @@ runtimeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       case 'fetch-login':
         sendResponse(await fillLogin(message.itemId))
         return
+      case 'fetch-identity':
+        sendResponse(await fetchIdentity(message.itemId))
+        return
       case 'list-logins-for-url':
         sendResponse(await listLoginsForUrl(message.url, message.title))
         return
       case 'list-field-suggestions':
-        sendResponse(await listFieldSuggestions(message.field, message.url, message.title))
+        sendResponse(await listFieldSuggestions(message.field, message.flow, message.url, message.title))
         return
       case 'save-login-payload':
         sendResponse(await saveLoginPayload(message.payload))

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("Klarkey.NativeHostLauncher")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0913291879eb5519b161ef6edca361dcdebb7f85")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ca8190864da6e8be44cbc5a033849d101583f41d")]
 [assembly: System.Reflection.AssemblyProductAttribute("Klarkey.NativeHostLauncher")]
 [assembly: System.Reflection.AssemblyTitleAttribute("Klarkey.NativeHostLauncher")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -12,14 +12,22 @@ let pageState = {
   activeMenuButtons: [],
   activeMenuIndex: -1,
   lastSavePromptKey: '',
+  activeSaveBannerKey: '',
   triggerInput: undefined,
+  triggerElement: undefined,
+  menuElement: undefined,
   menuOpen: false,
+  layoutFrame: undefined,
 }
 
 let matchFetchGeneration = 0
 let savePromptTimer
 
 const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
+const pendingOtpStorageKey = `klarkey:pending-otp:${window.location.hostname}`
+const pendingSaveStorageKey = `klarkey:pending-save:${window.location.hostname}`
+let suppressInlineMenuUntil = 0
+let suppressedInlineInput
 
 const overlayRoot = document.createElement('div')
 const overlayStyle = document.createElement('style')
@@ -317,10 +325,11 @@ const visible = (element) => {
   return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0
 }
 
-const isTextLikeInput = (input) => ['text', 'email', 'search', 'tel', 'url'].includes(input.type)
+const isFieldElement = (element) => element instanceof HTMLInputElement || element instanceof HTMLSelectElement
+const isTextLikeInput = (input) => input instanceof HTMLInputElement && ['text', 'email', 'search', 'tel', 'url'].includes(input.type)
 
 const getInputSignals = (input) => {
-  const autocomplete = (input.autocomplete || '').toLowerCase()
+  const autocomplete = input instanceof HTMLInputElement ? (input.autocomplete || '').toLowerCase() : ''
   const labels = []
   if (Array.isArray(input.labels)) {
     labels.push(...input.labels.map((label) => label.textContent || ''))
@@ -349,6 +358,21 @@ const getInputSignals = (input) => {
   }
 }
 
+const markerMatches = (input, expression) => expression.test(getInputSignals(input).marker)
+const suppressInlineMenu = (input) => {
+  suppressedInlineInput = input
+  suppressInlineMenuUntil = Date.now() + 900
+}
+
+const stopInlineLayoutTracking = () => {
+  if (pageState.layoutFrame === undefined) {
+    return
+  }
+
+  window.cancelAnimationFrame(pageState.layoutFrame)
+  pageState.layoutFrame = undefined
+}
+
 const isUsernameInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
   return isTextLikeInput(input) && (autocomplete.includes('username') || autocomplete.includes('email') || /(user|email|login)/.test(marker))
@@ -359,15 +383,75 @@ const isEmailInput = (input) => {
   return isTextLikeInput(input) && (autocomplete.includes('email') || /\bemail\b/.test(marker))
 }
 
+const isPhoneInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('tel') || markerMatches(input, /(phone|mobile|tel)/)
+}
+
+const isFullNameInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  if (autocomplete.includes('given-name') || autocomplete.includes('family-name') || autocomplete.includes('additional-name')) {
+    return false
+  }
+
+  if (isFirstNameInput(input) || isMiddleNameInput(input) || isLastNameInput(input)) {
+    return false
+  }
+
+  return autocomplete === 'name' || markerMatches(input, /(full[\s_-]*name|your[\s_-]*name|\bname\b)/)
+}
+
+const isFirstNameInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('given-name') || markerMatches(input, /(first[\s_-]*name|given[\s_-]*name|forename|fname)/)
+}
+
+const isMiddleNameInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('additional-name') || markerMatches(input, /(middle[\s_-]*name|middle[\s_-]*initial|additional[\s_-]*name|mname)/)
+}
+
+const isLastNameInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('family-name') || markerMatches(input, /(last[\s_-]*name|family[\s_-]*name|surname|lname)/)
+}
+
+const isCountryInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('country') || markerMatches(input, /(country|country[\s_-]*name)/)
+}
+
+const isStateInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('address-level1') || markerMatches(input, /\b(state|province|region|county|admin[\s_-]*area)\b/)
+}
+
+const isPostalCodeInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('postal-code') || markerMatches(input, /(zip|postal|post[\s_-]*code)/)
+}
+
+const isCityInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('address-level2') || markerMatches(input, /\b(city|town|locality|suburb)\b/)
+}
+const isAddressLine2Input = (input) => markerMatches(input, /(address line 2|suite|apartment|apt|unit|floor|building)/)
+const isAddressLine1Input = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('street-address') || autocomplete.includes('address-line1') || markerMatches(input, /(street address|address line 1|address|street|line1)/)
+}
+
 const isOtpInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
-  return autocomplete.includes('one-time-code') || /(otp|2fa|code|totp|auth)/.test(marker)
+  return (autocomplete.includes('one-time-code') || /(otp|2fa|totp|one[-\s]?time|verification|authenticator|security code|auth code)/.test(marker)) && !/\bemail\b/.test(marker)
 }
 
 const isPasswordInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
-  return input.type === 'password' || autocomplete.includes('current-password') || /(pass|secret)/.test(marker)
+  return input instanceof HTMLInputElement && (input.type === 'password' || autocomplete.includes('current-password') || autocomplete.includes('new-password') || /(pass|secret)/.test(marker))
 }
+
+const isConfirmPasswordInput = (input) => markerMatches(input, /(confirm|repeat|verify|re-enter)/)
 
 const randomPassword = (length = 20) => {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
@@ -461,13 +545,162 @@ const getInputs = (preferredInput) => {
   }
 }
 
+const getPendingOtp = () => {
+  try {
+    return window.sessionStorage.getItem(pendingOtpStorageKey) || ''
+  } catch {
+    return ''
+  }
+}
+
+const setPendingOtp = (otp) => {
+  try {
+    if (otp) {
+      window.sessionStorage.setItem(pendingOtpStorageKey, otp)
+    } else {
+      window.sessionStorage.removeItem(pendingOtpStorageKey)
+    }
+  } catch {
+    return
+  }
+}
+
+const getAuthContextText = (input) => {
+  const form = pickForm(input)
+  const formText = form?.innerText || ''
+  const formAction = form?.getAttribute('action') || ''
+  const submitCopy = form
+    ? Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]'))
+        .map((node) => node.textContent || node.getAttribute('value') || '')
+        .join(' ')
+    : ''
+  const { autocomplete, marker } = getInputSignals(input)
+
+  return [
+    window.location.pathname,
+    window.location.href,
+    document.title,
+    formAction,
+    autocomplete,
+    marker,
+    formText,
+    submitCopy,
+  ]
+    .join(' ')
+    .toLowerCase()
+}
+
+const detectAuthFlow = (input) => {
+  const context = getAuthContextText(input)
+  const { passwordInputs } = getInputs(input)
+  const hasNewPasswordAutocomplete = passwordInputs.some((candidate) =>
+    (candidate.autocomplete || '').toLowerCase().includes('new-password'),
+  )
+  const hasMultiplePasswordFields = passwordInputs.length > 1
+  const registerSignal =
+    hasNewPasswordAutocomplete ||
+    hasMultiplePasswordFields ||
+    /(register|sign[\s-]?up|create account|create your account|join|start trial|confirm password|new password)/.test(context)
+
+  if (registerSignal) {
+    return 'register'
+  }
+
+  if (/(sign[\s-]?in|log[\s-]?in|current password|welcome back)/.test(context)) {
+    return 'login'
+  }
+
+  return 'login'
+}
+
+const shouldOfferSuggestedPassword = (input) => {
+  if (detectAuthFlow(input) !== 'register') {
+    return false
+  }
+
+  if (isConfirmPasswordInput(input)) {
+    return false
+  }
+
+  return !(input instanceof HTMLInputElement && input.value?.trim())
+}
+
+const shouldAutoOpenFieldMenu = (input) => {
+  const fieldKind = fieldKindFor(input)
+  const authFlow = suggestionFlowFor(input, fieldKind)
+
+  if (fieldKind === 'password') {
+    return shouldOfferSuggestedPassword(input) || (authFlow !== 'register' && pageState.matches.some((match) => match.hasPassword))
+  }
+
+  if (fieldKind === 'otp') {
+    return Boolean(getPendingOtp())
+  }
+
+  return pageState.fieldSuggestions.length > 0
+}
+
+const getPendingSavePrompt = () => {
+  try {
+    const raw = window.sessionStorage.getItem(pendingSaveStorageKey)
+    if (!raw) {
+      return undefined
+    }
+
+    const parsed = JSON.parse(raw)
+    if (!parsed?.password || !parsed?.createdAt || Date.now() - parsed.createdAt > 30_000) {
+      window.sessionStorage.removeItem(pendingSaveStorageKey)
+      return undefined
+    }
+
+    return parsed
+  } catch {
+    return undefined
+  }
+}
+
+const setPendingSavePrompt = (payload) => {
+  try {
+    window.sessionStorage.setItem(
+      pendingSaveStorageKey,
+      JSON.stringify({
+        ...payload,
+        createdAt: Date.now(),
+      }),
+    )
+  } catch {
+    return
+  }
+}
+
+const clearPendingSavePrompt = () => {
+  try {
+    window.sessionStorage.removeItem(pendingSaveStorageKey)
+  } catch {
+    return
+  }
+}
+
+const savePromptKeyFor = ({ username, password }) => `${window.location.hostname}|${username || ''}|${password || ''}`
+
 const writeValue = (input, value) => {
   if (!input || value === undefined || value === null) {
     return
   }
 
   input.focus()
-  input.value = value
+  if (input instanceof HTMLSelectElement) {
+    const normalizedValue = value.toLowerCase()
+    const matchingOption = Array.from(input.options).find((option) => {
+      const optionValue = option.value.trim().toLowerCase()
+      const optionLabel = option.textContent?.trim().toLowerCase() || ''
+      return optionValue === normalizedValue || optionLabel === normalizedValue
+    })
+
+    input.value = matchingOption?.value || value
+  } else {
+    input.value = value
+  }
   input.dispatchEvent(new Event('input', { bubbles: true }))
   input.dispatchEvent(new Event('change', { bubbles: true }))
 }
@@ -483,16 +716,22 @@ const writePasswordGroup = (preferredInput, value) => {
 const collectFormSnapshot = (preferredInput) => {
   const inputs = getInputs(preferredInput)
   const directUsername = inputs.username?.value?.trim() || ''
+  const directPassword =
+    preferredInput instanceof HTMLInputElement && isPasswordInput(preferredInput) ? preferredInput.value?.trim() || '' : ''
   return {
     username: directUsername || getPendingUsername(),
-    password: inputs.password?.value?.trim() || '',
+    password: directPassword || inputs.password?.value?.trim() || '',
   }
 }
 
 const removeInlineUi = () => {
+  stopInlineLayoutTracking()
   overlayRoot.innerHTML = ''
   pageState.activeMenuButtons = []
   pageState.activeMenuIndex = -1
+  pageState.activeSaveBannerKey = ''
+  pageState.triggerElement = undefined
+  pageState.menuElement = undefined
   pageState.menuOpen = false
 }
 
@@ -516,7 +755,13 @@ const moveActiveMenuIndex = (delta) => {
 }
 
 const showSaveBanner = ({ username, password, reason }) => {
+  const promptKey = savePromptKeyFor({ username, password })
+  if (pageState.activeSaveBannerKey === promptKey) {
+    return
+  }
+
   removeInlineUi()
+  pageState.activeSaveBannerKey = promptKey
   const banner = document.createElement('section')
   banner.className = 'klarkey-save-banner'
   banner.innerHTML = `
@@ -533,6 +778,9 @@ const showSaveBanner = ({ username, password, reason }) => {
   `
 
   const dismiss = () => {
+    window.clearTimeout(savePromptTimer)
+    pageState.lastSavePromptKey = promptKey
+    pageState.activeSaveBannerKey = ''
     banner.classList.add('hidden')
     window.setTimeout(() => {
       if (banner.isConnected) {
@@ -558,24 +806,29 @@ const showSaveBanner = ({ username, password, reason }) => {
     banner.querySelector('.klarkey-save-copy').textContent = response.message || 'Saved.'
     if (response.ok) {
       pageState.matches = []
-      pageState.lastSavePromptKey = `${window.location.hostname}|${username}|${password}`
+      pageState.lastSavePromptKey = promptKey
       setPendingUsername(username || '')
+      clearPendingSavePrompt()
     }
     dismiss()
   })
 
-  banner.querySelector('[data-action="dismiss"]').addEventListener('click', dismiss)
+  banner.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
+    clearPendingSavePrompt()
+    dismiss()
+  })
   overlayRoot.appendChild(banner)
 }
 
 const openMenuFromTrigger = (input) => {
   const generation = ++matchFetchGeneration
   pageState.overlayInput = input
-  const inputMode = inputModeFor(input)
+  const fieldKind = fieldKindFor(input)
+  const authFlow = suggestionFlowFor(input, fieldKind)
   renderInlineMenu(input, pageState.matches, { loading: true })
   void Promise.all([
     refreshMatches(),
-    inputMode === 'password' ? Promise.resolve([]) : refreshFieldSuggestions(inputMode),
+    fieldKind === 'password' || fieldKind === 'otp' || !fieldKind ? Promise.resolve([]) : refreshFieldSuggestions(fieldKind, authFlow),
   ]).then(() => {
     if (generation !== matchFetchGeneration || pageState.overlayInput !== input) {
       return
@@ -605,14 +858,131 @@ const renderInlineTrigger = (input, onOpen) => {
   })
   overlayRoot.appendChild(trigger)
   pageState.triggerInput = input
+  pageState.triggerElement = trigger
 }
 
-const inputModeFor = (input) => {
+const fieldKindFor = (input) => {
   if (isPasswordInput(input)) {
     return 'password'
   }
 
-  return isEmailInput(input) ? 'email' : 'username'
+  if (isOtpInput(input)) {
+    return 'otp'
+  }
+
+  if (isEmailInput(input)) {
+    return 'email'
+  }
+
+  if (isPhoneInput(input)) {
+    return 'phone'
+  }
+
+  if (isCountryInput(input)) {
+    return 'country'
+  }
+
+  if (isStateInput(input)) {
+    return 'state'
+  }
+
+  if (isPostalCodeInput(input)) {
+    return 'postalCode'
+  }
+
+  if (isCityInput(input)) {
+    return 'city'
+  }
+
+  if (isAddressLine2Input(input)) {
+    return 'addressLine2'
+  }
+
+  if (isAddressLine1Input(input)) {
+    return 'addressLine1'
+  }
+
+  if (isFirstNameInput(input)) {
+    return 'firstName'
+  }
+
+  if (isMiddleNameInput(input)) {
+    return 'middleName'
+  }
+
+  if (isLastNameInput(input)) {
+    return 'lastName'
+  }
+
+  if (isFullNameInput(input)) {
+    return 'fullName'
+  }
+
+  if (isUsernameInput(input)) {
+    return 'username'
+  }
+
+  return undefined
+}
+
+const fieldLabelFor = (fieldKind) => {
+  switch (fieldKind) {
+    case 'password':
+      return 'Password'
+    case 'otp':
+      return 'One-time code'
+    case 'email':
+      return 'Email'
+    case 'phone':
+      return 'Phone'
+    case 'fullName':
+      return 'Full name'
+    case 'firstName':
+      return 'First name'
+    case 'middleName':
+      return 'Middle name'
+    case 'lastName':
+      return 'Last name'
+    case 'addressLine1':
+      return 'Address'
+    case 'addressLine2':
+      return 'Address line 2'
+    case 'city':
+      return 'City'
+    case 'state':
+      return 'State'
+    case 'postalCode':
+      return 'Postal code'
+    case 'country':
+      return 'Country'
+    default:
+      return 'Username'
+  }
+}
+
+const inputModeFor = fieldKindFor
+const suggestionFlowFor = (input, fieldKind) => {
+  if (
+    fieldKind &&
+    [
+      'fullName',
+      'firstName',
+      'middleName',
+      'lastName',
+      'phone',
+      'address',
+      'addressLine1',
+      'addressLine2',
+      'city',
+      'state',
+      'postalCode',
+      'country',
+    ].includes(fieldKind)
+  ) {
+    return 'register'
+  }
+
+  return detectAuthFlow(input)
 }
 
 const renderInlineMenu = (input, matches, options = {}) => {
@@ -790,6 +1160,62 @@ const renderInlineMenu = (input, matches, options = {}) => {
 const renderInlineTriggerOnly = (input) => {
   removeInlineUi()
   renderInlineTrigger(input, () => openMenuFromTrigger(input))
+  startInlineLayoutTracking()
+}
+
+const positionInlineMenu = (menu, input) => {
+  const rect = input.getBoundingClientRect()
+  const menuRect = menu.getBoundingClientRect()
+  const menuHeight = menuRect.height || menu.offsetHeight || 0
+  const menuWidth = menuRect.width || menu.offsetWidth || 0
+  const spaceBelow = window.innerHeight - rect.bottom - 16
+  const spaceAbove = rect.top - 16
+  const prefersAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow
+  const top = prefersAbove
+    ? Math.max(12, rect.top - menuHeight - 8)
+    : Math.min(window.innerHeight - menuHeight - 12, rect.bottom + 8)
+  const left = Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12))
+
+  menu.style.top = `${top}px`
+  menu.style.left = `${left}px`
+  menu.style.visibility = 'visible'
+}
+
+const positionInlineTrigger = (trigger, input) => {
+  const rect = input.getBoundingClientRect()
+  trigger.style.top = `${Math.max(8, rect.top + (rect.height - 24) / 2)}px`
+  trigger.style.left = `${Math.max(8, Math.min(rect.right - 28, window.innerWidth - 32))}px`
+}
+
+const syncInlineUiPosition = () => {
+  if (!isFieldElement(pageState.overlayInput) || !visible(pageState.overlayInput)) {
+    removeInlineUi()
+    return
+  }
+
+  if (pageState.triggerElement?.isConnected) {
+    positionInlineTrigger(pageState.triggerElement, pageState.overlayInput)
+  }
+
+  if (pageState.menuElement?.isConnected && pageState.menuOpen) {
+    positionInlineMenu(pageState.menuElement, pageState.overlayInput)
+  }
+}
+
+const startInlineLayoutTracking = () => {
+  stopInlineLayoutTracking()
+
+  const tick = () => {
+    syncInlineUiPosition()
+    if (!pageState.triggerElement?.isConnected && !pageState.menuElement?.isConnected) {
+      stopInlineLayoutTracking()
+      return
+    }
+
+    pageState.layoutFrame = window.requestAnimationFrame(tick)
+  }
+
+  pageState.layoutFrame = window.requestAnimationFrame(tick)
 }
 
 const appendFieldMenuButton = ({ container, title, secondary, accent, onClick }) => {
@@ -826,87 +1252,200 @@ const appendFieldMenuButton = ({ container, title, secondary, accent, onClick })
   pageState.activeMenuButtons.push(item)
 }
 
+const applyLoginFill = (input, login) => {
+  const inputs = getInputs(input)
+  suppressInlineMenu(input)
+  writeValue(inputs.username, login.username)
+  writePasswordGroup(input, login.password)
+  writeValue(inputs.otp, login.otp)
+  setPendingUsername(login.username || '')
+  setPendingOtp(login.otp || '')
+  removeInlineUi()
+}
+
+const getFillableFields = (preferredInput) => {
+  const form = pickForm(preferredInput)
+  const root = form || document
+  return Array.from(root.querySelectorAll('input, select'))
+    .filter((field) => isFieldElement(field) && visible(field))
+}
+
+const findFieldByKind = (preferredInput, kind) =>
+  getFillableFields(preferredInput).find((field) => fieldKindFor(field) === kind)
+
+const applyIdentityFill = (input, identity) => {
+  suppressInlineMenu(input)
+
+  const fieldMap = {
+    username: identity.username,
+    email: identity.email,
+    fullName: identity.fullName,
+    firstName: identity.firstName,
+    middleName: identity.middleName,
+    lastName: identity.lastName,
+    phone: identity.phone,
+    address: identity.address,
+    addressLine1: identity.addressLine1 || identity.address,
+    addressLine2: identity.addressLine2,
+    city: identity.city,
+    state: identity.state,
+    postalCode: identity.postalCode,
+    country: identity.country,
+  }
+
+  for (const [kind, value] of Object.entries(fieldMap)) {
+    if (!value) {
+      continue
+    }
+
+    const target = findFieldByKind(input, kind)
+    if (target) {
+      writeValue(target, value)
+    }
+  }
+
+  if (!identity.firstName && identity.fullName) {
+    const firstNameField = findFieldByKind(input, 'firstName')
+    if (firstNameField && !(firstNameField.value || '').trim()) {
+      writeValue(firstNameField, identity.fullName.split(/\s+/)[0] || identity.fullName)
+    }
+  }
+
+  if (!identity.lastName && identity.fullName) {
+    const parts = identity.fullName.split(/\s+/).filter(Boolean)
+    const lastNameField = findFieldByKind(input, 'lastName')
+    if (lastNameField && !(lastNameField.value || '').trim() && parts.length > 1) {
+      writeValue(lastNameField, parts.slice(1).join(' '))
+    }
+  }
+
+  if (identity.username || identity.email) {
+    setPendingUsername(identity.username || identity.email || '')
+  }
+
+  removeInlineUi()
+}
+
 const renderFieldMenu = (input, options = {}) => {
   const { loading = false } = options
   removeInlineUi()
   renderInlineTrigger(input, () => openMenuFromTrigger(input))
   pageState.menuOpen = true
 
-  const rect = input.getBoundingClientRect()
   const menu = document.createElement('section')
   menu.className = 'klarkey-inline-menu'
   menu.setAttribute('role', 'menu')
-  const estimatedHeight = 300
-  const prefersAbove = rect.bottom + estimatedHeight > window.innerHeight - 16 && rect.top > estimatedHeight
-  const top = prefersAbove ? Math.max(12, rect.top - estimatedHeight - 8) : Math.min(window.innerHeight - 24, rect.bottom + 8)
-  menu.style.top = `${top}px`
-  menu.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 392))}px`
+  menu.style.visibility = 'hidden'
 
-  const inputMode = inputModeFor(input)
+  const fieldKind = fieldKindFor(input)
+  const authFlow = suggestionFlowFor(input, fieldKind)
   menu.innerHTML = `
     <div class="klarkey-inline-header">
       <div class="klarkey-inline-brand">Klarkey</div>
-      <div class="klarkey-inline-subtle">${inputMode === 'password' ? 'Password' : inputMode === 'email' ? 'Email' : 'Username'}</div>
+      <div class="klarkey-inline-subtle">${fieldLabelFor(fieldKind)}</div>
     </div>
     <div class="klarkey-inline-list"></div>
     <div class="klarkey-inline-actions"></div>
   `
 
   const list = menu.querySelector('.klarkey-inline-list')
-  const actions = menu.querySelector('.klarkey-inline-actions')
 
   if (loading) {
     const loadingEl = document.createElement('div')
     loadingEl.className = 'klarkey-inline-loading'
     loadingEl.textContent = 'Loading suggestions...'
     list.appendChild(loadingEl)
-  } else if (inputMode === 'password') {
-    const generated = randomPassword()
-    appendFieldMenuButton({
-      container: list,
-      title: 'Use Suggested Password',
-      secondary: generated,
-      accent: 'New',
-      onClick: () => {
-        const inputs = getInputs(input)
-        writePasswordGroup(input, generated)
-        showSaveBanner({
-          username: inputs.username?.value?.trim() || getPendingUsername(),
-          password: generated,
-          reason: 'create',
-        })
-      },
-    })
-
-    for (const match of pageState.matches.slice(0, 4)) {
+  } else if (fieldKind === 'password') {
+    const showedGenerator = shouldOfferSuggestedPassword(input)
+    if (showedGenerator) {
+      const generated = randomPassword()
       appendFieldMenuButton({
         container: list,
-        title: match.username || match.itemName,
-        secondary: match.username && match.username !== match.itemName ? match.itemName : undefined,
-        accent: match.hasOtp ? 'OTP' : undefined,
-        onClick: async () => {
-          const response = await sendMessage({ type: 'fetch-login', itemId: match.itemId }).catch((error) => ({
-            ok: false,
-            message: error instanceof Error ? error.message : 'Klarkey could not load this login.',
-          }))
-
-          if (!response.ok || !response.login) {
-            return
-          }
-
+        title: 'Use Suggested Password',
+        secondary: generated,
+        accent: 'New',
+        onClick: () => {
           const inputs = getInputs(input)
-          writeValue(inputs.username, response.login.username)
-          writePasswordGroup(input, response.login.password)
-          writeValue(inputs.otp, response.login.otp)
-          setPendingUsername(response.login.username || '')
+          suppressInlineMenu(input)
+          writePasswordGroup(input, generated)
+          setPendingOtp('')
+          setPendingSavePrompt({
+            username: inputs.username?.value?.trim() || getPendingUsername(),
+            password: generated,
+            reason: 'create',
+          })
+          showSaveBanner({
+            username: inputs.username?.value?.trim() || getPendingUsername(),
+            password: generated,
+            reason: 'create',
+          })
+        },
+      })
+    }
+
+    if (!showedGenerator && authFlow !== 'register') {
+      for (const match of pageState.matches.filter((candidate) => candidate.hasPassword).slice(0, 4)) {
+        appendFieldMenuButton({
+          container: list,
+          title: match.username || match.itemName,
+          secondary: match.username && match.username !== match.itemName ? match.itemName : undefined,
+          accent: match.hasOtp ? 'OTP' : undefined,
+          onClick: async () => {
+            const response = await sendMessage({ type: 'fetch-login', itemId: match.itemId }).catch((error) => ({
+              ok: false,
+              message: error instanceof Error ? error.message : 'Klarkey could not load this login.',
+            }))
+
+            if (!response.ok || !response.login) {
+              return
+            }
+
+            applyLoginFill(input, response.login)
+          },
+        })
+      }
+    }
+
+    if (authFlow === 'register' && !showedGenerator) {
+      const empty = document.createElement('div')
+      empty.className = 'klarkey-inline-empty'
+      empty.textContent = 'Password already set.'
+      list.appendChild(empty)
+    } else if (!showedGenerator && !pageState.matches.some((match) => match.hasPassword)) {
+      const empty = document.createElement('div')
+      empty.className = 'klarkey-inline-empty'
+      empty.textContent = 'No items found.'
+      list.appendChild(empty)
+    }
+  } else if (fieldKind === 'otp') {
+    const pendingOtp = getPendingOtp()
+    if (pendingOtp) {
+      appendFieldMenuButton({
+        container: list,
+        title: 'Use one-time code',
+        secondary: pendingOtp,
+        accent: 'OTP',
+        onClick: () => {
+          suppressInlineMenu(input)
+          writeValue(input, pendingOtp)
+          setPendingOtp('')
           removeInlineUi()
         },
       })
+    } else {
+      const empty = document.createElement('div')
+      empty.className = 'klarkey-inline-empty'
+      empty.textContent = 'No one-time code ready.'
+      list.appendChild(empty)
     }
   } else if (!pageState.fieldSuggestions.length) {
     const empty = document.createElement('div')
     empty.className = 'klarkey-inline-empty'
-    empty.textContent = inputMode === 'email' ? 'No email suggestions yet.' : 'No username suggestions yet.'
+    empty.textContent = authFlow === 'login'
+      ? 'No items found.'
+      : fieldKind === 'email'
+        ? 'No identity email found.'
+        : 'No identity details found.'
     list.appendChild(empty)
   } else {
     for (const suggestion of pageState.fieldSuggestions.slice(0, 6)) {
@@ -915,23 +1454,50 @@ const renderFieldMenu = (input, options = {}) => {
         title: suggestion.value,
         secondary: suggestion.itemName,
         accent: suggestion.fromSiteMatch ? 'Site' : undefined,
-        onClick: () => {
+        onClick: async () => {
+          if (authFlow === 'login' && suggestion.source === 'login-username') {
+            const response = await sendMessage({ type: 'fetch-login', itemId: suggestion.itemId }).catch((error) => ({
+              ok: false,
+              message: error instanceof Error ? error.message : 'Klarkey could not load this login.',
+            }))
+
+            if (!response.ok || !response.login) {
+              return
+            }
+
+            applyLoginFill(input, response.login)
+            return
+          }
+
+          if (suggestion.source === 'identity') {
+            const response = await sendMessage({ type: 'fetch-identity', itemId: suggestion.itemId }).catch((error) => ({
+              ok: false,
+              message: error instanceof Error ? error.message : 'Klarkey could not load this identity.',
+            }))
+
+            if (!response.ok || !response.identity) {
+              return
+            }
+
+            applyIdentityFill(input, response.identity)
+            return
+          }
+
+          suppressInlineMenu(input)
           writeValue(input, suggestion.value)
-          setPendingUsername(suggestion.value)
+          if (fieldKind === 'username' || fieldKind === 'email') {
+            setPendingUsername(suggestion.value)
+          }
           removeInlineUi()
         },
       })
     }
   }
 
-  if (!loading && inputMode !== 'password' && pageState.matches.length) {
-    const note = document.createElement('div')
-    note.className = 'klarkey-inline-footer'
-    note.textContent = 'Password matches appear when you focus a password field.'
-    actions.appendChild(note)
-  }
-
   overlayRoot.appendChild(menu)
+  pageState.menuElement = menu
+  positionInlineMenu(menu, input)
+  startInlineLayoutTracking()
   setActiveMenuIndex(pageState.activeMenuButtons.length ? 0 : -1)
 }
 
@@ -957,10 +1523,11 @@ const refreshMatches = async () => {
   return pageState.matches
 }
 
-const refreshFieldSuggestions = async (field) => {
+const refreshFieldSuggestions = async (field, flow) => {
   const response = await sendMessage({
     type: 'list-field-suggestions',
     field,
+    flow,
     url: window.location.href,
     title: document.title,
   }).catch((error) => ({
@@ -979,14 +1546,19 @@ const maybePromptToSave = async (preferredInput, force = false) => {
     return
   }
 
-  const promptKey = `${window.location.hostname}|${snapshot.username}|${snapshot.password}`
-  if (pageState.lastSavePromptKey === promptKey && !force) {
+  const promptKey = savePromptKeyFor(snapshot)
+  if (pageState.lastSavePromptKey === promptKey || pageState.activeSaveBannerKey === promptKey) {
     return
   }
 
   const matches = pageState.matches.length ? pageState.matches : await refreshMatches()
   const exact = matches.find((match) => (match.username || '') === snapshot.username)
   if (!exact && !force) {
+    setPendingSavePrompt({
+      username: snapshot.username,
+      password: snapshot.password,
+      reason: 'create',
+    })
     showSaveBanner({
       username: snapshot.username,
       password: snapshot.password,
@@ -997,6 +1569,11 @@ const maybePromptToSave = async (preferredInput, force = false) => {
   }
 
   if (!exact) {
+    setPendingSavePrompt({
+      username: snapshot.username,
+      password: snapshot.password,
+      reason: 'create',
+    })
     showSaveBanner({
       username: snapshot.username,
       password: snapshot.password,
@@ -1009,16 +1586,42 @@ const maybePromptToSave = async (preferredInput, force = false) => {
   const stored = await sendMessage({ type: 'fetch-login', itemId: exact.itemId }).catch(() => undefined)
   const storedPassword = stored?.ok ? stored.login?.password || '' : ''
 
-  if (storedPassword === snapshot.password && !force) {
+  if (storedPassword === snapshot.password) {
+    pageState.lastSavePromptKey = promptKey
+    clearPendingSavePrompt()
     return
   }
 
+  setPendingSavePrompt({
+    username: snapshot.username,
+    password: snapshot.password,
+    reason: exact ? 'update' : 'create',
+  })
   showSaveBanner({
     username: snapshot.username,
     password: snapshot.password,
     reason: exact ? 'update' : 'create',
   })
   pageState.lastSavePromptKey = promptKey
+}
+
+const restorePendingSavePrompt = () => {
+  const pending = getPendingSavePrompt()
+  if (!pending) {
+    return
+  }
+
+  window.setTimeout(() => {
+    if (!getPendingSavePrompt()) {
+      return
+    }
+
+    showSaveBanner({
+      username: pending.username,
+      password: pending.password,
+      reason: pending.reason,
+    })
+  }, 240)
 }
 
 window.addEventListener('message', (event) => {
@@ -1072,14 +1675,25 @@ const runPagePasskeyOperation = async (operation, requestDetailsJson) => {
   })
 }
 
-document.addEventListener('focusin', async (event) => {
-  const target = event.target
-  if (!(target instanceof HTMLInputElement) || !visible(target)) {
+const handleFieldFocus = async (target) => {
+  if (!isFieldElement(target) || !visible(target)) {
     return
   }
 
-  if (!isUsernameInput(target) && !isPasswordInput(target) && !isEmailInput(target)) {
+  const fieldKind = fieldKindFor(target)
+  if (!fieldKind) {
     return
+  }
+
+  if (fieldKind === 'otp') {
+    const pendingOtp = getPendingOtp()
+    if (pendingOtp) {
+      suppressInlineMenu()
+      writeValue(target, pendingOtp)
+      setPendingOtp('')
+      removeInlineUi()
+      return
+    }
   }
 
   if (pageState.lastListUrl !== window.location.href) {
@@ -1089,31 +1703,30 @@ document.addEventListener('focusin', async (event) => {
 
   const generation = ++matchFetchGeneration
   pageState.overlayInput = target
-  const inputMode = inputModeFor(target)
 
   renderInlineTriggerOnly(target)
 
-  const autoOpen = target.dataset.klarkeyAutoOpen !== 'false'
-  const shouldPrimeMenu = autoOpen && (inputMode === 'password' || pageState.fieldSuggestions.length > 0)
-
-  if (shouldPrimeMenu) {
-    renderInlineMenu(target, pageState.matches, { loading: true })
+  if (Date.now() < suppressInlineMenuUntil && target === suppressedInlineInput) {
+    return
   }
 
+  const autoOpen = target.dataset.klarkeyAutoOpen !== 'false'
   await Promise.all([
     refreshMatches(),
-    inputMode === 'password' ? Promise.resolve([]) : refreshFieldSuggestions(inputMode),
+    fieldKind === 'password' || fieldKind === 'otp' ? Promise.resolve([]) : refreshFieldSuggestions(fieldKind, suggestionFlowFor(target, fieldKind)),
   ])
 
   if (generation !== matchFetchGeneration || pageState.overlayInput !== target) {
     return
   }
 
-  const showMenu = autoOpen && (inputMode === 'password' || pageState.fieldSuggestions.length > 0)
-
-  if (showMenu) {
+  if (autoOpen && shouldAutoOpenFieldMenu(target)) {
     renderInlineMenu(target, pageState.matches, { loading: false })
   }
+}
+
+document.addEventListener('focusin', async (event) => {
+  await handleFieldFocus(event.target)
 })
 
 document.addEventListener('click', (event) => {
@@ -1130,7 +1743,7 @@ document.addEventListener('click', (event) => {
 })
 
 document.addEventListener('scroll', () => {
-  if (pageState.overlayInput instanceof HTMLInputElement && visible(pageState.overlayInput)) {
+  if (isFieldElement(pageState.overlayInput) && visible(pageState.overlayInput)) {
     if (pageState.menuOpen) {
       renderInlineMenu(pageState.overlayInput, pageState.matches)
     } else {
@@ -1142,7 +1755,7 @@ document.addEventListener('scroll', () => {
 }, true)
 
 window.addEventListener('resize', () => {
-  if (pageState.overlayInput instanceof HTMLInputElement && visible(pageState.overlayInput)) {
+  if (isFieldElement(pageState.overlayInput) && visible(pageState.overlayInput)) {
     if (pageState.menuOpen) {
       renderInlineMenu(pageState.overlayInput, pageState.matches)
     } else {
@@ -1239,9 +1852,13 @@ if (runtime) {
 
     if (message?.type === 'fill-login') {
       const inputs = getInputs()
+      suppressInlineMenu()
       writeValue(inputs.username, message.login?.username)
       writeValue(inputs.password, message.login?.password)
       writeValue(inputs.otp, message.login?.otp)
+      setPendingUsername(message.login?.username || '')
+      setPendingOtp(message.login?.otp || '')
+      removeInlineUi()
 
       sendResponse({
         ok: true,
@@ -1260,4 +1877,8 @@ if (runtime) {
 
   injectPageBridge()
   void refreshMatches()
+  restorePendingSavePrompt()
+  window.setTimeout(() => {
+    void handleFieldFocus(document.activeElement)
+  }, 0)
 }

@@ -212,6 +212,37 @@ export function ItemFormPage({
   const showWebsites = value.itemType === 'login'
   const showCustomFields = value.itemType !== 'note'
   const showNotes = value.itemType !== 'note'
+  type IdentityFieldKey =
+    | 'username'
+    | 'firstName'
+    | 'middleName'
+    | 'lastName'
+    | 'email'
+    | 'phone'
+    | 'addressLine1'
+    | 'addressLine2'
+    | 'city'
+    | 'state'
+    | 'postalCode'
+    | 'country'
+  const identityFields: Array<{
+    key: IdentityFieldKey
+    label: string
+    placeholder: string
+  }> = [
+    { key: 'username', label: 'Username', placeholder: 'alexmorgan' },
+    { key: 'firstName', label: 'First name', placeholder: 'Alex' },
+    { key: 'middleName', label: 'Middle name', placeholder: 'Jamie' },
+    { key: 'lastName', label: 'Last name', placeholder: 'Morgan' },
+    { key: 'email', label: 'Email', placeholder: 'alex@example.com' },
+    { key: 'phone', label: 'Phone', placeholder: '+49 151 12345678' },
+    { key: 'addressLine1', label: 'Address line 1', placeholder: 'Street address' },
+    { key: 'addressLine2', label: 'Address line 2', placeholder: 'Apartment, suite, floor' },
+    { key: 'city', label: 'City', placeholder: 'Berlin' },
+    { key: 'state', label: 'State / region', placeholder: 'Berlin' },
+    { key: 'postalCode', label: 'Postal code', placeholder: '10115' },
+    { key: 'country', label: 'Country', placeholder: 'Germany' },
+  ]
 
   return (
     <form
@@ -271,38 +302,16 @@ export function ItemFormPage({
 
         {value.itemType === 'identity' ? (
           <>
-            <FieldShell label="Full name">
-              <TextField
-                value={value.fullName}
-                onChange={(fullName) => updateValue((current) => ({ ...current, fullName }))}
-                onKeyDown={onFieldKeyDown}
-                placeholder="Alex Morgan"
-              />
-            </FieldShell>
-            <FieldShell label="Email">
-              <TextField
-                value={value.email}
-                onChange={(email) => updateValue((current) => ({ ...current, email }))}
-                onKeyDown={onFieldKeyDown}
-                placeholder="alex@example.com"
-              />
-            </FieldShell>
-            <FieldShell label="Phone">
-              <TextField
-                value={value.phone}
-                onChange={(phone) => updateValue((current) => ({ ...current, phone }))}
-                onKeyDown={onFieldKeyDown}
-                placeholder="+49 151 12345678"
-              />
-            </FieldShell>
-            <FieldShell label="Address">
-              <TextField
-                value={value.address}
-                onChange={(address) => updateValue((current) => ({ ...current, address }))}
-                onKeyDown={onFieldKeyDown}
-                placeholder="Street, city, postal code"
-              />
-            </FieldShell>
+            {identityFields.map((field) => (
+              <FieldShell key={field.key} label={field.label}>
+                <TextField
+                  value={value[field.key]}
+                  onChange={(nextValue) => updateValue((current) => ({ ...current, [field.key]: nextValue }))}
+                  onKeyDown={onFieldKeyDown}
+                  placeholder={field.placeholder}
+                />
+              </FieldShell>
+            ))}
           </>
         ) : null}
 

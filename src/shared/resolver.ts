@@ -24,9 +24,18 @@ const searchableFields = (item: ItemProfile) =>
     item.itemName,
     item.username,
     item.fullName,
+    item.firstName,
+    item.middleName,
+    item.lastName,
     item.email,
     item.phone,
     item.address,
+    item.addressLine1,
+    item.addressLine2,
+    item.city,
+    item.state,
+    item.postalCode,
+    item.country,
     item.content,
     item.notes,
     ...(item.websites ?? []),
@@ -63,7 +72,7 @@ const itemSubtitle = (item: ItemProfile) =>
   item.itemType === 'login'
     ? item.username || item.itemName
     : item.itemType === 'identity'
-      ? item.fullName || item.email || item.itemName
+      ? item.fullName || item.email || item.username || item.itemName
       : item.content?.trim() || item.notes?.trim() || 'Text note'
 
 const getLogoMeta = (item: ItemProfile) => ({
@@ -221,7 +230,9 @@ function buildResolvedActions(
       !includes(item.itemName, query.identityQuery) &&
       !includes(item.username, query.identityQuery) &&
       !includes(item.fullName, query.identityQuery) &&
-      !includes(item.email, query.identityQuery)
+      !includes(item.email, query.identityQuery) &&
+      !includes(item.firstName, query.identityQuery) &&
+      !includes(item.lastName, query.identityQuery)
     ) {
       continue
     }

@@ -9,31 +9,12 @@
   <body>
     <main class="shell">
       <header class="header">
-        <div class="brand-row">
-          <div class="brand">Klarkey</div>
-          <div id="siteHost" class="site-host"></div>
-        </div>
-        <div id="statusBadge" class="status">Offline</div>
+        <div class="brand">Klarkey</div>
+        <div id="siteHost" class="site-host"></div>
       </header>
 
-      <h1 id="title">Connecting…</h1>
+      <p id="title" class="eyebrow">Browser bridge</p>
       <p id="statusMessage" class="message">Checking the desktop bridge for this browser.</p>
-
-      <section class="section actions">
-        <div class="section-row">
-          <div class="section-copy">
-            <div class="section-title">Current page</div>
-            <div id="siteUrl" class="section-value">No active page</div>
-          </div>
-          <button id="saveButton" class="button">Save current form</button>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="section-title">Passkeys</div>
-        <p id="passkeys" class="detail">Loading passkey bridge status…</p>
-        <p id="passkeyHint" class="detail secondary"></p>
-      </section>
     </main>
     <script src="./popup.js"></script>
   </body>

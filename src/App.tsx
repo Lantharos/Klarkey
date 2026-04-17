@@ -29,16 +29,46 @@ import {
 } from '@/shared/types'
 
 function cleanFormValue(value: ItemFormValues): CreateItemInput {
+  const identityFullName = [value.firstName, value.middleName, value.lastName]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
+  const identityAddress = [
+    [value.addressLine1, value.addressLine2].map((part) => part.trim()).filter(Boolean).join(', '),
+    [value.city, value.state, value.postalCode].map((part) => part.trim()).filter(Boolean).join(', '),
+    value.country.trim(),
+  ]
+    .filter(Boolean)
+    .join(', ')
+
   return {
     itemType: value.itemType,
     itemName: value.itemName.trim() || 'New item',
-    username: value.itemType === 'login' ? value.username.trim() || undefined : undefined,
+    username:
+      value.itemType === 'login' || value.itemType === 'identity'
+        ? value.username.trim() || undefined
+        : undefined,
     password: value.itemType === 'login' ? value.password.trim() || undefined : undefined,
     otp: value.itemType === 'login' ? value.otp.trim() : undefined,
-    fullName: value.itemType === 'identity' ? value.fullName.trim() || undefined : undefined,
+    fullName:
+      value.itemType === 'identity'
+        ? value.fullName.trim() || identityFullName || undefined
+        : undefined,
+    firstName: value.itemType === 'identity' ? value.firstName.trim() || undefined : undefined,
+    middleName: value.itemType === 'identity' ? value.middleName.trim() || undefined : undefined,
+    lastName: value.itemType === 'identity' ? value.lastName.trim() || undefined : undefined,
     email: value.itemType === 'identity' ? value.email.trim() || undefined : undefined,
     phone: value.itemType === 'identity' ? value.phone.trim() || undefined : undefined,
-    address: value.itemType === 'identity' ? value.address.trim() || undefined : undefined,
+    address:
+      value.itemType === 'identity'
+        ? value.address.trim() || identityAddress || undefined
+        : undefined,
+    addressLine1: value.itemType === 'identity' ? value.addressLine1.trim() || undefined : undefined,
+    addressLine2: value.itemType === 'identity' ? value.addressLine2.trim() || undefined : undefined,
+    city: value.itemType === 'identity' ? value.city.trim() || undefined : undefined,
+    state: value.itemType === 'identity' ? value.state.trim() || undefined : undefined,
+    postalCode: value.itemType === 'identity' ? value.postalCode.trim() || undefined : undefined,
+    country: value.itemType === 'identity' ? value.country.trim() || undefined : undefined,
     content: value.itemType === 'note' ? value.content.trim() || undefined : undefined,
     notes: value.itemType !== 'note' ? value.notes.trim() || undefined : undefined,
     websites: value.itemType === 'login' ? value.websites.map((website) => website.trim()).filter(Boolean) : [],
@@ -159,9 +189,18 @@ function App() {
       password: '',
       otp: '',
       fullName: '',
+      firstName: '',
+      middleName: '',
+      lastName: '',
       email: '',
       phone: '',
       address: '',
+      addressLine1: '',
+      addressLine2: '',
+      city: '',
+      state: '',
+      postalCode: '',
+      country: '',
       content: '',
       notes: '',
       websites: [''],

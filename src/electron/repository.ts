@@ -8,6 +8,7 @@ import { getTotpCode, parseStoredTotp, parseTotpInput } from '@/shared/totp'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
+  type BrowserAuthFlow,
   type BrowserFieldSuggestion,
   type BrowserFillLogin,
   type BrowserSaveLoginInput,
@@ -77,11 +78,45 @@ const getHostname = (value: string) => {
 }
 
 const hasText = (value?: string) => Boolean(value?.trim())
+const getHostnameLabel = (value: string) => {
+  const hostname = getHostname(value) ?? value
+  const [label] = hostname.toLowerCase().split('.')
+  return label || ''
+}
+const normalizeSearchText = (value?: string) => value?.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim() || ''
+const joinIdentityFullName = (value: Pick<ItemDataPayload, 'fullName' | 'firstName' | 'middleName' | 'lastName'>) =>
+  value.fullName?.trim() ||
+  [value.firstName, value.middleName, value.lastName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(' ') ||
+  undefined
+const joinIdentityAddress = (
+  value: Pick<ItemDataPayload, 'address' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'postalCode' | 'country'>,
+) =>
+  value.address?.trim() ||
+  [
+    [value.addressLine1, value.addressLine2].map((part) => part?.trim()).filter(Boolean).join(', '),
+    [value.city, value.state, value.postalCode].map((part) => part?.trim()).filter(Boolean).join(', '),
+    value.country?.trim(),
+  ]
+    .filter(Boolean)
+    .join(', ') ||
+  undefined
 
 type ItemDataPayload = {
   fullName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
   phone?: string
   address?: string
+  addressLine1?: string
+  addressLine2?: string
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
   content?: string
 }
 
@@ -118,10 +153,25 @@ type BrowserRequestOptions = {
 
 const sanitizeItemData = (itemType: CreatableItemType, input: Partial<CreateItemInput>) => {
   if (itemType === 'identity') {
-    return {
+    const itemData = {
       fullName: input.fullName?.trim() || undefined,
+      firstName: input.firstName?.trim() || undefined,
+      middleName: input.middleName?.trim() || undefined,
+      lastName: input.lastName?.trim() || undefined,
       phone: input.phone?.trim() || undefined,
       address: input.address?.trim() || undefined,
+      addressLine1: input.addressLine1?.trim() || undefined,
+      addressLine2: input.addressLine2?.trim() || undefined,
+      city: input.city?.trim() || undefined,
+      state: input.state?.trim() || undefined,
+      postalCode: input.postalCode?.trim() || undefined,
+      country: input.country?.trim() || undefined,
+    } satisfies ItemDataPayload
+
+    return {
+      ...itemData,
+      fullName: joinIdentityFullName(itemData),
+      address: joinIdentityAddress(itemData),
     } satisfies ItemDataPayload
   }
 
@@ -202,16 +252,27 @@ export class VaultRepository {
     return {
       items: items.map((item) => {
         const itemData = parseJson<ItemDataPayload>(item.itemData, {})
+        const fullName = joinIdentityFullName(itemData)
+        const address = joinIdentityAddress(itemData)
 
         return {
           id: item.id,
           itemType: (item.itemType ?? 'login') as ItemProfile['itemType'],
           itemName: item.itemName,
           username: item.username || undefined,
-          fullName: itemData.fullName,
+          fullName,
+          firstName: itemData.firstName,
+          middleName: itemData.middleName,
+          lastName: itemData.lastName,
           email: item.email,
           phone: itemData.phone,
-          address: itemData.address,
+          address,
+          addressLine1: itemData.addressLine1,
+          addressLine2: itemData.addressLine2,
+          city: itemData.city,
+          state: itemData.state,
+          postalCode: itemData.postalCode,
+          country: itemData.country,
           content: itemData.content,
           websites: parseJson<string[]>(item.websites, []),
           notes: item.notes,
@@ -231,7 +292,11 @@ export class VaultRepository {
     const itemType = input.itemType
     const itemName = input.itemName.trim()
     const username =
-      itemType === 'login' ? input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}` : ''
+      itemType === 'login'
+        ? input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}`
+        : itemType === 'identity'
+          ? input.username?.trim() || ''
+          : ''
     const password =
       itemType === 'login' ? input.password?.trim() || randomBytes(12).toString('base64url') : undefined
     const otp =
@@ -306,7 +371,12 @@ export class VaultRepository {
 
     const itemType = (input.itemType ?? current.itemType ?? 'login') as CreatableItemType
     const itemName = input.itemName?.trim() || current.itemName
-    const username = itemType === 'login' ? input.username?.trim() || current.username : ''
+    const username =
+      itemType === 'login'
+        ? input.username?.trim() || current.username
+        : itemType === 'identity'
+          ? input.username?.trim() || current.username
+          : ''
     const password =
       input.password === undefined
         ? current.passwordPayload
@@ -394,6 +464,8 @@ export class VaultRepository {
     }
 
     const itemData = parseJson<ItemDataPayload>(row.itemData, {})
+    const fullName = joinIdentityFullName(itemData)
+    const address = joinIdentityAddress(itemData)
     const otp = parseStoredTotp(tryDecrypt(this.key, row.otpPayload), {
       issuer: row.itemName,
       accountName: row.username || row.itemName,
@@ -406,10 +478,19 @@ export class VaultRepository {
       username: row.username,
       password: tryDecrypt(this.key, row.passwordPayload),
       otp,
-      fullName: itemData.fullName,
+      fullName,
+      firstName: itemData.firstName,
+      middleName: itemData.middleName,
+      lastName: itemData.lastName,
       email: row.email ?? undefined,
       phone: itemData.phone,
-      address: itemData.address,
+      address,
+      addressLine1: itemData.addressLine1,
+      addressLine2: itemData.addressLine2,
+      city: itemData.city,
+      state: itemData.state,
+      postalCode: itemData.postalCode,
+      country: itemData.country,
       content: itemData.content,
       notes: row.notes ?? undefined,
       websites: parseJson<string[]>(row.websites, []),
@@ -605,13 +686,35 @@ export class VaultRepository {
     } satisfies ActionExecutionResult
   }
 
-  listBrowserSiteMatches(url: string) {
+  listBrowserSiteMatches(url: string, title?: string) {
+    const siteLabel = getHostnameLabel(url)
+    const titleText = normalizeSearchText(title)
     const matches = this.getSnapshot()
       .items
       .filter((item) => item.itemType === 'login')
       .map((item) => ({
         item,
-        score: scoreWebsiteMatch(item.websites ?? [], url),
+        score: (() => {
+          const siteScore = scoreWebsiteMatch(item.websites ?? [], url)
+          if (siteScore > 0) {
+            return siteScore
+          }
+
+          const itemName = normalizeSearchText(item.itemName)
+          if (!itemName) {
+            return 0
+          }
+
+          if (siteLabel && itemName.includes(siteLabel)) {
+            return 36
+          }
+
+          if (titleText && itemName && titleText.includes(itemName)) {
+            return 24
+          }
+
+          return 0
+        })(),
       }))
       .filter((entry) => entry.score > 0)
       .sort((left, right) => {
@@ -634,7 +737,7 @@ export class VaultRepository {
     })) satisfies BrowserSiteMatch[]
   }
 
-  listBrowserFieldSuggestions(field: BrowserSuggestionField, url: string) {
+  listBrowserFieldSuggestions(field: BrowserSuggestionField, flow: BrowserAuthFlow, url: string, title?: string) {
     const suggestions = new Map<
       string,
       BrowserFieldSuggestion & {
@@ -642,6 +745,7 @@ export class VaultRepository {
         priority: number
       }
     >()
+    const siteMatches = flow === 'login' ? this.listBrowserSiteMatches(url, title) : []
 
     const pushSuggestion = ({
       itemId,
@@ -692,31 +796,73 @@ export class VaultRepository {
     }
 
     for (const item of this.getSnapshot().items) {
-      if (item.itemType === 'login' && hasText(item.username)) {
-        const score = scoreWebsiteMatch(item.websites ?? [], url)
-        pushSuggestion({
-          itemId: item.id,
-          itemName: item.itemName,
-          value: item.username,
-          source: 'login-username',
-          lastUsedAt: item.lastUsedAt,
-          fromSiteMatch: score > 0,
-          score,
-          priority: 0,
-        })
+      if (flow === 'login' && item.itemType === 'login' && hasText(item.username)) {
+        const score = siteMatches.find((match) => match.itemId === item.id)
+          ? scoreWebsiteMatch(item.websites ?? [], url) || 24
+          : 0
+
+        if (score > 0) {
+          pushSuggestion({
+            itemId: item.id,
+            itemName: item.itemName,
+            value: item.username,
+            source: 'login-username',
+            lastUsedAt: item.lastUsedAt,
+            fromSiteMatch: score >= 80,
+            score,
+            priority: 0,
+          })
+        }
       }
 
-      if (item.itemType === 'identity' && hasText(item.email)) {
-        pushSuggestion({
-          itemId: item.id,
-          itemName: item.itemName,
-          value: item.email,
-          source: 'identity-email',
-          lastUsedAt: item.lastUsedAt,
-          fromSiteMatch: false,
-          score: field === 'email' ? 40 : 10,
-          priority: 1,
-        })
+      if (flow === 'register' && item.itemType === 'identity') {
+        const identityValue = (() => {
+          switch (field) {
+            case 'username':
+              return item.username
+            case 'email':
+              return item.email
+            case 'fullName':
+              return item.fullName
+            case 'firstName':
+              return item.firstName
+            case 'middleName':
+              return item.middleName
+            case 'lastName':
+              return item.lastName
+            case 'phone':
+              return item.phone
+            case 'address':
+              return item.address
+            case 'addressLine1':
+              return item.addressLine1 || item.address
+            case 'addressLine2':
+              return item.addressLine2
+            case 'city':
+              return item.city
+            case 'state':
+              return item.state
+            case 'postalCode':
+              return item.postalCode
+            case 'country':
+              return item.country
+            default:
+              return undefined
+          }
+        })()
+
+        if (hasText(identityValue)) {
+          pushSuggestion({
+            itemId: item.id,
+            itemName: item.itemName,
+            value: identityValue,
+            source: 'identity',
+            lastUsedAt: item.lastUsedAt,
+            fromSiteMatch: false,
+            score: field === 'email' || field === 'username' ? 40 : 34,
+            priority: 1,
+          })
+        }
       }
     }
 
@@ -767,11 +913,37 @@ export class VaultRepository {
     } satisfies BrowserFillLogin
   }
 
+  getBrowserFillIdentity(itemId: string) {
+    const item = this.getItemDetails(itemId)
+    if (!item || item.itemType !== 'identity') {
+      return undefined
+    }
+
+    return {
+      itemId: item.itemId,
+      itemName: item.itemName,
+      username: item.username || undefined,
+      fullName: item.fullName,
+      firstName: item.firstName,
+      middleName: item.middleName,
+      lastName: item.lastName,
+      email: item.email,
+      phone: item.phone,
+      address: item.address,
+      addressLine1: item.addressLine1,
+      addressLine2: item.addressLine2,
+      city: item.city,
+      state: item.state,
+      postalCode: item.postalCode,
+      country: item.country,
+    }
+  }
+
   saveBrowserLogin(input: BrowserSaveLoginInput) {
     const url = input.url.trim()
     const username = input.username?.trim() || undefined
     const password = input.password?.trim() || undefined
-    const matches = this.listBrowserSiteMatches(url)
+    const matches = this.listBrowserSiteMatches(url, input.title)
     const existing = matches.find((match) => match.username === username)
 
     if (existing) {

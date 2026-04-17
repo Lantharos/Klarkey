@@ -360,11 +360,15 @@ export class KlarkeyController {
         }
 
         const item = this.repository.getItemDetails(action.itemId)
+        const identityName = [item?.firstName, item?.middleName, item?.lastName]
+          .map((value) => value?.trim())
+          .filter(Boolean)
+          .join(' ')
         const defaultValue =
           item?.itemType === 'login'
             ? item.username
             : item?.itemType === 'identity'
-              ? item.fullName || item.email
+              ? item.fullName || identityName || item.email || item.username
               : item?.content || item?.notes
 
         if (defaultValue) {

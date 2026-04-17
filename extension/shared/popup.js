@@ -20,13 +20,8 @@ const sendMessage = (message) =>
 
 const elements = {
   title: document.getElementById('title'),
-  statusBadge: document.getElementById('statusBadge'),
   siteHost: document.getElementById('siteHost'),
-  siteUrl: document.getElementById('siteUrl'),
   statusMessage: document.getElementById('statusMessage'),
-  passkeys: document.getElementById('passkeys'),
-  passkeyHint: document.getElementById('passkeyHint'),
-  saveButton: document.getElementById('saveButton'),
 }
 
 const getHostLabel = (value) => {
@@ -41,55 +36,21 @@ const getHostLabel = (value) => {
   }
 }
 
-const setStatus = (message, connected) => {
-  elements.statusBadge.textContent = connected ? 'Online' : 'Offline'
-  elements.statusBadge.classList.toggle('connected', connected)
-  elements.statusMessage.textContent = message
-}
-
 async function loadPopup() {
   try {
     const state = await sendMessage({ type: 'popup-state' })
-    const hostLabel = getHostLabel(state.url)
-
-    elements.siteHost.textContent = hostLabel
-    elements.siteUrl.textContent = state.url || 'No active page'
-    elements.title.textContent = state.connected ? 'Ready for this page' : 'Desktop app required'
-    elements.passkeys.textContent = state.passkeys?.supported
-      ? 'Chromium passkey proxy is ready through Klarkey desktop.'
-      : state.passkeys?.reason || 'Passkey state unavailable.'
-    elements.passkeyHint.textContent = state.passkeys?.supported
-      ? state.chromiumProxyReady
-        ? 'Passkey requests on supported Chromium browsers can be routed through Klarkey.'
-        : 'Open Klarkey desktop to attach the browser passkey proxy.'
-      : state.chromiumProxyReady
-        ? 'This browser is attached, but passkey interception is limited here.'
-        : 'Firefox stays on autofill-only mode until a browser-side passkey interception API exists.'
-    elements.saveButton.disabled = !state.connected
-
-    setStatus(
-      state.connected
-        ? state.error || 'Autofill, passkeys, and save flows are available from the desktop vault.'
-        : state.error || 'Open Klarkey desktop to connect the browser bridge.',
-      state.connected,
-    )
+    elements.siteHost.textContent = getHostLabel(state.url)
+    elements.title.textContent = state.connected ? 'Browser bridge' : 'Desktop app required'
+    elements.statusMessage.textContent = state.connected
+      ? 'Autofill and save flows are ready through Klarkey desktop.'
+      : state.error || 'Open Klarkey desktop to connect the browser bridge.'
   } catch (error) {
     elements.siteHost.textContent = ''
     elements.title.textContent = 'Desktop app required'
-    elements.siteUrl.textContent = 'No active page'
-    elements.saveButton.disabled = true
-    elements.passkeys.textContent = 'Passkey bridge unavailable until the desktop host is connected.'
-    elements.passkeyHint.textContent = 'The extension stays desktop-only and does not fall back to standalone mode.'
-    setStatus(error instanceof Error ? error.message : 'Could not reach Klarkey desktop.', false)
+    elements.statusMessage.textContent =
+      error instanceof Error ? error.message : 'Could not reach Klarkey desktop.'
   }
 }
-
-elements.saveButton.addEventListener('click', async () => {
-  setStatus('Saving the current page credentials…', true)
-  const response = await sendMessage({ type: 'save-current-login' })
-  setStatus(response.message || 'Saved.', Boolean(response.ok))
-  await loadPopup()
-})
 
 void loadPopup()
 

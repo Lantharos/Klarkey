@@ -3,24 +3,19 @@
 }
 
 :root {
-  --surface: rgba(17, 18, 20, 0.76);
-  --surface-strong: rgba(24, 25, 28, 0.88);
-  --edge: rgba(255, 255, 255, 0.09);
+  --surface: rgba(17, 18, 20, 0.74);
   --text: rgba(255, 255, 255, 0.92);
-  --muted: rgba(255, 255, 255, 0.56);
+  --muted: rgba(255, 255, 255, 0.58);
   --faint: rgba(255, 255, 255, 0.38);
-  --accent: #8ed0ff;
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 html,
 body {
   margin: 0;
-  min-width: 360px;
-  min-height: 250px;
-  background:
-    radial-gradient(120% 110% at 50% -20%, rgba(120, 190, 255, 0.16), transparent 52%),
-    rgba(10, 11, 13, 0.92);
+  min-width: 320px;
+  min-height: 220px;
+  background: rgba(11, 12, 14, 0.94);
   color: var(--text);
   font: 13px/1.5 var(--font);
 }
@@ -33,116 +28,41 @@ body {
 .shell {
   min-height: 100%;
   padding: 14px 16px 16px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0));
+  background: var(--surface);
 }
 
-.header,
-.section-row {
+.header {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-}
-
-.brand-row,
-.section-copy {
-  min-width: 0;
 }
 
 .brand {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 
 .site-host {
-  margin-top: 2px;
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: right;
 }
 
-.status {
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--edge);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.status.connected {
-  color: var(--accent);
-  border-color: rgba(142, 208, 255, 0.24);
-  background: rgba(142, 208, 255, 0.08);
-}
-
-h1 {
-  margin: 14px 0 6px;
-  font-size: 24px;
-  line-height: 1.06;
-  font-weight: 650;
-  letter-spacing: -0.04em;
-}
-
-.message,
-.detail,
-.secondary {
-  margin: 0;
-  color: var(--muted);
-}
-
-.section {
-  padding-top: 14px;
-  margin-top: 14px;
-  border-top: 1px solid var(--edge);
-}
-
-.section-title {
+.eyebrow {
+  margin: 18px 0 6px;
   color: var(--faint);
   font-size: 12px;
 }
 
-.section-value {
-  margin-top: 3px;
+.message {
+  margin: 0;
   color: var(--text);
-  font-size: 13px;
-  word-break: break-word;
-}
-
-.button {
-  border: 1px solid var(--edge);
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, opacity 140ms ease;
-  flex-shrink: 0;
-}
-
-.button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.14);
-}
-
-.button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.detail {
-  color: var(--text);
-}
-
-.secondary {
-  margin-top: 6px;
-  font-size: 12px;
+  font-size: 22px;
+  line-height: 1.08;
+  font-weight: 620;
+  letter-spacing: -0.04em;
 }
