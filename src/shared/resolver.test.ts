@@ -67,7 +67,7 @@ describe('resolveActions', () => {
   it('offers explicit item types when create has no type yet', () => {
     const actions = resolveActions(snapshot, parseCommand('new'))
 
-    expect(actions.slice(0, 3).map((action) => action.itemType)).toEqual(['login', 'identity', 'note'])
+    expect(actions.slice(0, 4).map((action) => action.itemType)).toEqual(['login', 'identity', 'card', 'note'])
   })
 
   it('matches identity items by person fields', () => {
@@ -76,10 +76,9 @@ describe('resolveActions', () => {
     expect(actions.some((action) => action.itemType === 'identity')).toBe(true)
   })
 
-  it('routes passkey generation to settings management', () => {
+  it('keeps settings available for passkey queries', () => {
     const actions = resolveActions(snapshot, parseCommand('generate passkey'))
 
-    expect(actions[0]?.kind).toBe('open-settings')
-    expect(actions[0]?.title).toBe('Manage passkeys')
+    expect(actions.some((action) => action.kind === 'open-settings')).toBe(true)
   })
 })

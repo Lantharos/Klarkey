@@ -1,12 +1,14 @@
 const runtimeApi = globalThis.browser ?? globalThis.chrome
 const nativeHostName = 'app.klarkey.desktop'
 const isChromium = Boolean(globalThis.chrome?.webAuthenticationProxy)
+const browserKind = globalThis.browser ? 'firefox' : isChromium ? 'chromium' : 'other'
 let proxyAttached = false
 let proxySyncPromise
 let nativePort
 let nativePortPromise
 let nativePortGeneration = 0
 const nativePortRequests = new Map()
+const canceledPasskeyRequestIds = new Set()
 let desktopState = {
   connected: false,
   lastError: 'Klarkey desktop is not connected.',
@@ -194,6 +196,15 @@ async function ensureDesktopConnected() {
   return Boolean(ping?.ok)
 }
 
+async function readDesktopCapabilities() {
+  const ping = await requestHost({ type: 'ping' })
+  if (!ping?.ok) {
+    return undefined
+  }
+
+  return ping.result
+}
+
 async function readDesktopConnectionState() {
   if (desktopState.connected) {
     return { connected: true }
@@ -222,22 +233,25 @@ async function syncProxyAttachment() {
   }
 
   proxySyncPromise = (async () => {
-    const connected = await ensureDesktopConnected().catch(() => false)
+    const capabilities = await readDesktopCapabilities().catch(() => undefined)
+    const connected = Boolean(capabilities)
+    const passkeyProviderReady = Boolean(capabilities?.passkeyProviderReady)
 
-    if (connected && !proxyAttached) {
-      await withTimeout(
-        globalThis.chrome.webAuthenticationProxy.attach().catch(() => undefined),
-        'Timed out while attaching the Chromium passkey proxy.',
-      ).catch(() => undefined)
-      proxyAttached = true
+    if (connected && passkeyProviderReady && !proxyAttached) {
+      try {
+        await withTimeout(globalThis.chrome.webAuthenticationProxy.attach(), 'Timed out while attaching the Chromium passkey proxy.')
+        proxyAttached = true
+      } catch {
+        proxyAttached = false
+      }
     }
 
-    if (!connected && proxyAttached) {
-      await withTimeout(
-        globalThis.chrome.webAuthenticationProxy.detach().catch(() => undefined),
-        'Timed out while detaching the Chromium passkey proxy.',
-      ).catch(() => undefined)
-      proxyAttached = false
+    if ((!connected || !passkeyProviderReady) && proxyAttached) {
+      try {
+        await withTimeout(globalThis.chrome.webAuthenticationProxy.detach(), 'Timed out while detaching the Chromium passkey proxy.')
+      } finally {
+        proxyAttached = false
+      }
     }
 
     return proxyAttached
@@ -311,12 +325,39 @@ function toExtensionError(error) {
   }
 }
 
+async function completePasskeyRequest(kind, details) {
+  const requestId = details?.requestId
+  if (typeof requestId === 'number' && canceledPasskeyRequestIds.has(requestId)) {
+    canceledPasskeyRequestIds.delete(requestId)
+    return false
+  }
+
+  try {
+    if (kind === 'create') {
+      await globalThis.chrome.webAuthenticationProxy.completeCreateRequest(details)
+    } else {
+      await globalThis.chrome.webAuthenticationProxy.completeGetRequest(details)
+    }
+    return true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (message.includes('Invalid requestId') || message.includes('canceled')) {
+      if (typeof requestId === 'number') {
+        canceledPasskeyRequestIds.delete(requestId)
+      }
+      return false
+    }
+
+    throw error
+  }
+}
+
 async function handlePasskeyGetRequest(requestInfo) {
   const tab = await getActiveTab()
   const pageContext = await getPageContext(tab)
 
   if (!tab?.id || !pageContext.url) {
-    await globalThis.chrome.webAuthenticationProxy.completeGetRequest({
+    await completePasskeyRequest('get', {
       requestId: requestInfo.requestId,
       error: {
         name: 'NotAllowedError',
@@ -340,7 +381,7 @@ async function handlePasskeyGetRequest(requestInfo) {
   }))
 
   if (!plan?.ok) {
-    await globalThis.chrome.webAuthenticationProxy.completeGetRequest({
+    await completePasskeyRequest('get', {
       requestId: requestInfo.requestId,
       error: {
         name: 'NotAllowedError',
@@ -351,7 +392,7 @@ async function handlePasskeyGetRequest(requestInfo) {
   }
 
   if (plan.result.status === 'error') {
-    await globalThis.chrome.webAuthenticationProxy.completeGetRequest({
+    await completePasskeyRequest('get', {
       requestId: requestInfo.requestId,
       error: {
         name: 'NotAllowedError',
@@ -366,7 +407,7 @@ async function handlePasskeyGetRequest(requestInfo) {
   )
 
   if (pageResult.error) {
-    await globalThis.chrome.webAuthenticationProxy.completeGetRequest({
+    await completePasskeyRequest('get', {
       requestId: requestInfo.requestId,
       error: toExtensionError(pageResult.error),
     })
@@ -380,7 +421,7 @@ async function handlePasskeyGetRequest(requestInfo) {
     }).catch(() => undefined)
   }
 
-  await globalThis.chrome.webAuthenticationProxy.completeGetRequest({
+  await completePasskeyRequest('get', {
     requestId: requestInfo.requestId,
     responseJson: pageResult.responseJson,
   })
@@ -391,7 +432,7 @@ async function handlePasskeyCreateRequest(requestInfo) {
   const pageContext = await getPageContext(tab)
 
   if (!tab?.id || !pageContext.url) {
-    await globalThis.chrome.webAuthenticationProxy.completeCreateRequest({
+    await completePasskeyRequest('create', {
       requestId: requestInfo.requestId,
       error: {
         name: 'NotAllowedError',
@@ -406,7 +447,7 @@ async function handlePasskeyCreateRequest(requestInfo) {
   )
 
   if (pageResult.error) {
-    await globalThis.chrome.webAuthenticationProxy.completeCreateRequest({
+    await completePasskeyRequest('create', {
       requestId: requestInfo.requestId,
       error: toExtensionError(pageResult.error),
     })
@@ -423,7 +464,7 @@ async function handlePasskeyCreateRequest(requestInfo) {
     }).catch(() => undefined)
   }
 
-  await globalThis.chrome.webAuthenticationProxy.completeCreateRequest({
+  await completePasskeyRequest('create', {
     requestId: requestInfo.requestId,
     responseJson: pageResult.responseJson,
   })
@@ -435,22 +476,24 @@ async function loadPopupState() {
     url: tab?.url,
     title: tab?.title,
   }))
-  const chromiumProxyReady = await withTimeout(
-    syncProxyAttachment().catch(() => false),
-    'Timed out while checking the Chromium passkey proxy.',
-    1000,
-  ).catch(() => false)
   const connection = await readDesktopConnectionState()
 
   if (!connection.connected) {
     return {
       connected: false,
       desktopRequired: true,
+      browser: browserKind,
       url: pageContext.url,
       title: pageContext.title,
       form: pageContext.form,
       passkeys: {
         supported: false,
+        browser: browserKind,
+        mode: isChromium ? 'desktop-proxy' : 'browser-limited',
+        conditionalUi: false,
+        availablePasskeyCount: 0,
+        exactMatchCount: 0,
+        linkedMatchCount: 0,
         reason: connection.error || 'Klarkey desktop is not connected.',
       },
       chromiumProxyReady,
@@ -458,7 +501,7 @@ async function loadPopupState() {
     }
   }
 
-  const passkeys = pageContext.url && isChromium
+  const passkeys = pageContext.url
     ? await requestHost({ type: 'passkeys-status', url: pageContext.url }).catch((error) => ({
         ok: false,
         error: {
@@ -469,13 +512,55 @@ async function loadPopupState() {
         ok: true,
         result: {
           supported: false,
-          reason: 'This browser does not expose a passkey interception API like Chromium webAuthenticationProxy.',
+          browser: browserKind,
+          mode: 'browser-limited',
+          conditionalUi: false,
+          availablePasskeyCount: 0,
+          exactMatchCount: 0,
+          linkedMatchCount: 0,
+          reason: 'Open a site to check whether Klarkey can help with passkeys there.',
         },
       }
+
+  const chromiumProxyReady = await withTimeout(
+    syncProxyAttachment().catch(() => false),
+    'Timed out while checking the Chromium passkey proxy.',
+    1000,
+  ).catch(() => false)
+
+  if (
+    isChromium &&
+    passkeys?.ok &&
+    passkeys.result.supported &&
+    passkeys.result.mode === 'desktop-proxy' &&
+    !chromiumProxyReady
+  ) {
+    return {
+      connected: true,
+      desktopRequired: true,
+      browser: browserKind,
+      url: pageContext.url,
+      title: pageContext.title,
+      form: pageContext.form,
+      passkeys: {
+        supported: false,
+        browser: browserKind,
+        mode: 'desktop-proxy',
+        conditionalUi: false,
+        availablePasskeyCount: 0,
+        exactMatchCount: 0,
+        linkedMatchCount: 0,
+        reason: 'Klarkey is connected, but Chromium did not grant passkey proxy control for this session.',
+      },
+      chromiumProxyReady,
+      error: undefined,
+    }
+  }
 
   return {
     connected: true,
     desktopRequired: true,
+    browser: browserKind,
     url: pageContext.url,
     title: pageContext.title,
     form: pageContext.form,
@@ -597,6 +682,158 @@ async function fetchIdentity(itemId) {
   }
 }
 
+async function fetchCard(itemId) {
+  const response = await requestHost({ type: 'get-card', itemId })
+  if (!response?.ok || !response.result.card) {
+    return { ok: false, message: response?.error?.message || 'The selected card could not be loaded.' }
+  }
+
+  return {
+    ok: true,
+    card: response.result.card,
+    message: 'Card loaded.',
+  }
+}
+
+async function getBrowserSettings() {
+  const response = await requestHost({ type: 'get-settings' })
+  if (!response?.ok || !response.result.settings) {
+    return {
+      ok: false,
+      message: response?.error?.message || 'Klarkey could not load browser settings.',
+    }
+  }
+
+  return {
+    ok: true,
+    settings: response.result.settings,
+  }
+}
+
+async function planPasskeyCreate(payload) {
+  const response = await requestHost({
+    type: 'passkey-create-plan',
+    ...payload,
+  })
+
+  if (!response?.ok || !response.result.plan) {
+    return {
+      ok: false,
+      message: response?.error?.message || 'Klarkey could not prepare this passkey.',
+    }
+  }
+
+  return {
+    ok: true,
+    plan: response.result.plan,
+  }
+}
+
+async function createPasskeyCredential(payload) {
+  const response = await requestHost({
+    type: 'passkey-create-credential',
+    ...payload,
+  })
+
+  if (!response?.ok || !response.result.responseJson) {
+    return {
+      ok: false,
+      message:
+        response?.error?.message ||
+        response?.result?.message ||
+        'Klarkey could not create this passkey.',
+    }
+  }
+
+  return {
+    ok: true,
+    responseJson: response.result.responseJson,
+    credentialId: response.result.credentialId,
+    pendingPasskeyId: response.result.pendingPasskeyId,
+  }
+}
+
+async function savePasskeyCredential(payload) {
+  const response = await requestHost({
+    type: 'passkey-save-credential',
+    ...payload,
+  })
+
+  if (!response?.ok) {
+    return {
+      ok: false,
+      message: response?.error?.message || response?.result?.message || 'Klarkey could not save this passkey.',
+    }
+  }
+
+  return {
+    ok: true,
+    message: response.result?.message || 'Passkey saved.',
+    itemId: response.result?.itemId,
+  }
+}
+
+async function discardPasskeyCredential(payload) {
+  const response = await requestHost({
+    type: 'passkey-discard-credential',
+    ...payload,
+  })
+
+  if (!response?.ok) {
+    return {
+      ok: false,
+      message: response?.error?.message || response?.result?.message || 'Klarkey could not clear this passkey.',
+    }
+  }
+
+  return {
+    ok: true,
+    message: response.result?.message || 'Passkey cleared.',
+  }
+}
+
+async function planPasskeyGet(payload) {
+  const response = await requestHost({
+    type: 'passkey-get-plan',
+    ...payload,
+  })
+
+  if (!response?.ok || !Array.isArray(response.result.choices)) {
+    return {
+      ok: false,
+      message: response?.error?.message || 'Klarkey could not prepare a passkey sign-in.',
+    }
+  }
+
+  return {
+    ok: true,
+    choices: response.result.choices,
+  }
+}
+
+async function getPasskeyCredential(payload) {
+  const response = await requestHost({
+    type: 'passkey-get-credential',
+    ...payload,
+  })
+
+  if (!response?.ok || !response.result.responseJson) {
+    return {
+      ok: false,
+      message:
+        response?.error?.message ||
+        response?.result?.message ||
+        'Klarkey could not use this passkey.',
+    }
+  }
+
+  return {
+    ok: true,
+    responseJson: response.result.responseJson,
+    credentialId: response.result.credentialId,
+  }
+}
+
 async function listFieldSuggestions(field, flow, url, title) {
   const response = await requestHost({ type: 'list-field-suggestions', field, flow, url, title })
   if (!response?.ok) {
@@ -649,6 +886,11 @@ if (isChromium) {
     })
   })
 
+  globalThis.chrome.webAuthenticationProxy.onRequestCanceled.addListener((requestId) => {
+    canceledPasskeyRequestIds.add(requestId)
+    globalThis.setTimeout(() => canceledPasskeyRequestIds.delete(requestId), 30000)
+  })
+
   globalThis.chrome.webAuthenticationProxy.onRemoteSessionStateChange.addListener(() => {
     void syncProxyAttachment()
   })
@@ -681,6 +923,30 @@ runtimeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return
       case 'fetch-identity':
         sendResponse(await fetchIdentity(message.itemId))
+        return
+      case 'fetch-card':
+        sendResponse(await fetchCard(message.itemId))
+        return
+      case 'get-browser-settings':
+        sendResponse(await getBrowserSettings())
+        return
+      case 'plan-passkey-create':
+        sendResponse(await planPasskeyCreate(message.payload))
+        return
+      case 'create-passkey-credential':
+        sendResponse(await createPasskeyCredential(message.payload))
+        return
+      case 'save-passkey-credential':
+        sendResponse(await savePasskeyCredential(message.payload))
+        return
+      case 'discard-passkey-credential':
+        sendResponse(await discardPasskeyCredential(message.payload))
+        return
+      case 'plan-passkey-get':
+        sendResponse(await planPasskeyGet(message.payload))
+        return
+      case 'get-passkey-credential':
+        sendResponse(await getPasskeyCredential(message.payload))
         return
       case 'list-logins-for-url':
         sendResponse(await listLoginsForUrl(message.url, message.title))

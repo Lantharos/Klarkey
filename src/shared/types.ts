@@ -56,6 +56,9 @@ export interface ItemProfile {
   firstName?: string
   middleName?: string
   lastName?: string
+  company?: string
+  jobTitle?: string
+  birthDate?: string
   email?: string
   phone?: string
   address?: string
@@ -65,6 +68,15 @@ export interface ItemProfile {
   state?: string
   postalCode?: string
   country?: string
+  cardholderName?: string
+  cardNumber?: string
+  cardLastFour?: string
+  cardExpiry?: string
+  cardExpiryMonth?: string
+  cardExpiryYear?: string
+  cardCvc?: string
+  cardBrand?: string
+  billingPostalCode?: string
   content?: string
   websites?: string[]
   notes?: string
@@ -101,6 +113,16 @@ export interface PasskeyRecord {
   itemId: string
   label: string
   createdAt: string
+}
+
+export interface ItemPasskey {
+  id: string
+  label: string
+  credentialId?: string
+  rpId?: string
+  userName?: string
+  createdAt: string
+  lastUsedAt?: string
 }
 
 export interface VaultPasskeyRecord {
@@ -147,6 +169,9 @@ export type BrowserSuggestionField =
   | 'firstName'
   | 'middleName'
   | 'lastName'
+  | 'company'
+  | 'jobTitle'
+  | 'birthDate'
   | 'phone'
   | 'address'
   | 'addressLine1'
@@ -155,8 +180,15 @@ export type BrowserSuggestionField =
   | 'state'
   | 'postalCode'
   | 'country'
-export type BrowserAuthFlow = 'login' | 'register'
-export type BrowserFieldSuggestionSource = 'login-username' | 'identity'
+  | 'cardholderName'
+  | 'cardNumber'
+  | 'cardExpiry'
+  | 'cardExpiryMonth'
+  | 'cardExpiryYear'
+  | 'cardCvc'
+  | 'cardBrand'
+export type BrowserAuthFlow = 'login' | 'register' | 'payment'
+export type BrowserFieldSuggestionSource = 'login-username' | 'identity' | 'card'
 
 export interface BrowserFieldSuggestion {
   id: string
@@ -187,6 +219,9 @@ export interface BrowserFillIdentity {
   firstName?: string
   middleName?: string
   lastName?: string
+  company?: string
+  jobTitle?: string
+  birthDate?: string
   email?: string
   phone?: string
   address?: string
@@ -196,6 +231,50 @@ export interface BrowserFillIdentity {
   state?: string
   postalCode?: string
   country?: string
+}
+
+export interface BrowserFillCard {
+  itemId: string
+  itemName: string
+  cardholderName?: string
+  cardNumber?: string
+  cardLastFour?: string
+  cardExpiry?: string
+  cardExpiryMonth?: string
+  cardExpiryYear?: string
+  cardCvc?: string
+  cardBrand?: string
+  billingPostalCode?: string
+}
+
+export interface BrowserPasskeyStatus {
+  supported: boolean
+  browser: 'chromium' | 'firefox' | 'other'
+  mode: 'desktop-proxy' | 'browser-limited'
+  conditionalUi: boolean
+  availablePasskeyCount: number
+  exactMatchCount: number
+  linkedMatchCount: number
+  reason?: string
+}
+
+export interface BrowserPasskeySavePlan {
+  credentialId?: string
+  rpId?: string
+  userName?: string
+  itemName: string
+  suggestedMatch?: BrowserSiteMatch
+  existingCredentialItemId?: string
+  existingItemName?: string
+}
+
+export interface BrowserPasskeyChoice {
+  credentialId: string
+  itemId: string
+  itemName: string
+  userName?: string
+  rpId?: string
+  lastUsedAt?: string
 }
 
 export interface BrowserSaveLoginInput {
@@ -243,6 +322,7 @@ export interface ActionExecutionResult {
   secret?: string
   copied?: boolean
   itemId?: string
+  pendingPasskeyId?: string
 }
 
 export interface SearchRequest {
@@ -262,17 +342,24 @@ export interface UserSettings {
   hotkey: string
   clearClipboardSeconds: number
   launchOnStartup: boolean
+  browserAutoOpenMenu: boolean
+  browserAutoSubmitLogin: boolean
+  browserSavePrompts: boolean
 }
 
 export interface SettingsUpdate {
   hotkey?: string
   clearClipboardSeconds?: number
   launchOnStartup?: boolean
+  browserAutoOpenMenu?: boolean
+  browserAutoSubmitLogin?: boolean
+  browserSavePrompts?: boolean
 }
 
 export interface CreateItemInput {
   itemType: CreatableItemType
   itemName: string
+  preserveEmptyPassword?: boolean
   username?: string
   password?: string
   otp?: string
@@ -280,6 +367,9 @@ export interface CreateItemInput {
   firstName?: string
   middleName?: string
   lastName?: string
+  company?: string
+  jobTitle?: string
+  birthDate?: string
   email?: string
   phone?: string
   address?: string
@@ -289,6 +379,14 @@ export interface CreateItemInput {
   state?: string
   postalCode?: string
   country?: string
+  cardholderName?: string
+  cardNumber?: string
+  cardExpiry?: string
+  cardExpiryMonth?: string
+  cardExpiryYear?: string
+  cardCvc?: string
+  cardBrand?: string
+  billingPostalCode?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -306,6 +404,9 @@ export interface UpdateItemInput {
   firstName?: string
   middleName?: string
   lastName?: string
+  company?: string
+  jobTitle?: string
+  birthDate?: string
   email?: string
   phone?: string
   address?: string
@@ -315,6 +416,14 @@ export interface UpdateItemInput {
   state?: string
   postalCode?: string
   country?: string
+  cardholderName?: string
+  cardNumber?: string
+  cardExpiry?: string
+  cardExpiryMonth?: string
+  cardExpiryYear?: string
+  cardCvc?: string
+  cardBrand?: string
+  billingPostalCode?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -332,6 +441,9 @@ export interface ItemDetails {
   firstName?: string
   middleName?: string
   lastName?: string
+  company?: string
+  jobTitle?: string
+  birthDate?: string
   email?: string
   phone?: string
   address?: string
@@ -341,10 +453,20 @@ export interface ItemDetails {
   state?: string
   postalCode?: string
   country?: string
+  cardholderName?: string
+  cardNumber?: string
+  cardLastFour?: string
+  cardExpiry?: string
+  cardExpiryMonth?: string
+  cardExpiryYear?: string
+  cardCvc?: string
+  cardBrand?: string
+  billingPostalCode?: string
   content?: string
   notes?: string
   websites: string[]
   customFields: Array<{ id: string; label: string; value: string }>
+  passkeys: ItemPasskey[]
 }
 
 export interface VaultSnapshot {
@@ -356,4 +478,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   hotkey: 'Alt+S',
   clearClipboardSeconds: 45,
   launchOnStartup: false,
+  browserAutoOpenMenu: true,
+  browserAutoSubmitLogin: true,
+  browserSavePrompts: true,
 }

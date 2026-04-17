@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { ItemDetailOverview } from '@/app/item-detail-overview'
 import { ItemFormPage } from '@/app/item-form-page'
@@ -18,14 +18,11 @@ import { usePaletteStore } from '@/app/usePaletteStore'
 import { getTotpCode } from '@/shared/totp'
 import {
   DEFAULT_SETTINGS,
-  type ActionExecutionResult,
   type CreateItemInput,
   type ExternalWindowContext,
   type ItemDetails,
-  type PasskeySupport,
   type TotpDetails,
   type UpdateItemInput,
-  type VaultPasskeyRecord,
 } from '@/shared/types'
 
 function cleanFormValue(value: ItemFormValues): CreateItemInput {
@@ -57,6 +54,9 @@ function cleanFormValue(value: ItemFormValues): CreateItemInput {
     firstName: value.itemType === 'identity' ? value.firstName.trim() || undefined : undefined,
     middleName: value.itemType === 'identity' ? value.middleName.trim() || undefined : undefined,
     lastName: value.itemType === 'identity' ? value.lastName.trim() || undefined : undefined,
+    company: value.itemType === 'identity' ? value.company.trim() || undefined : undefined,
+    jobTitle: value.itemType === 'identity' ? value.jobTitle.trim() || undefined : undefined,
+    birthDate: value.itemType === 'identity' ? value.birthDate.trim() || undefined : undefined,
     email: value.itemType === 'identity' ? value.email.trim() || undefined : undefined,
     phone: value.itemType === 'identity' ? value.phone.trim() || undefined : undefined,
     address:
@@ -69,6 +69,20 @@ function cleanFormValue(value: ItemFormValues): CreateItemInput {
     state: value.itemType === 'identity' ? value.state.trim() || undefined : undefined,
     postalCode: value.itemType === 'identity' ? value.postalCode.trim() || undefined : undefined,
     country: value.itemType === 'identity' ? value.country.trim() || undefined : undefined,
+    cardholderName: value.itemType === 'card' ? value.cardholderName.trim() || undefined : undefined,
+    cardNumber: value.itemType === 'card' ? value.cardNumber.replace(/\s+/g, '').trim() || undefined : undefined,
+    cardExpiry:
+      value.itemType === 'card'
+        ? value.cardExpiry.trim() ||
+          (value.cardExpiryMonth.trim() && value.cardExpiryYear.trim()
+            ? `${value.cardExpiryMonth.trim()}/${value.cardExpiryYear.trim()}`
+            : undefined)
+        : undefined,
+    cardExpiryMonth: value.itemType === 'card' ? value.cardExpiryMonth.trim() || undefined : undefined,
+    cardExpiryYear: value.itemType === 'card' ? value.cardExpiryYear.trim() || undefined : undefined,
+    cardCvc: value.itemType === 'card' ? value.cardCvc.trim() || undefined : undefined,
+    cardBrand: value.itemType === 'card' ? value.cardBrand.trim() || undefined : undefined,
+    billingPostalCode: value.itemType === 'card' ? value.billingPostalCode.trim() || undefined : undefined,
     content: value.itemType === 'note' ? value.content.trim() || undefined : undefined,
     notes: value.itemType !== 'note' ? value.notes.trim() || undefined : undefined,
     websites: value.itemType === 'login' ? value.websites.map((website) => website.trim()).filter(Boolean) : [],
@@ -160,10 +174,6 @@ function App() {
   const [detailItem, setDetailItem] = useState<ItemDetails>()
   const [pointerActive, setPointerActive] = useState(false)
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false)
-  const [passkeySupport, setPasskeySupport] = useState<PasskeySupport>()
-  const [vaultPasskeys, setVaultPasskeys] = useState<VaultPasskeyRecord[]>([])
-  const [passkeyBusy, setPasskeyBusy] = useState(false)
-  const [passkeyExecution, setPasskeyExecution] = useState<ActionExecutionResult>()
   const [targetWindow, setTargetWindow] = useState<ExternalWindowContext>()
   const selection = actions[selectedIndex]
   const activeDetailItem = detailAction?.itemId === detailItem?.itemId ? detailItem : undefined
@@ -192,6 +202,9 @@ function App() {
       firstName: '',
       middleName: '',
       lastName: '',
+      company: '',
+      jobTitle: '',
+      birthDate: '',
       email: '',
       phone: '',
       address: '',
@@ -201,6 +214,14 @@ function App() {
       state: '',
       postalCode: '',
       country: '',
+      cardholderName: '',
+      cardNumber: '',
+      cardExpiry: '',
+      cardExpiryMonth: '',
+      cardExpiryYear: '',
+      cardCvc: '',
+      cardBrand: '',
+      billingPostalCode: '',
       content: '',
       notes: '',
       websites: [''],
@@ -212,31 +233,9 @@ function App() {
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
   const footerOtp = execution?.title === 'Current OTP' ? activeDetailItem?.otp : undefined
 
-  const refreshPasskeys = useCallback(async () => {
-    if (!window.klarkey) {
-      return
-    }
-
-    const [support, passkeys] = await Promise.all([
-      window.klarkey.passkeys.getSupport(),
-      window.klarkey.passkeys.list(),
-    ])
-
-    setPasskeySupport(support)
-    setVaultPasskeys(passkeys)
-  }, [])
-
   useEffect(() => {
     void boot()
   }, [boot])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void refreshPasskeys()
-    }, 0)
-
-    return () => window.clearTimeout(timer)
-  }, [refreshPasskeys])
 
   useEffect(() => {
     if (!window.klarkey) {
@@ -444,10 +443,6 @@ function App() {
             <div className="min-h-0 flex-1 overflow-y-auto">
               <SettingsPage
                 settings={settings ?? DEFAULT_SETTINGS}
-                passkeySupport={passkeySupport}
-                passkeys={vaultPasskeys}
-                passkeyBusy={passkeyBusy}
-                passkeyExecution={passkeyExecution}
                 pointerActive={pointerActive}
                 onToggleStartup={() =>
                   void updateSettings({
@@ -455,36 +450,21 @@ function App() {
                   })
                 }
                 onTimeoutChange={(seconds) => void updateSettings({ clearClipboardSeconds: seconds })}
-                onCreatePasskey={() => {
-                  setPasskeyBusy(true)
-                  setPasskeyExecution(undefined)
-                  void window.klarkey?.passkeys.create().then(async (result) => {
-                    setPasskeyExecution(result)
-                    await refreshPasskeys()
-                  }).finally(() => {
-                    setPasskeyBusy(false)
+                onToggleAutoOpenMenu={() =>
+                  void updateSettings({
+                    browserAutoOpenMenu: !(settings ?? DEFAULT_SETTINGS).browserAutoOpenMenu,
                   })
-                }}
-                onVerifyPasskey={() => {
-                  setPasskeyBusy(true)
-                  setPasskeyExecution(undefined)
-                  void window.klarkey?.passkeys.authenticate().then(async (result) => {
-                    setPasskeyExecution(result)
-                    await refreshPasskeys()
-                  }).finally(() => {
-                    setPasskeyBusy(false)
+                }
+                onToggleAutoSubmit={() =>
+                  void updateSettings({
+                    browserAutoSubmitLogin: !(settings ?? DEFAULT_SETTINGS).browserAutoSubmitLogin,
                   })
-                }}
-                onDeletePasskey={(passkeyId) => {
-                  setPasskeyBusy(true)
-                  setPasskeyExecution(undefined)
-                  void window.klarkey?.passkeys.remove(passkeyId).then(async (result) => {
-                    setPasskeyExecution(result)
-                    await refreshPasskeys()
-                  }).finally(() => {
-                    setPasskeyBusy(false)
+                }
+                onToggleSavePrompts={() =>
+                  void updateSettings({
+                    browserSavePrompts: !(settings ?? DEFAULT_SETTINGS).browserSavePrompts,
                   })
-                }}
+                }
               />
             </div>
           ) : page === 'detail' ? (

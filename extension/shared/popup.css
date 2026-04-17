@@ -14,7 +14,7 @@ html,
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 220px;
+  min-height: 240px;
   background: rgba(11, 12, 14, 0.94);
   color: var(--text);
   font: 13px/1.5 var(--font);
@@ -27,7 +27,7 @@ body {
 
 .shell {
   min-height: 100%;
-  padding: 14px 16px 16px;
+  padding: 14px 16px 18px;
   background: var(--surface);
 }
 
@@ -53,7 +53,7 @@ body {
 }
 
 .eyebrow {
-  margin: 18px 0 6px;
+  margin: 0 0 6px;
   color: var(--faint);
   font-size: 12px;
 }
@@ -61,8 +61,29 @@ body {
 .message {
   margin: 0;
   color: var(--text);
-  font-size: 22px;
+  font-size: 19px;
   line-height: 1.08;
   font-weight: 620;
   letter-spacing: -0.04em;
+}
+
+.section + .section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.subhead {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.22;
+  font-weight: 560;
+}
+
+.detail {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }

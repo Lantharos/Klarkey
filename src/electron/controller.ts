@@ -185,6 +185,26 @@ export class KlarkeyController {
         return item.address
       }
 
+      if (field === 'cardholderName') {
+        return item.cardholderName
+      }
+
+      if (field === 'cardNumber') {
+        return item.cardNumber
+      }
+
+      if (field === 'cardExpiry') {
+        return item.cardExpiry
+      }
+
+      if (field === 'cardCvc') {
+        return item.cardCvc
+      }
+
+      if (field === 'billingPostalCode') {
+        return item.billingPostalCode
+      }
+
       if (field === 'content') {
         return item.content || item.notes
       }

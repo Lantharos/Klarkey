@@ -1,4 +1,4 @@
-export const AVAILABLE_ITEM_TYPES = ['login', 'identity', 'note'] as const
+export const AVAILABLE_ITEM_TYPES = ['login', 'identity', 'card', 'note'] as const
 export const FUTURE_ITEM_TYPES = ['ssh-key'] as const
 export const ALL_ITEM_TYPES = [...AVAILABLE_ITEM_TYPES, ...FUTURE_ITEM_TYPES] as const
 
@@ -35,6 +35,16 @@ export const ITEM_TYPE_DEFINITIONS: Record<ItemType, ItemTypeDefinition> = {
     createLabel: 'New identity',
     placeholderName: 'Personal identity',
     supportsSecrets: false,
+    available: true,
+  },
+  card: {
+    type: 'card',
+    label: 'Card',
+    noun: 'card',
+    aliases: ['card', 'cards', 'credit card', 'debit card', 'payment card'],
+    createLabel: 'New card',
+    placeholderName: 'Visa ending in 4242',
+    supportsSecrets: true,
     available: true,
   },
   note: {

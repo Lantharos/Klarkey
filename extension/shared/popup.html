@@ -13,8 +13,17 @@
         <div id="siteHost" class="site-host"></div>
       </header>
 
-      <p id="title" class="eyebrow">Browser bridge</p>
-      <p id="statusMessage" class="message">Checking the desktop bridge for this browser.</p>
+      <section class="section">
+        <p class="eyebrow">Browser bridge</p>
+        <p id="title" class="message">Checking the desktop bridge for this browser.</p>
+        <p id="statusMessage" class="detail"></p>
+      </section>
+
+      <section class="section">
+        <p class="eyebrow">Passkeys</p>
+        <p id="passkeyTitle" class="subhead">Checking passkey support.</p>
+        <p id="passkeyMessage" class="detail"></p>
+      </section>
     </main>
     <script src="./popup.js"></script>
   </body>

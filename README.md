@@ -20,9 +20,8 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for login, identity, and note items with item-type-specific fields
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
-- Vault passkey enrollment and verification through the platform WebAuthn/passkey surface
 - Browser extension foundation for desktop-only native-messaging autofill and save flows
-- Chromium extension passkey interception through `webAuthenticationProxy`, with Firefox limited to password/autofill flows
+- Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge and attached to login items
 - Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
@@ -59,9 +58,9 @@ bun run build
 ## Notes
 
 - Sensitive actions use an in-memory unlock window on top of OS-backed key protection.
-- Passkeys are scoped to Klarkey itself. Arbitrary website passkeys still require that website's own origin, browser extension integration, or OS-level provider plumbing.
+- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, and stores them on the related login item.
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
-- Chromium passkey mediation is implemented through the browser's WebAuthn proxy API. Firefox does not currently expose an equivalent extension interception API, so passkeys there remain pending.
+- The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
 
 ## Browser extension
@@ -119,7 +118,7 @@ Then:
 1. Load `dist-extension/chromium` as an unpacked extension in Chrome or Edge.
 2. Keep Klarkey desktop running.
 3. Visit a login form and use the inline trigger or the extension popup to fill or save a login.
-4. In Chromium, test a site that uses `navigator.credentials.create()` or `.get()` to exercise the passkey proxy path.
+4. Visit a site that uses passkeys to create or use a website passkey and confirm that it attaches to the matching login item in Klarkey.
 
 ### Windows passkey provider work
 

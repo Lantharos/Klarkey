@@ -25,6 +25,23 @@ function ensureColumn(db: Database.Database, tableName: string, columnName: stri
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
 }
 
+function dedupePasskeysByItem(db: Database.Database) {
+  db.exec(`
+    DELETE FROM passkeys
+    WHERE rowid NOT IN (
+      SELECT chosen.rowid
+      FROM passkeys AS chosen
+      WHERE chosen.rowid = (
+        SELECT candidate.rowid
+        FROM passkeys AS candidate
+        WHERE candidate.itemId = chosen.itemId
+        ORDER BY COALESCE(candidate.lastUsedAt, candidate.createdAt) DESC, candidate.createdAt DESC, candidate.rowid DESC
+        LIMIT 1
+      )
+    )
+  `)
+}
+
 function resetLegacySchema(db: Database.Database) {
   const hasIdentitiesTable = Boolean(
     db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identities'").get(),
@@ -73,6 +90,7 @@ export function createDatabase(): DatabaseHandle {
 
     CREATE TABLE IF NOT EXISTS passkeys (
       id TEXT PRIMARY KEY,
+      identityId TEXT,
       itemId TEXT NOT NULL,
       label TEXT NOT NULL,
       credentialId TEXT,
@@ -82,6 +100,18 @@ export function createDatabase(): DatabaseHandle {
       lastUsedAt TEXT,
       createdAt TEXT NOT NULL,
       FOREIGN KEY(itemId) REFERENCES identities(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pending_passkeys (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      credentialId TEXT NOT NULL UNIQUE,
+      rpId TEXT,
+      userName TEXT,
+      userHandle TEXT,
+      transports TEXT,
+      privateKeyPayload TEXT NOT NULL,
+      createdAt TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS vault_passkeys (
@@ -120,12 +150,20 @@ export function createDatabase(): DatabaseHandle {
     db.exec('UPDATE passkeys SET itemId = identityId WHERE itemId IS NULL')
   }
 
+  ensureColumn(db, 'passkeys', 'identityId', 'TEXT')
+  db.exec('UPDATE passkeys SET identityId = itemId WHERE identityId IS NULL AND itemId IS NOT NULL')
   ensureColumn(db, 'passkeys', 'credentialId', 'TEXT')
   ensureColumn(db, 'passkeys', 'rpId', 'TEXT')
   ensureColumn(db, 'passkeys', 'userName', 'TEXT')
   ensureColumn(db, 'passkeys', 'transports', 'TEXT')
   ensureColumn(db, 'passkeys', 'lastUsedAt', 'TEXT')
+  ensureColumn(db, 'passkeys', 'privateKeyPayload', 'TEXT')
+  ensureColumn(db, 'passkeys', 'userHandle', 'TEXT')
+  ensureColumn(db, 'passkeys', 'signCount', 'INTEGER NOT NULL DEFAULT 0')
+  dedupePasskeysByItem(db)
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS passkeys_credential_id_idx ON passkeys(credentialId) WHERE credentialId IS NOT NULL')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS passkeys_item_id_idx ON passkeys(itemId)')
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS pending_passkeys_credential_id_idx ON pending_passkeys(credentialId)')
 
   return {
     db,

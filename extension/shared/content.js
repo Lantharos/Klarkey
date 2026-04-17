@@ -1,6 +1,5 @@
 const runtimeApi = globalThis.browser ?? globalThis.chrome
 const runtime = runtimeApi?.runtime
-const pendingPageRequests = new Map()
 let pageState = {
   url: window.location.href,
   title: document.title,
@@ -18,11 +17,20 @@ let pageState = {
   menuElement: undefined,
   menuOpen: false,
   layoutFrame: undefined,
+  suppressedAutofillField: undefined,
+  suppressedAutofillForm: undefined,
+  suppressedFieldAttributes: undefined,
+  suppressedFormAttributes: undefined,
 }
 
 let matchFetchGeneration = 0
 let savePromptTimer
 let autoSubmitTimer
+let browserSettings = {
+  browserAutoOpenMenu: true,
+  browserAutoSubmitLogin: true,
+  browserSavePrompts: true,
+}
 
 const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
 const pendingOtpStorageKey = `klarkey:pending-otp:${window.location.hostname}`
@@ -32,6 +40,60 @@ let suppressedInlineInput
 
 const overlayRoot = document.createElement('div')
 const overlayStyle = document.createElement('style')
+const stateCodeToName = {
+  AL: 'alabama',
+  AK: 'alaska',
+  AZ: 'arizona',
+  AR: 'arkansas',
+  CA: 'california',
+  CO: 'colorado',
+  CT: 'connecticut',
+  DE: 'delaware',
+  FL: 'florida',
+  GA: 'georgia',
+  HI: 'hawaii',
+  ID: 'idaho',
+  IL: 'illinois',
+  IN: 'indiana',
+  IA: 'iowa',
+  KS: 'kansas',
+  KY: 'kentucky',
+  LA: 'louisiana',
+  ME: 'maine',
+  MD: 'maryland',
+  MA: 'massachusetts',
+  MI: 'michigan',
+  MN: 'minnesota',
+  MS: 'mississippi',
+  MO: 'missouri',
+  MT: 'montana',
+  NE: 'nebraska',
+  NV: 'nevada',
+  NH: 'newhampshire',
+  NJ: 'newjersey',
+  NM: 'newmexico',
+  NY: 'newyork',
+  NC: 'northcarolina',
+  ND: 'northdakota',
+  OH: 'ohio',
+  OK: 'oklahoma',
+  OR: 'oregon',
+  PA: 'pennsylvania',
+  RI: 'rhodeisland',
+  SC: 'southcarolina',
+  SD: 'southdakota',
+  TN: 'tennessee',
+  TX: 'texas',
+  UT: 'utah',
+  VT: 'vermont',
+  VA: 'virginia',
+  WA: 'washington',
+  WV: 'westvirginia',
+  WI: 'wisconsin',
+  WY: 'wyoming',
+  DC: 'districtofcolumbia',
+}
+const regionDisplayNames = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : undefined
 
 overlayStyle.textContent = `
   .klarkey-inline-root {
@@ -183,12 +245,6 @@ overlayStyle.textContent = `
     text-overflow: ellipsis;
   }
 
-  .klarkey-inline-pill {
-    color: var(--klarkey-faint);
-    font-size: 12px;
-    flex-shrink: 0;
-  }
-
   .klarkey-inline-empty,
   .klarkey-inline-footer {
     padding: 14px;
@@ -259,6 +315,41 @@ overlayStyle.textContent = `
     display: flex;
     gap: 8px;
     margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .klarkey-save-choice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .klarkey-save-choice {
+    width: 100%;
+    border: 1px solid var(--klarkey-border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--klarkey-text);
+    cursor: pointer;
+    text-align: left;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+
+  .klarkey-save-choice:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .klarkey-save-choice-title {
+    font-size: 13px;
+    font-weight: 560;
+  }
+
+  .klarkey-save-choice-copy {
+    margin-top: 2px;
+    color: var(--klarkey-muted);
+    font-size: 12px;
   }
 
   .klarkey-save-button {
@@ -326,14 +417,86 @@ const visible = (element) => {
   return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0
 }
 
-const isFieldElement = (element) => element instanceof HTMLInputElement || element instanceof HTMLSelectElement
-const isTextLikeInput = (input) => input instanceof HTMLInputElement && ['text', 'email', 'search', 'tel', 'url'].includes(input.type)
+const isEditableHost = (element) => element instanceof HTMLElement && element.isContentEditable && element.getAttribute('contenteditable') !== 'false'
+const isFieldElement = (element) =>
+  element instanceof HTMLInputElement || element instanceof HTMLSelectElement || element instanceof HTMLTextAreaElement || isEditableHost(element)
+const isTextLikeInput = (input) =>
+  input instanceof HTMLTextAreaElement ||
+  isEditableHost(input) ||
+  (input instanceof HTMLInputElement && ['text', 'email', 'search', 'tel', 'url', 'number'].includes(input.type))
+const normalizeLookupToken = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '')
+const readFieldValue = (field) =>
+  field instanceof HTMLInputElement || field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement
+    ? field.value || ''
+    : isEditableHost(field)
+      ? field.textContent || ''
+      : ''
 
+const queryAllDeep = (root, selector) => {
+  const visited = new Set()
+  const results = []
+  const queue = [root]
+
+  while (queue.length) {
+    const current = queue.shift()
+    if (!(current instanceof Document || current instanceof ShadowRoot || current instanceof Element)) {
+      continue
+    }
+
+    for (const match of Array.from(current.querySelectorAll(selector))) {
+      if (!visited.has(match)) {
+        visited.add(match)
+        results.push(match)
+      }
+    }
+
+    for (const element of Array.from(current.querySelectorAll('*'))) {
+      if (element.shadowRoot) {
+        queue.push(element.shadowRoot)
+      }
+    }
+  }
+
+  return results
+}
+
+const getAssociatedForm = (element) => {
+  let current = element
+
+  while (current instanceof Element) {
+    if (current instanceof HTMLInputElement || current instanceof HTMLSelectElement || current instanceof HTMLTextAreaElement) {
+      if (current.form) {
+        return current.form
+      }
+    }
+
+    const form = current.closest('form')
+    if (form) {
+      return form
+    }
+
+    const root = current.getRootNode()
+    current = root instanceof ShadowRoot ? root.host : undefined
+  }
+
+  return undefined
+}
+
+const getDeepActiveElement = (root = document) => {
+  let current = root.activeElement
+
+  while (current?.shadowRoot?.activeElement) {
+    current = current.shadowRoot.activeElement
+  }
+
+  return current
+}
 const getInputSignals = (input) => {
-  const autocomplete = input instanceof HTMLInputElement ? (input.autocomplete || '').toLowerCase() : ''
+  const autocomplete =
+    input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement ? (input.autocomplete || '').toLowerCase() : ''
   const labels = []
-  if (Array.isArray(input.labels)) {
-    labels.push(...input.labels.map((label) => label.textContent || ''))
+  if ('labels' in input && input.labels) {
+    labels.push(...Array.from(input.labels).map((label) => label.textContent || ''))
   }
 
   const describedBy = (input.getAttribute('aria-describedby') || '')
@@ -346,7 +509,10 @@ const getInputSignals = (input) => {
     input.id || '',
     input.placeholder || '',
     input.getAttribute('aria-label') || '',
+    input.getAttribute('aria-labelledby') || '',
     input.getAttribute('data-testid') || '',
+    input.getAttribute('data-qa') || '',
+    input.getAttribute('role') || '',
     ...labels,
     ...describedBy,
   ]
@@ -374,6 +540,18 @@ const stopInlineLayoutTracking = () => {
   pageState.layoutFrame = undefined
 }
 
+const loadBrowserSettings = async () => {
+  const response = await sendMessage({ type: 'get-browser-settings' }).catch(() => undefined)
+  if (response?.ok && response.settings) {
+    browserSettings = {
+      ...browserSettings,
+      ...response.settings,
+    }
+  }
+
+  return browserSettings
+}
+
 const isUsernameInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
   return isTextLikeInput(input) && (autocomplete.includes('username') || autocomplete.includes('email') || /(user|email|login)/.test(marker))
@@ -383,6 +561,58 @@ const isEmailInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
   return isTextLikeInput(input) && (autocomplete.includes('email') || /\bemail\b/.test(marker))
 }
+
+const isCardholderNameInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('cc-name') || markerMatches(input, /(name on card|cardholder|card holder|name as it appears|name printed on card)/)
+}
+
+const isCardNumberInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('cc-number') || markerMatches(input, /(card number|credit card|debit card|cc[-\s_]*number|card no|card #|pan\b)/)
+}
+
+const isCardExpiryMonthInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('cc-exp-month') || markerMatches(input, /(expir|expiry|exp date|valid thru).*(month|\bmm\b)|month.*(expir|expiry|exp date|valid thru)/)
+}
+
+const isCardExpiryYearInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('cc-exp-year') || markerMatches(input, /(expir|expiry|exp date|valid thru).*(year|\byy\b|\byyyy\b)|year.*(expir|expiry|exp date|valid thru)/)
+}
+
+const isCardExpiryInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  if (autocomplete.includes('cc-exp-month') || autocomplete.includes('cc-exp-year')) {
+    return false
+  }
+
+  return autocomplete.includes('cc-exp') || markerMatches(input, /(expir|expiry|exp date|valid thru|mm\s*\/\s*yy|mm\s*\/\s*yyyy)/)
+}
+
+const isCardCvcInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('cc-csc') || markerMatches(input, /(cvc|cvv|cvn|security code|card security code|verification code)/)
+}
+
+const isCardBrandInput = (input) => markerMatches(input, /(card type|card brand|payment network|network)/)
+
+const formContainsPaymentField = (preferredInput) =>
+  getFillableFields(preferredInput).some((field) =>
+    [
+      isCardholderNameInput,
+      isCardNumberInput,
+      isCardExpiryInput,
+      isCardExpiryMonthInput,
+      isCardExpiryYearInput,
+      isCardCvcInput,
+      isCardBrandInput,
+    ].some((matcher) => matcher(field)),
+  )
+
+const isPaymentContextInput = (input) =>
+  formContainsPaymentField(input) || /(checkout|payment|billing|cardholder|credit card|debit card|card number|cvv|cvc|expiration|expiry|valid thru)/.test(getAuthContextText(input))
 
 const isPhoneInput = (input) => {
   const { autocomplete } = getInputSignals(input)
@@ -415,6 +645,21 @@ const isMiddleNameInput = (input) => {
 const isLastNameInput = (input) => {
   const { autocomplete } = getInputSignals(input)
   return autocomplete.includes('family-name') || markerMatches(input, /(last[\s_-]*name|family[\s_-]*name|surname|lname)/)
+}
+
+const isCompanyInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('organization') || markerMatches(input, /(company|organisation|organization|employer|business|workplace)/)
+}
+
+const isJobTitleInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('organization-title') || markerMatches(input, /(job[\s_-]*title|title|role|position|occupation)/)
+}
+
+const isBirthDateInput = (input) => {
+  const { autocomplete } = getInputSignals(input)
+  return autocomplete.includes('bday') || markerMatches(input, /(birthday|birth[\s_-]*date|date of birth|dob)/)
 }
 
 const isCountryInput = (input) => {
@@ -481,24 +726,20 @@ const setPendingUsername = (username) => {
 }
 
 const injectPageBridge = () => {
-  if (document.documentElement.dataset.klarkeyPageBridge === 'ready') {
+  if (!document.documentElement || document.documentElement.getAttribute('data-klarkey-bridge') === 'ready') {
     return
   }
-
-  const script = document.createElement('script')
-  script.src = runtime.getURL('page-bridge.js')
-  script.async = false
-  script.dataset.klarkeyPageBridge = 'true'
-  document.documentElement.dataset.klarkeyPageBridge = 'ready'
-  ;(document.head || document.documentElement).appendChild(script)
-  script.remove()
 }
 
 const ensurePageBridgeReady = async () => {
   injectPageBridge()
+  if (document.documentElement?.getAttribute('data-klarkey-bridge') === 'ready') {
+    return
+  }
+
   const start = Date.now()
   while (Date.now() - start < 4000) {
-    if (document.documentElement.getAttribute('data-klarkey-bridge') === 'ready') {
+    if (document.documentElement?.getAttribute('data-klarkey-bridge') === 'ready') {
       return
     }
 
@@ -509,24 +750,46 @@ const ensurePageBridgeReady = async () => {
 }
 
 const pickForm = (preferredInput) => {
-  if (preferredInput?.form) {
-    return preferredInput.form
+  const preferredForm = preferredInput && isFieldElement(preferredInput) ? getAssociatedForm(preferredInput) : undefined
+  if (preferredForm) {
+    return preferredForm
   }
 
   const activeElement = document.activeElement
-  if (activeElement instanceof HTMLInputElement && activeElement.form) {
-    return activeElement.form
+  if (isFieldElement(activeElement)) {
+    const activeForm = getAssociatedForm(activeElement)
+    if (activeForm) {
+      return activeForm
+    }
   }
 
-  return Array.from(document.forms).find((form) =>
-    Array.from(form.elements).some((element) => element instanceof HTMLInputElement && isPasswordInput(element)),
+  return Array.from(document.forms).find((form) => getFillableFields(form).some((element) => element instanceof HTMLInputElement && isPasswordInput(element)))
+}
+
+const getFillableFields = (preferredInput) => {
+  const root = preferredInput instanceof HTMLFormElement ? preferredInput : pickForm(preferredInput) || document
+  return queryAllDeep(root, 'input, textarea, select, [contenteditable=""], [contenteditable="true"], [contenteditable="plaintext-only"]')
+    .filter((field) => isFieldElement(field) && visible(field))
+}
+
+const getSplitOtpTargets = (preferredInput) => {
+  const candidates = getFillableFields(preferredInput).filter(
+    (field) =>
+      field instanceof HTMLInputElement &&
+      !isPasswordInput(field) &&
+      (field.maxLength === 1 || field.size === 1 || field.inputMode === 'numeric' || field.pattern === '\\d*'),
   )
+
+  const targeted = candidates.filter((field) => isOtpInput(field) || markerMatches(field, /(digit|token|code|verification)/))
+  const pool = targeted.length >= 4 ? targeted : candidates
+  return pool.length >= 4 && pool.length <= 8 ? pool.slice(0, 8) : []
 }
 
 const getInputs = (preferredInput) => {
   const form = pickForm(preferredInput)
-  const root = form || document
-  const inputs = Array.from(root.querySelectorAll('input')).filter(visible)
+  const fields = getFillableFields(preferredInput)
+  const textFields = fields.filter((field) => isTextLikeInput(field))
+  const inputs = fields.filter((field) => field instanceof HTMLInputElement)
   const passwordInputs = inputs.filter((input) => isPasswordInput(input))
   const preferredPassword =
     preferredInput instanceof HTMLInputElement && passwordInputs.includes(preferredInput) ? preferredInput : undefined
@@ -534,8 +797,9 @@ const getInputs = (preferredInput) => {
     preferredPassword ||
     passwordInputs.find((input) => (input.autocomplete || '').toLowerCase().includes('current-password')) ||
     passwordInputs[0]
-  const username = inputs.find((input) => isUsernameInput(input)) || inputs.find((input) => isTextLikeInput(input))
-  const otp = inputs.find((input) => isOtpInput(input))
+  const username = textFields.find((input) => isUsernameInput(input)) || textFields[0]
+  const splitOtpTargets = getSplitOtpTargets(preferredInput)
+  const otp = inputs.find((input) => isOtpInput(input)) || splitOtpTargets[0]
 
   return {
     form,
@@ -543,6 +807,7 @@ const getInputs = (preferredInput) => {
     password,
     passwordInputs,
     otp,
+    splitOtpTargets,
   }
 }
 
@@ -591,23 +856,36 @@ const getAuthContextText = (input) => {
     .toLowerCase()
 }
 
-const detectAuthFlow = (input) => {
+const hasRegisterSignals = (input) => {
   const context = getAuthContextText(input)
   const { passwordInputs } = getInputs(input)
   const hasNewPasswordAutocomplete = passwordInputs.some((candidate) =>
     (candidate.autocomplete || '').toLowerCase().includes('new-password'),
   )
   const hasMultiplePasswordFields = passwordInputs.length > 1
-  const registerSignal =
+
+  return (
     hasNewPasswordAutocomplete ||
     hasMultiplePasswordFields ||
-    /(register|sign[\s-]?up|create account|create your account|join|start trial|confirm password|new password)/.test(context)
+    /(register|sign[\s-]?up|signup|create[\s-]?account|create your account|create account|join|start trial|start for free|get started|continue\b|check your email|verify your email|confirm password|new password|already have an account)/.test(
+      context,
+    )
+  )
+}
 
-  if (registerSignal) {
+const hasLoginSignals = (input) =>
+  /(sign[\s-]?in|log[\s-]?in|login|current password|welcome back|forgot password|reset password)/.test(getAuthContextText(input))
+
+const detectAuthFlow = (input) => {
+  if (isPaymentContextInput(input)) {
+    return 'payment'
+  }
+
+  if (hasRegisterSignals(input)) {
     return 'register'
   }
 
-  if (/(sign[\s-]?in|log[\s-]?in|current password|welcome back)/.test(context)) {
+  if (hasLoginSignals(input)) {
     return 'login'
   }
 
@@ -615,7 +893,7 @@ const detectAuthFlow = (input) => {
 }
 
 const shouldOfferSuggestedPassword = (input) => {
-  if (detectAuthFlow(input) !== 'register') {
+  if (suggestionFlowFor(input, fieldKindFor(input)) !== 'register') {
     return false
   }
 
@@ -683,6 +961,177 @@ const clearPendingSavePrompt = () => {
 }
 
 const savePromptKeyFor = ({ username, password }) => `${window.location.hostname}|${username || ''}|${password || ''}`
+const passkeyPromptKeyFor = (...parts) => `${window.location.hostname}|${parts.filter(Boolean).join('|')}`
+const readAttributeSnapshot = (element, names) =>
+  Object.fromEntries(names.map((name) => [name, element.getAttribute(name)]))
+
+const restoreAttributeSnapshot = (element, snapshot) => {
+  if (!element || !snapshot) {
+    return
+  }
+
+  for (const [name, value] of Object.entries(snapshot)) {
+    if (value === null || value === undefined) {
+      element.removeAttribute(name)
+    } else {
+      element.setAttribute(name, value)
+    }
+  }
+}
+
+const clearBrowserAutofillSuppression = () => {
+  restoreAttributeSnapshot(pageState.suppressedAutofillField, pageState.suppressedFieldAttributes)
+  restoreAttributeSnapshot(pageState.suppressedAutofillForm, pageState.suppressedFormAttributes)
+  pageState.suppressedAutofillField = undefined
+  pageState.suppressedAutofillForm = undefined
+  pageState.suppressedFieldAttributes = undefined
+  pageState.suppressedFormAttributes = undefined
+}
+
+const suppressBrowserAutofill = (input) => {
+  clearBrowserAutofillSuppression()
+
+  if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement || input instanceof HTMLSelectElement)) {
+    return
+  }
+
+  pageState.suppressedAutofillField = input
+  pageState.suppressedFieldAttributes = readAttributeSnapshot(input, [
+    'autocomplete',
+    'autocapitalize',
+    'autocorrect',
+    'spellcheck',
+    'data-lpignore',
+    'data-1p-ignore',
+  ])
+
+  input.setAttribute('autocomplete', 'off')
+  input.setAttribute('autocapitalize', 'off')
+  input.setAttribute('autocorrect', 'off')
+  input.setAttribute('spellcheck', 'false')
+  input.setAttribute('data-lpignore', 'true')
+  input.setAttribute('data-1p-ignore', 'true')
+
+  const form = getAssociatedForm(input)
+  if (!form) {
+    return
+  }
+
+  pageState.suppressedAutofillForm = form
+  pageState.suppressedFormAttributes = readAttributeSnapshot(form, ['autocomplete'])
+  form.setAttribute('autocomplete', 'off')
+}
+
+const setNativeFieldValue = (field, value) => {
+  if (field instanceof HTMLInputElement) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+    setter ? setter.call(field, value) : (field.value = value)
+    return
+  }
+
+  if (field instanceof HTMLTextAreaElement) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set
+    setter ? setter.call(field, value) : (field.value = value)
+    return
+  }
+
+  if (field instanceof HTMLSelectElement) {
+    field.value = value
+    return
+  }
+
+  if (isEditableHost(field)) {
+    field.textContent = value
+  }
+}
+
+const dispatchFieldEvents = (field, value) => {
+  try {
+    field.dispatchEvent(
+      new InputEvent('beforeinput', {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+        data: value,
+        inputType: 'insertText',
+      }),
+    )
+  } catch {
+    void value
+  }
+
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+  field.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+}
+
+const resolveSelectValue = (input, value) => {
+  const rawValue = String(value || '').trim()
+  if (!rawValue) {
+    return undefined
+  }
+
+  const normalizedValue = normalizeLookupToken(rawValue)
+  const monthNumber = Number.parseInt(rawValue, 10)
+  const paddedMonth = Number.isFinite(monthNumber) ? String(monthNumber).padStart(2, '0') : ''
+  const fullYear = /\d{4}/.test(rawValue) ? rawValue.match(/\d{4}/)?.[0] : undefined
+  const shortYear = fullYear ? fullYear.slice(-2) : rawValue.length === 2 ? rawValue : undefined
+
+  const fieldKind = fieldKindFor(input)
+  const stateAlias =
+    fieldKind === 'state'
+      ? rawValue.length === 2
+        ? stateCodeToName[rawValue.toUpperCase()]
+        : Object.entries(stateCodeToName).find(([, name]) => name === normalizedValue)?.[0]?.toLowerCase()
+      : undefined
+
+  const exactMatch = Array.from(input.options).find((option) => {
+    const optionValue = option.value.trim().toLowerCase()
+    const optionLabel = option.textContent?.trim().toLowerCase() || ''
+    return optionValue === rawValue.toLowerCase() || optionLabel === rawValue.toLowerCase()
+  })
+
+  if (exactMatch) {
+    return exactMatch.value
+  }
+
+  const fuzzyMatch = Array.from(input.options).find((option) => {
+    const optionTokens = [option.value, option.textContent || ''].map(normalizeLookupToken).filter(Boolean)
+    if (!optionTokens.length) {
+      return false
+    }
+
+    if (optionTokens.some((token) => token === normalizedValue || token.includes(normalizedValue) || normalizedValue.includes(token))) {
+      return true
+    }
+
+    if (stateAlias && optionTokens.some((token) => token === stateAlias || token === normalizeLookupToken(stateAlias))) {
+      return true
+    }
+
+    if (paddedMonth && optionTokens.some((token) => token.startsWith(paddedMonth) || token === String(monthNumber))) {
+      return true
+    }
+
+    if (fullYear && optionTokens.some((token) => token.endsWith(fullYear) || (shortYear && token.endsWith(shortYear)))) {
+      return true
+    }
+
+    if (shortYear && optionTokens.some((token) => token === shortYear || token.endsWith(shortYear))) {
+      return true
+    }
+
+    if (fieldKind === 'country' && regionDisplayNames) {
+      const regionName = option.value.trim().length === 2 ? regionDisplayNames.of(option.value.trim().toUpperCase()) : undefined
+      if (normalizeLookupToken(regionName) === normalizedValue) {
+        return true
+      }
+    }
+
+    return false
+  })
+
+  return fuzzyMatch?.value
+}
 
 const writeValue = (input, value) => {
   if (!input || value === undefined || value === null) {
@@ -691,19 +1140,11 @@ const writeValue = (input, value) => {
 
   input.focus()
   if (input instanceof HTMLSelectElement) {
-    const normalizedValue = value.toLowerCase()
-    const matchingOption = Array.from(input.options).find((option) => {
-      const optionValue = option.value.trim().toLowerCase()
-      const optionLabel = option.textContent?.trim().toLowerCase() || ''
-      return optionValue === normalizedValue || optionLabel === normalizedValue
-    })
-
-    input.value = matchingOption?.value || value
+    setNativeFieldValue(input, resolveSelectValue(input, value) || value)
   } else {
-    input.value = value
+    setNativeFieldValue(input, value)
   }
-  input.dispatchEvent(new Event('input', { bubbles: true }))
-  input.dispatchEvent(new Event('change', { bubbles: true }))
+  dispatchFieldEvents(input, String(value))
 }
 
 const writePasswordGroup = (preferredInput, value) => {
@@ -711,6 +1152,13 @@ const writePasswordGroup = (preferredInput, value) => {
   const targets = inputs.passwordInputs.length ? inputs.passwordInputs : inputs.password ? [inputs.password] : []
   for (const target of targets) {
     writeValue(target, value)
+  }
+}
+
+const writeSplitOtp = (targets, value) => {
+  const digits = String(value || '').trim().split('')
+  for (const [index, target] of targets.entries()) {
+    writeValue(target, digits[index] || '')
   }
 }
 
@@ -737,6 +1185,10 @@ const isSatisfiedField = (field) => {
 
   if (field instanceof HTMLSelectElement || field instanceof HTMLTextAreaElement) {
     return Boolean(field.value?.trim())
+  }
+
+  if (isEditableHost(field)) {
+    return Boolean((field.textContent || '').trim())
   }
 
   return true
@@ -779,7 +1231,7 @@ const findSubmitter = (form) =>
   })
 
 const canAutoSubmitLogin = (preferredInput) => {
-  if (!preferredInput || detectAuthFlow(preferredInput) !== 'login') {
+  if (!browserSettings.browserAutoSubmitLogin || !preferredInput || detectAuthFlow(preferredInput) !== 'login') {
     return false
   }
 
@@ -788,11 +1240,15 @@ const canAutoSubmitLogin = (preferredInput) => {
     return false
   }
 
-  if (!inputs.username?.value?.trim() || !inputs.password?.value?.trim()) {
+  if (!readFieldValue(inputs.username).trim() || !readFieldValue(inputs.password).trim()) {
     return false
   }
 
-  if (inputs.otp && visible(inputs.otp) && !inputs.otp.value?.trim()) {
+  if (inputs.splitOtpTargets?.length && inputs.splitOtpTargets.some((field) => !readFieldValue(field).trim())) {
+    return false
+  }
+
+  if (inputs.otp && visible(inputs.otp) && !readFieldValue(inputs.otp).trim()) {
     return false
   }
 
@@ -835,7 +1291,7 @@ const scheduleLoginAutoSubmit = (preferredInput) => {
 
 const collectFormSnapshot = (preferredInput) => {
   const inputs = getInputs(preferredInput)
-  const directUsername = inputs.username?.value?.trim() || ''
+  const directUsername = readFieldValue(inputs.username).trim()
   const directPassword =
     preferredInput instanceof HTMLInputElement && isPasswordInput(preferredInput) ? preferredInput.value?.trim() || '' : ''
   return {
@@ -846,6 +1302,7 @@ const collectFormSnapshot = (preferredInput) => {
 
 const removeInlineUi = () => {
   stopInlineLayoutTracking()
+  clearBrowserAutofillSuppression()
   overlayRoot.innerHTML = ''
   pageState.activeMenuButtons = []
   pageState.activeMenuIndex = -1
@@ -875,6 +1332,10 @@ const moveActiveMenuIndex = (delta) => {
 }
 
 const showSaveBanner = ({ username, password, reason }) => {
+  if (!browserSettings.browserSavePrompts) {
+    return
+  }
+
   const promptKey = savePromptKeyFor({ username, password })
   if (pageState.activeSaveBannerKey === promptKey) {
     return
@@ -940,6 +1401,143 @@ const showSaveBanner = ({ username, password, reason }) => {
   overlayRoot.appendChild(banner)
 }
 
+const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 'Cancel' }) =>
+  new Promise((resolve) => {
+    removeInlineUi()
+    pageState.activeSaveBannerKey = promptKey
+    const banner = document.createElement('section')
+    banner.className = 'klarkey-save-banner'
+    banner.innerHTML = `
+      <div class="klarkey-save-title">${title}</div>
+      <p class="klarkey-save-copy">${copy}</p>
+      <div class="klarkey-save-choice-list"></div>
+      <div class="klarkey-save-actions">
+        <button class="klarkey-save-button" data-action="dismiss">${dismissLabel}</button>
+      </div>
+    `
+
+    const choiceList = banner.querySelector('.klarkey-save-choice-list')
+    const dismiss = (value) => {
+      pageState.activeSaveBannerKey = ''
+      banner.classList.add('hidden')
+      window.setTimeout(() => {
+        if (banner.isConnected) {
+          banner.remove()
+        }
+        resolve(value)
+      }, 160)
+    }
+
+    for (const choice of choices) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'klarkey-save-choice'
+      button.innerHTML = `
+        <div class="klarkey-save-choice-title">${choice.title}</div>
+        <div class="klarkey-save-choice-copy">${choice.copy}</div>
+      `
+      button.addEventListener('click', () => dismiss(choice.value))
+      choiceList.appendChild(button)
+    }
+
+    banner.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
+      dismiss(undefined)
+    })
+
+    overlayRoot.appendChild(banner)
+  })
+
+const promptPasskeyCreateChoice = async ({ rpId, userName, itemName, suggestedMatch }) => {
+  const existingItemId = suggestedMatch?.itemId
+  const existingLabel = suggestedMatch?.itemName
+  const promptKey = passkeyPromptKeyFor('passkey-create', rpId, userName, existingItemId)
+  const choices = [
+    existingItemId && existingLabel
+      ? {
+          value: { itemId: existingItemId, createNew: false },
+          title: `Save to ${existingLabel}`,
+          copy: `${userName || itemName || 'This passkey'} will be linked to that existing login.`,
+        }
+      : {
+          value: { itemId: undefined, createNew: true },
+          title: 'Save as new item',
+          copy: `${userName || itemName || 'This passkey'} will create a fresh login in Klarkey.`,
+        },
+    existingItemId
+      ? {
+          value: { itemId: undefined, createNew: true },
+          title: 'Save as new item',
+          copy: `${userName || itemName || 'This passkey'} will stay separate from your existing login.`,
+        }
+      : undefined,
+  ].filter(Boolean)
+
+  if (choices.length <= 1) {
+    return choices[0]?.value
+  }
+
+  return presentPasskeyBanner({
+    promptKey,
+    title: 'Save passkey in Klarkey?',
+    copy:
+      existingItemId && existingLabel
+        ? `${userName || 'This account'} matches ${existingLabel} on ${window.location.hostname}.`
+        : `${userName || itemName || 'This account'} can be saved in Klarkey for ${window.location.hostname}.`,
+    choices,
+  })
+}
+
+const promptPasskeyGetChoice = async (choices) => {
+  if (choices.length <= 1) {
+    return choices[0]?.credentialId
+  }
+
+  return presentPasskeyBanner({
+    promptKey: passkeyPromptKeyFor('passkey-get', window.location.pathname, choices.map((choice) => choice.credentialId).join(',')),
+    title: 'Choose a passkey',
+    copy: `Klarkey found multiple passkeys for ${window.location.hostname}.`,
+    choices: choices.map((choice) => ({
+      value: choice.credentialId,
+      title: choice.itemName,
+      copy: choice.userName || 'Passkey ready',
+    })),
+  })
+}
+
+const finalizePreparedPasskeySave = ({ pendingPasskeyId, requestDetailsJson, plan }) => {
+  if (!pendingPasskeyId) {
+    return
+  }
+
+  window.setTimeout(async () => {
+    const selection = browserSettings.browserSavePrompts
+      ? await promptPasskeyCreateChoice(plan)
+      : { itemId: plan.suggestedMatch?.itemId, createNew: !plan.suggestedMatch?.itemId }
+
+    if (!selection) {
+      await sendMessage({
+        type: 'discard-passkey-credential',
+        payload: {
+          pendingPasskeyId,
+        },
+      }).catch(() => undefined)
+      return
+    }
+
+    await sendMessage({
+      type: 'save-passkey-credential',
+      payload: {
+        url: window.location.href,
+        title: document.title,
+        requestDetailsJson,
+        pendingPasskeyId,
+        itemId: selection.itemId,
+        createNew: selection.createNew,
+      },
+    }).catch(() => undefined)
+  }, 0)
+}
+
 const openMenuFromTrigger = (input) => {
   const generation = ++matchFetchGeneration
   pageState.overlayInput = input
@@ -982,6 +1580,34 @@ const renderInlineTrigger = (input, onOpen) => {
 }
 
 const fieldKindFor = (input) => {
+  if (isCardholderNameInput(input)) {
+    return 'cardholderName'
+  }
+
+  if (isCardNumberInput(input)) {
+    return 'cardNumber'
+  }
+
+  if (isCardExpiryMonthInput(input)) {
+    return 'cardExpiryMonth'
+  }
+
+  if (isCardExpiryYearInput(input)) {
+    return 'cardExpiryYear'
+  }
+
+  if (isCardExpiryInput(input)) {
+    return 'cardExpiry'
+  }
+
+  if (isCardCvcInput(input)) {
+    return 'cardCvc'
+  }
+
+  if (isCardBrandInput(input)) {
+    return 'cardBrand'
+  }
+
   if (isPasswordInput(input)) {
     return 'password'
   }
@@ -1034,6 +1660,18 @@ const fieldKindFor = (input) => {
     return 'lastName'
   }
 
+  if (isCompanyInput(input)) {
+    return 'company'
+  }
+
+  if (isJobTitleInput(input)) {
+    return 'jobTitle'
+  }
+
+  if (isBirthDateInput(input)) {
+    return 'birthDate'
+  }
+
   if (isFullNameInput(input)) {
     return 'fullName'
   }
@@ -1047,6 +1685,20 @@ const fieldKindFor = (input) => {
 
 const fieldLabelFor = (fieldKind) => {
   switch (fieldKind) {
+    case 'cardholderName':
+      return 'Name on card'
+    case 'cardNumber':
+      return 'Card number'
+    case 'cardExpiry':
+      return 'Expiration'
+    case 'cardExpiryMonth':
+      return 'Expiration month'
+    case 'cardExpiryYear':
+      return 'Expiration year'
+    case 'cardCvc':
+      return 'Security code'
+    case 'cardBrand':
+      return 'Card type'
     case 'password':
       return 'Password'
     case 'otp':
@@ -1063,6 +1715,12 @@ const fieldLabelFor = (fieldKind) => {
       return 'Middle name'
     case 'lastName':
       return 'Last name'
+    case 'company':
+      return 'Company'
+    case 'jobTitle':
+      return 'Job title'
+    case 'birthDate':
+      return 'Birthday'
     case 'addressLine1':
       return 'Address'
     case 'addressLine2':
@@ -1084,12 +1742,26 @@ const inputModeFor = fieldKindFor
 const suggestionFlowFor = (input, fieldKind) => {
   if (
     fieldKind &&
+    ['cardholderName', 'cardNumber', 'cardExpiry', 'cardExpiryMonth', 'cardExpiryYear', 'cardCvc', 'cardBrand'].includes(fieldKind)
+  ) {
+    return 'payment'
+  }
+
+  if (fieldKind && ['postalCode', 'fullName', 'address', 'addressLine1', 'addressLine2', 'city', 'state', 'country'].includes(fieldKind) && isPaymentContextInput(input)) {
+    return 'payment'
+  }
+
+  if (
+    fieldKind &&
     [
       'fullName',
-      'firstName',
-      'middleName',
-      'lastName',
-      'phone',
+        'firstName',
+        'middleName',
+        'lastName',
+        'company',
+        'jobTitle',
+        'birthDate',
+        'phone',
       'address',
       'addressLine1',
       'addressLine2',
@@ -1338,7 +2010,7 @@ const startInlineLayoutTracking = () => {
   pageState.layoutFrame = window.requestAnimationFrame(tick)
 }
 
-const appendFieldMenuButton = ({ container, title, secondary, accent, onClick }) => {
+const appendFieldMenuButton = ({ container, title, secondary, onClick }) => {
   const item = document.createElement('button')
   item.type = 'button'
   item.className = 'klarkey-inline-item'
@@ -1360,13 +2032,6 @@ const appendFieldMenuButton = ({ container, title, secondary, accent, onClick })
 
   item.appendChild(copy)
 
-  if (accent) {
-    const pill = document.createElement('div')
-    pill.className = 'klarkey-inline-pill'
-    pill.textContent = accent
-    item.appendChild(pill)
-  }
-
   item.addEventListener('click', onClick)
   container.appendChild(item)
   pageState.activeMenuButtons.push(item)
@@ -1377,20 +2042,16 @@ const applyLoginFill = (input, login) => {
   suppressInlineMenu(input)
   writeValue(inputs.username, login.username)
   writePasswordGroup(input, login.password)
-  writeValue(inputs.otp, login.otp)
+  if (inputs.splitOtpTargets?.length && login.otp) {
+    writeSplitOtp(inputs.splitOtpTargets, login.otp)
+  } else {
+    writeValue(inputs.otp, login.otp)
+  }
   setPendingUsername(login.username || '')
   setPendingOtp(login.otp || '')
   removeInlineUi()
   scheduleLoginAutoSubmit(input)
 }
-
-const getFillableFields = (preferredInput) => {
-  const form = pickForm(preferredInput)
-  const root = form || document
-  return Array.from(root.querySelectorAll('input, select'))
-    .filter((field) => isFieldElement(field) && visible(field))
-}
-
 const findFieldByKind = (preferredInput, kind) =>
   getFillableFields(preferredInput).find((field) => fieldKindFor(field) === kind)
 
@@ -1404,6 +2065,9 @@ const applyIdentityFill = (input, identity) => {
     firstName: identity.firstName,
     middleName: identity.middleName,
     lastName: identity.lastName,
+    company: identity.company,
+    jobTitle: identity.jobTitle,
+    birthDate: identity.birthDate,
     phone: identity.phone,
     address: identity.address,
     addressLine1: identity.addressLine1 || identity.address,
@@ -1442,6 +2106,35 @@ const applyIdentityFill = (input, identity) => {
 
   if (identity.username || identity.email) {
     setPendingUsername(identity.username || identity.email || '')
+  }
+
+  removeInlineUi()
+}
+
+const applyCardFill = (input, card) => {
+  suppressInlineMenu(input)
+
+  const fieldMap = {
+    cardholderName: card.cardholderName,
+    fullName: card.cardholderName,
+    cardNumber: card.cardNumber,
+    cardExpiry: card.cardExpiry,
+    cardExpiryMonth: card.cardExpiryMonth,
+    cardExpiryYear: card.cardExpiryYear,
+    cardCvc: card.cardCvc,
+    cardBrand: card.cardBrand,
+    postalCode: card.billingPostalCode,
+  }
+
+  for (const [kind, value] of Object.entries(fieldMap)) {
+    if (!value) {
+      continue
+    }
+
+    const target = findFieldByKind(input, kind)
+    if (target) {
+      writeValue(target, value)
+    }
   }
 
   removeInlineUi()
@@ -1548,7 +2241,12 @@ const renderFieldMenu = (input, options = {}) => {
         accent: 'OTP',
         onClick: () => {
           suppressInlineMenu(input)
-          writeValue(input, pendingOtp)
+          const { splitOtpTargets } = getInputs(input)
+          if (splitOtpTargets?.length) {
+            writeSplitOtp(splitOtpTargets, pendingOtp)
+          } else {
+            writeValue(input, pendingOtp)
+          }
           setPendingOtp('')
           removeInlineUi()
         },
@@ -1562,11 +2260,14 @@ const renderFieldMenu = (input, options = {}) => {
   } else if (!pageState.fieldSuggestions.length) {
     const empty = document.createElement('div')
     empty.className = 'klarkey-inline-empty'
-    empty.textContent = authFlow === 'login'
-      ? 'No items found.'
-      : fieldKind === 'email'
-        ? 'No identity email found.'
-        : 'No identity details found.'
+    empty.textContent =
+      authFlow === 'payment'
+        ? 'No cards found.'
+        : authFlow === 'login'
+          ? 'No items found.'
+          : fieldKind === 'email'
+            ? 'No identity email found.'
+            : 'No identity details found.'
     list.appendChild(empty)
   } else {
     for (const suggestion of pageState.fieldSuggestions.slice(0, 6)) {
@@ -1601,6 +2302,20 @@ const renderFieldMenu = (input, options = {}) => {
             }
 
             applyIdentityFill(input, response.identity)
+            return
+          }
+
+          if (suggestion.source === 'card') {
+            const response = await sendMessage({ type: 'fetch-card', itemId: suggestion.itemId }).catch((error) => ({
+              ok: false,
+              message: error instanceof Error ? error.message : 'Klarkey could not load this card.',
+            }))
+
+            if (!response.ok || !response.card) {
+              return
+            }
+
+            applyCardFill(input, response.card)
             return
           }
 
@@ -1662,6 +2377,10 @@ const refreshFieldSuggestions = async (field, flow) => {
 }
 
 const maybePromptToSave = async (preferredInput, force = false) => {
+  if (!browserSettings.browserSavePrompts) {
+    return
+  }
+
   const snapshot = collectFormSnapshot(preferredInput)
   if (!snapshot.password) {
     return
@@ -1727,6 +2446,10 @@ const maybePromptToSave = async (preferredInput, force = false) => {
 }
 
 const restorePendingSavePrompt = () => {
+  if (!browserSettings.browserSavePrompts) {
+    return
+  }
+
   const pending = getPendingSavePrompt()
   if (!pending) {
     return
@@ -1745,56 +2468,145 @@ const restorePendingSavePrompt = () => {
   }, 240)
 }
 
-window.addEventListener('message', (event) => {
-  if (event.source !== window || event.data?.source !== 'klarkey-page-bridge-response') {
-    return
+const handlePagePasskeyCreate = async (requestDetailsJson) => {
+  const plan = await sendMessage({
+    type: 'plan-passkey-create',
+    payload: {
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+    },
+  }).catch(() => undefined)
+
+  if (!plan?.ok || !plan.plan) {
+    return { fallbackToBrowser: true }
   }
 
-  const pending = pendingPageRequests.get(event.data.id)
-  if (!pending) {
-    return
-  }
-
-  pendingPageRequests.delete(event.data.id)
-  pending.resolve(event.data.payload)
-})
-
-const runPagePasskeyOperation = async (operation, requestDetailsJson) => {
-  await ensurePageBridgeReady()
-  const id = `page_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
-
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => {
-      pendingPageRequests.delete(id)
-      resolve({
-        ok: false,
-        error: {
-          name: 'NotAllowedError',
-          message: 'The passkey request timed out.',
-        },
-      })
-    }, 120000)
-
-    pendingPageRequests.set(id, {
-      resolve: (payload) => {
-        window.clearTimeout(timer)
-        resolve(payload)
+  const result = await sendMessage({
+    type: 'create-passkey-credential',
+    payload: {
+      origin: window.location.origin,
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+    },
+  })
+    .catch((error) => ({
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: error instanceof Error ? error.message : 'Klarkey could not create this passkey.',
       },
-    })
+    }))
+
+  if (!result?.ok) {
+    return {
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: result?.message || result?.error?.message || 'Klarkey could not create this passkey.',
+      },
+    }
+  }
+
+  finalizePreparedPasskeySave({
+    pendingPasskeyId: result.pendingPasskeyId,
+    requestDetailsJson,
+    plan: plan.plan,
+  })
+
+  return result
+}
+
+const handlePagePasskeyGet = async (requestDetailsJson) => {
+  const plan = await sendMessage({
+    type: 'plan-passkey-get',
+    payload: {
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+    },
+  }).catch(() => undefined)
+
+  if (!plan?.ok) {
+    return { fallbackToBrowser: true }
+  }
+
+  if (!plan.choices?.length) {
+    return { fallbackToBrowser: true }
+  }
+
+  const selectedCredentialId = await promptPasskeyGetChoice(plan.choices)
+  if (!selectedCredentialId) {
+    return {
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: 'The passkey request was canceled.',
+      },
+    }
+  }
+
+  return sendMessage({
+    type: 'get-passkey-credential',
+    payload: {
+      origin: window.location.origin,
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+      credentialId: selectedCredentialId,
+    },
+  })
+    .then((result) =>
+      result?.ok
+        ? result
+        : {
+            ok: false,
+            error: {
+              name: 'NotAllowedError',
+              message: result?.message || 'Klarkey could not use this passkey.',
+            },
+          },
+    )
+    .catch((error) => ({
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: error instanceof Error ? error.message : 'Klarkey could not use this passkey.',
+      },
+    }))
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window || event.data?.source !== 'klarkey-page-authenticator-request') {
+    return
+  }
+
+  void (async () => {
+    await ensurePageBridgeReady()
+    const payload =
+      event.data.payload?.operation === 'create'
+        ? await handlePagePasskeyCreate(event.data.payload.requestDetailsJson)
+        : event.data.payload?.operation === 'get'
+          ? await handlePagePasskeyGet(event.data.payload.requestDetailsJson)
+          : {
+              ok: false,
+              error: {
+                name: 'NotSupportedError',
+                message: 'Unsupported passkey operation.',
+              },
+            }
 
     window.postMessage(
       {
-        source: 'klarkey-page-bridge-request',
-        id,
-        payload: {
-          operation,
-          requestDetailsJson,
-        },
+        source: 'klarkey-page-authenticator-response',
+        id: event.data.id,
+        payload,
       },
       window.location.origin,
     )
-  })
-}
+  })()
+})
 
 const handleFieldFocus = async (target) => {
   if (!isFieldElement(target) || !visible(target)) {
@@ -1810,7 +2622,12 @@ const handleFieldFocus = async (target) => {
     const pendingOtp = getPendingOtp()
     if (pendingOtp) {
       suppressInlineMenu()
-      writeValue(target, pendingOtp)
+      const { splitOtpTargets } = getInputs(target)
+      if (splitOtpTargets?.length) {
+        writeSplitOtp(splitOtpTargets, pendingOtp)
+      } else {
+        writeValue(target, pendingOtp)
+      }
       setPendingOtp('')
       removeInlineUi()
       return
@@ -1824,6 +2641,7 @@ const handleFieldFocus = async (target) => {
 
   const generation = ++matchFetchGeneration
   pageState.overlayInput = target
+  suppressBrowserAutofill(target)
 
   renderInlineTriggerOnly(target)
 
@@ -1831,7 +2649,7 @@ const handleFieldFocus = async (target) => {
     return
   }
 
-  const autoOpen = target.dataset.klarkeyAutoOpen !== 'false'
+  const autoOpen = browserSettings.browserAutoOpenMenu && target.dataset.klarkeyAutoOpen !== 'false'
   await Promise.all([
     refreshMatches(),
     fieldKind === 'password' || fieldKind === 'otp' ? Promise.resolve([]) : refreshFieldSuggestions(fieldKind, suggestionFlowFor(target, fieldKind)),
@@ -1847,12 +2665,16 @@ const handleFieldFocus = async (target) => {
 }
 
 document.addEventListener('focusin', async (event) => {
-  await handleFieldFocus(event.target)
+  await handleFieldFocus(event.composedPath?.()[0] || event.target)
 })
 
 document.addEventListener('click', (event) => {
-  const target = event.target
+  const target = event.composedPath?.()[0] || event.target
   if (target instanceof Element && target.closest('.klarkey-inline-menu, .klarkey-save-banner')) {
+    return
+  }
+
+  if (pageState.activeSaveBannerKey && overlayRoot.querySelector('.klarkey-save-banner')) {
     return
   }
 
@@ -1930,6 +2752,12 @@ window.addEventListener('popstate', () => {
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
+    const dismissButton = overlayRoot.querySelector('.klarkey-save-banner [data-action="dismiss"]')
+    if (dismissButton instanceof HTMLButtonElement) {
+      dismissButton.click()
+      return
+    }
+
     removeInlineUi()
     return
   }
@@ -1977,7 +2805,11 @@ if (runtime) {
       suppressInlineMenu(preferredInput)
       writeValue(inputs.username, message.login?.username)
       writeValue(inputs.password, message.login?.password)
-      writeValue(inputs.otp, message.login?.otp)
+      if (inputs.splitOtpTargets?.length && message.login?.otp) {
+        writeSplitOtp(inputs.splitOtpTargets, message.login.otp)
+      } else {
+        writeValue(inputs.otp, message.login?.otp)
+      }
       setPendingUsername(message.login?.username || '')
       setPendingOtp(message.login?.otp || '')
       removeInlineUi()
@@ -1990,18 +2822,14 @@ if (runtime) {
       return
     }
 
-    if (message?.type === 'run-passkey-operation') {
-      void runPagePasskeyOperation(message.operation, message.requestDetailsJson).then((result) => {
-        sendResponse(result)
-      })
-      return true
-    }
   })
 
   injectPageBridge()
-  void refreshMatches()
-  restorePendingSavePrompt()
-  window.setTimeout(() => {
-    void handleFieldFocus(document.activeElement)
-  }, 0)
+  void loadBrowserSettings().finally(() => {
+    void refreshMatches()
+    restorePendingSavePrompt()
+    window.setTimeout(() => {
+      void handleFieldFocus(getDeepActiveElement())
+    }, 0)
+  })
 }

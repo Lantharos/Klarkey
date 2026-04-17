@@ -1,7 +1,7 @@
 import { getItemTypeDefinition, type CreatableItemType, type ItemType } from '@/shared/item-types'
 import type { DetailAction } from '@/app/palette-types'
 import type { ExternalWindowContext, ItemDetails } from '@/shared/types'
-import { ContactRound, FileText, KeyRound, Mail, MapPinned, Pencil, Phone, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
+import { ContactRound, CreditCard, FileText, KeyRound, Mail, MapPinned, Pencil, Phone, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
 
 export function getItemTypeIcon(itemType: ItemType) {
   if (itemType === 'identity') {
@@ -10,6 +10,10 @@ export function getItemTypeIcon(itemType: ItemType) {
 
   if (itemType === 'note') {
     return 'note'
+  }
+
+  if (itemType === 'card') {
+    return 'card'
   }
 
   return undefined
@@ -27,6 +31,13 @@ export function getItemTypeAccent(itemType: ItemType) {
     return {
       container: 'bg-amber-400/18 text-amber-200',
       subtleContainer: 'bg-amber-400/12 text-amber-200/82',
+    }
+  }
+
+  if (itemType === 'card') {
+    return {
+      container: 'bg-sky-400/18 text-sky-200',
+      subtleContainer: 'bg-sky-400/12 text-sky-200/82',
     }
   }
 
@@ -77,6 +88,31 @@ export function buildDetailActions(item?: ItemDetails, target?: ExternalWindowCo
       ...(hasValue(item.email) ? [{ id: 'copy-email', title: 'Copy email', icon: Mail, actionId: `copy:${item.itemId}:email` }] : []),
       ...(hasValue(item.phone) ? [{ id: 'copy-phone', title: 'Copy phone', icon: Phone, actionId: `copy:${item.itemId}:phone` }] : []),
       ...(hasValue(item.address) ? [{ id: 'copy-address', title: 'Copy address', icon: MapPinned, actionId: `copy:${item.itemId}:address` }] : []),
+      { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
+      { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
+    ]
+  }
+
+  if (item.itemType === 'card') {
+    const hasCardholderName = hasValue(item.cardholderName)
+    const hasCardNumber = hasValue(item.cardNumber)
+    const hasCardExpiry = hasValue(item.cardExpiry) || (hasValue(item.cardExpiryMonth) && hasValue(item.cardExpiryYear))
+    const hasCardCvc = hasValue(item.cardCvc)
+    const hasBillingPostalCode = hasValue(item.billingPostalCode)
+
+    return [
+      ...(hasCardNumber ? [{ id: 'paste-card-number', title: getPasteTitle('card number', target), icon: CreditCard, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:cardNumber` }] : []),
+      ...(hasCardholderName ? [{ id: 'paste-cardholder-name', title: getPasteTitle('name on card', target), icon: ContactRound, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:cardholderName` }] : []),
+      ...(hasCardExpiry ? [{ id: 'paste-card-expiry', title: getPasteTitle('expiry', target), icon: TimerReset, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:cardExpiry` }] : []),
+      ...(hasCardCvc ? [{ id: 'paste-card-cvc', title: getPasteTitle('security code', target), icon: ShieldCheck, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:cardCvc` }] : []),
+      ...(hasBillingPostalCode ? [{ id: 'paste-billing-postal-code', title: getPasteTitle('billing postal code', target), icon: MapPinned, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:billingPostalCode` }] : []),
+      ...(hasCardNumber ? [{ id: 'copy-card-number', title: 'Copy card number', icon: CreditCard, actionId: `copy:${item.itemId}:cardNumber` }] : []),
+      ...(hasCardholderName ? [{ id: 'copy-cardholder-name', title: 'Copy name on card', icon: ContactRound, actionId: `copy:${item.itemId}:cardholderName` }] : []),
+      ...(hasCardExpiry ? [{ id: 'copy-card-expiry', title: 'Copy expiry', icon: TimerReset, actionId: `copy:${item.itemId}:cardExpiry` }] : []),
+      ...(hasCardCvc ? [{ id: 'copy-card-cvc', title: 'Copy security code', icon: ShieldCheck, actionId: `copy:${item.itemId}:cardCvc` }] : []),
+      ...(hasBillingPostalCode ? [{ id: 'copy-billing-postal-code', title: 'Copy billing postal code', icon: MapPinned, actionId: `copy:${item.itemId}:billingPostalCode` }] : []),
+      ...(hasCardNumber ? [{ id: 'show-card-number', title: 'Show card number', icon: CreditCard, actionId: `show:${item.itemId}:cardNumber` }] : []),
+      ...(hasCardCvc ? [{ id: 'show-card-cvc', title: 'Show security code', icon: ShieldCheck, actionId: `show:${item.itemId}:cardCvc` }] : []),
       { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
       { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
     ]

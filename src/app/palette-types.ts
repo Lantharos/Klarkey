@@ -24,6 +24,9 @@ export type ItemFormValues = {
   firstName: string
   middleName: string
   lastName: string
+  company: string
+  jobTitle: string
+  birthDate: string
   email: string
   phone: string
   address: string
@@ -33,6 +36,14 @@ export type ItemFormValues = {
   state: string
   postalCode: string
   country: string
+  cardholderName: string
+  cardNumber: string
+  cardExpiry: string
+  cardExpiryMonth: string
+  cardExpiryYear: string
+  cardCvc: string
+  cardBrand: string
+  billingPostalCode: string
   content: string
   notes: string
   websites: string[]

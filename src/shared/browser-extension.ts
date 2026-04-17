@@ -1,12 +1,17 @@
 import type {
   ActionExecutionResult,
   BrowserAuthFlow,
+  BrowserFillCard,
   BrowserFieldSuggestion,
   BrowserFillIdentity,
   BrowserFillLogin,
+  BrowserPasskeyChoice,
+  BrowserPasskeyStatus,
+  BrowserPasskeySavePlan,
   BrowserSaveLoginInput,
   BrowserSiteMatch,
   BrowserSuggestionField,
+  UserSettings,
 } from '@/shared/types'
 
 export const KLARKEY_NATIVE_HOST_NAME = 'app.klarkey.desktop'
@@ -39,11 +44,20 @@ export type BrowserExtensionRequest =
     }
   | {
       id: string
+      type: 'get-card'
+      itemId: string
+    }
+  | {
+      id: string
       type: 'list-field-suggestions'
       field: BrowserSuggestionField
       flow: BrowserAuthFlow
       url: string
       title?: string
+    }
+  | {
+      id: string
+      type: 'get-settings'
     }
   | {
       id: string
@@ -57,22 +71,48 @@ export type BrowserExtensionRequest =
     }
   | {
       id: string
-      type: 'passkey-get-request'
+      type: 'passkey-create-plan'
       url: string
       title?: string
       requestDetailsJson: string
     }
   | {
       id: string
-      type: 'passkey-create-finish'
+      type: 'passkey-create-credential'
+      origin: string
       url: string
       title?: string
       requestDetailsJson: string
-      responseJson: string
     }
   | {
       id: string
-      type: 'passkey-get-finish'
+      type: 'passkey-save-credential'
+      url: string
+      title?: string
+      requestDetailsJson: string
+      pendingPasskeyId: string
+      itemId?: string
+      createNew?: boolean
+    }
+  | {
+      id: string
+      type: 'passkey-discard-credential'
+      pendingPasskeyId: string
+    }
+  | {
+      id: string
+      type: 'passkey-get-plan'
+      url: string
+      title?: string
+      requestDetailsJson: string
+    }
+  | {
+      id: string
+      type: 'passkey-get-credential'
+      origin: string
+      url: string
+      title?: string
+      requestDetailsJson: string
       credentialId: string
     }
 
@@ -84,6 +124,7 @@ export type BrowserExtensionResponse =
         | {
             protocolVersion: number
             desktopRequired: true
+            passkeyProviderReady: boolean
           }
         | {
             matches: BrowserSiteMatch[]
@@ -95,21 +136,30 @@ export type BrowserExtensionResponse =
             identity?: BrowserFillIdentity
           }
         | {
+            card?: BrowserFillCard
+          }
+        | {
             suggestions: BrowserFieldSuggestion[]
+          }
+        | {
+            settings: UserSettings
+          }
+        | {
+            plan: BrowserPasskeySavePlan
+          }
+        | {
+            choices: BrowserPasskeyChoice[]
           }
         | ActionExecutionResult
         | {
             supported: false
             reason: string
           }
+        | BrowserPasskeyStatus
         | {
-            supported: true
-            browser: 'chromium'
-            mode: 'desktop-proxy'
-          }
-        | {
-            requestDetailsJson: string
-            selectedCredentialIds: string[]
+            responseJson: string
+            credentialId: string
+            pendingPasskeyId?: string
           }
     }
   | {

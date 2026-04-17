@@ -217,6 +217,9 @@ export function ItemFormPage({
     | 'firstName'
     | 'middleName'
     | 'lastName'
+    | 'company'
+    | 'jobTitle'
+    | 'birthDate'
     | 'email'
     | 'phone'
     | 'addressLine1'
@@ -234,6 +237,9 @@ export function ItemFormPage({
     { key: 'firstName', label: 'First name', placeholder: 'Alex' },
     { key: 'middleName', label: 'Middle name', placeholder: 'Jamie' },
     { key: 'lastName', label: 'Last name', placeholder: 'Morgan' },
+    { key: 'company', label: 'Company', placeholder: 'OpenAI' },
+    { key: 'jobTitle', label: 'Job title', placeholder: 'Product designer' },
+    { key: 'birthDate', label: 'Birthday', placeholder: '1995-04-12' },
     { key: 'email', label: 'Email', placeholder: 'alex@example.com' },
     { key: 'phone', label: 'Phone', placeholder: '+49 151 12345678' },
     { key: 'addressLine1', label: 'Address line 1', placeholder: 'Street address' },
@@ -242,6 +248,30 @@ export function ItemFormPage({
     { key: 'state', label: 'State / region', placeholder: 'Berlin' },
     { key: 'postalCode', label: 'Postal code', placeholder: '10115' },
     { key: 'country', label: 'Country', placeholder: 'Germany' },
+  ]
+  type CardFieldKey =
+    | 'cardholderName'
+    | 'cardNumber'
+    | 'cardExpiry'
+    | 'cardExpiryMonth'
+    | 'cardExpiryYear'
+    | 'cardCvc'
+    | 'cardBrand'
+    | 'billingPostalCode'
+  const cardFields: Array<{
+    key: CardFieldKey
+    label: string
+    placeholder: string
+    masked?: boolean
+  }> = [
+    { key: 'cardholderName', label: 'Name on card', placeholder: 'Alex Morgan' },
+    { key: 'cardNumber', label: 'Card number', placeholder: '4242 4242 4242 4242' },
+    { key: 'cardExpiry', label: 'Expiry', placeholder: '04/29' },
+    { key: 'cardExpiryMonth', label: 'Expiry month', placeholder: '04' },
+    { key: 'cardExpiryYear', label: 'Expiry year', placeholder: '2029' },
+    { key: 'cardCvc', label: 'Security code', placeholder: '123', masked: true },
+    { key: 'cardBrand', label: 'Network', placeholder: 'Visa' },
+    { key: 'billingPostalCode', label: 'Billing postal code', placeholder: '10115' },
   ]
 
   return (
@@ -266,7 +296,15 @@ export function ItemFormPage({
             value={value.itemName}
             onChange={(itemName) => updateValue((current) => ({ ...current, itemName }))}
             onKeyDown={onFieldKeyDown}
-            placeholder={value.itemType === 'note' ? 'Meeting follow-up' : value.itemType === 'identity' ? 'Personal identity' : 'Netflix'}
+            placeholder={
+              value.itemType === 'note'
+                ? 'Meeting follow-up'
+                : value.itemType === 'identity'
+                  ? 'Personal identity'
+                  : value.itemType === 'card'
+                    ? 'Visa ending in 4242'
+                    : 'Netflix'
+            }
           />
         </FieldShell>
 
@@ -305,6 +343,22 @@ export function ItemFormPage({
             {identityFields.map((field) => (
               <FieldShell key={field.key} label={field.label}>
                 <TextField
+                  value={value[field.key]}
+                  onChange={(nextValue) => updateValue((current) => ({ ...current, [field.key]: nextValue }))}
+                  onKeyDown={onFieldKeyDown}
+                  placeholder={field.placeholder}
+                />
+              </FieldShell>
+            ))}
+          </>
+        ) : null}
+
+        {value.itemType === 'card' ? (
+          <>
+            {cardFields.map((field) => (
+              <FieldShell key={field.key} label={field.label}>
+                <TextField
+                  masked={field.masked}
                   value={value[field.key]}
                   onChange={(nextValue) => updateValue((current) => ({ ...current, [field.key]: nextValue }))}
                   onKeyDown={onFieldKeyDown}

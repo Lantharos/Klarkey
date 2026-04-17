@@ -27,6 +27,9 @@ const searchableFields = (item: ItemProfile) =>
     item.firstName,
     item.middleName,
     item.lastName,
+    item.company,
+    item.jobTitle,
+    item.birthDate,
     item.email,
     item.phone,
     item.address,
@@ -36,6 +39,14 @@ const searchableFields = (item: ItemProfile) =>
     item.state,
     item.postalCode,
     item.country,
+    item.cardholderName,
+    item.cardNumber,
+    item.cardLastFour,
+    item.cardExpiry,
+    item.cardExpiryMonth,
+    item.cardExpiryYear,
+    item.cardBrand,
+    item.billingPostalCode,
     item.content,
     item.notes,
     ...(item.websites ?? []),
@@ -73,6 +84,10 @@ const itemSubtitle = (item: ItemProfile) =>
     ? item.username || item.itemName
     : item.itemType === 'identity'
       ? item.fullName || item.email || item.username || item.itemName
+      : item.itemType === 'card'
+        ? [item.cardBrand, item.cardLastFour ? `•••• ${item.cardLastFour}` : undefined, item.cardholderName]
+            .filter(Boolean)
+            .join(' · ') || item.itemName
       : item.content?.trim() || item.notes?.trim() || 'Text note'
 
 const getLogoMeta = (item: ItemProfile) => ({
@@ -126,20 +141,6 @@ function buildResolvedActions(
 
   if (query.intent === 'settings') {
     return [settingsAction]
-  }
-
-  if (query.intent === 'generate' && query.credential === 'passkey') {
-    return [
-      {
-        ...settingsAction,
-        id: 'settings:passkeys',
-        title: 'Manage passkeys',
-        subtitle: 'Vault passkeys',
-        primaryHint: 'Create or verify a provider-backed passkey for this Klarkey vault.',
-        score: 100,
-      },
-      settingsAction,
-    ]
   }
 
   if (query.intent === 'create') {
