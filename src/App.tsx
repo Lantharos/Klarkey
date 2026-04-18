@@ -394,7 +394,7 @@ function App() {
         }
       }}
     >
-      <div className="flex items-center gap-4 px-5 pb-3 pt-4">
+      <div className="flex items-center gap-4 px-5 pt-4 pb-3">
         {page === 'home' ? (
           <SearchBar
             query={query}

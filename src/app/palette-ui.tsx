@@ -138,7 +138,9 @@ export function SearchBar({
 }) {
   return (
     <>
-      <Search size={17} className="shrink-0 text-white/38" />
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center text-white/38">
+        <Search size={17} />
+      </div>
       <div className="flex min-h-10 flex-1 flex-wrap items-center gap-2">
         {query.tokens.map((token) => (
           <button
@@ -378,6 +380,7 @@ export function SettingsPage({
         onClick={() => onTimeoutChange(settings.clearClipboardSeconds === 45 ? 60 : 45)}
         pointerActive={pointerActive}
       />
+
       <SettingRow
         label="Launch on startup"
         value={settings.launchOnStartup ? 'On' : 'Off'}
