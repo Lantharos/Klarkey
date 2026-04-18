@@ -214,9 +214,23 @@ const bindIpc = () => {
   ipcMain.handle(IPC_CHANNELS.settingsGet, () => controllerRef?.getSettings())
   ipcMain.handle(IPC_CHANNELS.paletteTargetGet, () => controllerRef?.getExternalWindowContext())
   ipcMain.handle(IPC_CHANNELS.settingsSet, (_, update) => {
-    const next = controllerRef?.updateSettings(update)
-    registerHotkey()
-    return next
+    const previous = controllerRef?.getSettings()
+    if (!previous) {
+      return undefined
+    }
+
+    if (update?.hotkey !== undefined) {
+      globalShortcut.unregisterAll()
+      const ok = globalShortcut.register(update.hotkey, openPalette)
+      if (!ok) {
+        globalShortcut.register(previous.hotkey, openPalette)
+        throw new Error('Could not register shortcut')
+      }
+    } else {
+      registerHotkey()
+    }
+
+    return controllerRef?.updateSettings(update)
   })
   ipcMain.handle(IPC_CHANNELS.passkeySupport, () => controllerRef?.getPasskeySupport())
   ipcMain.handle(IPC_CHANNELS.passkeyList, () => controllerRef?.listVaultPasskeys())

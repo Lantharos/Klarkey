@@ -11,6 +11,11 @@ export class ClipboardManager {
   private clearSoon(timeoutSeconds: number) {
     if (this.clearTimer) {
       clearTimeout(this.clearTimer)
+      this.clearTimer = undefined
+    }
+
+    if (timeoutSeconds <= 0) {
+      return
     }
 
     this.clearTimer = setTimeout(() => {
