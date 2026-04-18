@@ -1,9 +1,100 @@
 import { AVAILABLE_ITEM_TYPES, getItemTypeDefinition } from '@/shared/item-types'
 import { normalizeLoginLogoDomain } from '@/shared/login-logo'
-import type { ItemProfile, RecentAction, ResolvedAction, SearchResponse, VaultSnapshot } from '@/shared/types'
+import type {
+  ExternalWindowContext,
+  ItemProfile,
+  RecentAction,
+  ResolvedAction,
+  SearchResponse,
+  VaultSnapshot,
+} from '@/shared/types'
 import { parseCommand } from '@/shared/command'
 
 const defaultSearchLimit = 20
+
+const genericBrowserAppNames = new Set([
+  'brave',
+  'chrome',
+  'chromium',
+  'firefox',
+  'iexplore',
+  'microsoftedge',
+  'msedge',
+  'opera',
+  'vivaldi',
+  'waterfox',
+  'zen',
+  'zenbrowser',
+  'arc'
+])
+
+const stripTrailingBrowserFromTitle = (title: string) =>
+  title
+    .replace(/\s*[-—|]\s*(Google Chrome|Chromium|Microsoft Edge|Mozilla Firefox|Opera|Brave Browser|Brave|Vivaldi|Zen Browser|Arc)\s*$/i, '')
+    .trim()
+
+const websiteHostname = (website: string) => {
+  try {
+    const candidate = website.includes('://') ? website : `https://${website}`
+    return new URL(candidate).hostname.replace(/^www\./i, '').toLowerCase()
+  } catch {
+    return undefined
+  }
+}
+
+const scoreForegroundMatch = (item: ItemProfile, context?: ExternalWindowContext) => {
+  if (!context) {
+    return 0
+  }
+
+  const appKey = context.appName?.replace(/\.exe$/i, '').toLowerCase() ?? ''
+  const isGenericBrowser = appKey.length > 0 && genericBrowserAppNames.has(appKey)
+  const titleRaw = context.windowTitle?.trim()
+
+  let bonus = 0
+
+  if (!isGenericBrowser && appKey.length >= 2) {
+    const name = item.itemName.toLowerCase()
+    if (name === appKey || name.includes(appKey) || appKey.includes(name)) {
+      bonus = Math.max(bonus, 55)
+    }
+  }
+
+  if (!titleRaw) {
+    return bonus
+  }
+
+  const titleBlob = stripTrailingBrowserFromTitle(titleRaw).toLowerCase()
+
+  if (item.itemType === 'login') {
+    for (const site of item.websites ?? []) {
+      const host = websiteHostname(site)
+      if (host && host.length >= 4 && titleBlob.includes(host)) {
+        bonus = Math.max(bonus, 70)
+        break
+      }
+    }
+
+    const logoDomain = (item.websites ?? []).map((w) => normalizeLoginLogoDomain(w)).find(Boolean)
+    if (logoDomain && titleBlob.includes(logoDomain)) {
+      bonus = Math.max(bonus, 68)
+    }
+  }
+
+  const nameWords = item.itemName
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length >= 3)
+
+  for (const word of nameWords) {
+    if (titleBlob.includes(word)) {
+      bonus = Math.max(bonus, 38)
+      break
+    }
+  }
+
+  return bonus
+}
 
 const includes = (haystack: string | undefined, needle: string) =>
   (haystack ?? '').toLowerCase().includes(needle.toLowerCase())
@@ -128,6 +219,7 @@ const pageActions = (actions: ResolvedAction[], offset = 0, limit = defaultSearc
 function buildResolvedActions(
   snapshot: VaultSnapshot,
   query = parseCommand(''),
+  targetContext?: ExternalWindowContext,
 ): ResolvedAction[] {
   const settingsAction: ResolvedAction = {
     id: 'settings',
@@ -202,7 +294,7 @@ function buildResolvedActions(
             }
           : undefined,
       requiresUnlock: false,
-      score: scoreRecent(snapshot.recents, item.id),
+      score: scoreRecent(snapshot.recents, item.id) + scoreForegroundMatch(item, targetContext),
     }))
 
     return [
@@ -393,8 +485,12 @@ function buildResolvedActions(
   ]
 }
 
-export function resolveActions(snapshot: VaultSnapshot, query = parseCommand('')) {
-  return buildResolvedActions(snapshot, query)
+export function resolveActions(
+  snapshot: VaultSnapshot,
+  query = parseCommand(''),
+  targetContext?: ExternalWindowContext,
+) {
+  return buildResolvedActions(snapshot, query, targetContext)
 }
 
 export function resolveSearchResponse(
@@ -404,9 +500,14 @@ export function resolveSearchResponse(
     offset?: number
     limit?: number
     locked?: boolean
+    targetContext?: ExternalWindowContext
   },
 ): SearchResponse {
-  const response = pageActions(buildResolvedActions(snapshot, query), options?.offset ?? 0, options?.limit ?? defaultSearchLimit)
+  const response = pageActions(
+    buildResolvedActions(snapshot, query, options?.targetContext),
+    options?.offset ?? 0,
+    options?.limit ?? defaultSearchLimit,
+  )
   response.locked = options?.locked ?? false
   return response
 }

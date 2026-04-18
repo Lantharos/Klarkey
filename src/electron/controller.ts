@@ -125,6 +125,7 @@ export class KlarkeyController {
       offset: request.offset,
       limit: request.limit,
       locked: this.isLocked(),
+      targetContext: this.externalWindow,
     })
 
     if ((request.offset ?? 0) === 0) {

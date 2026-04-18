@@ -1,6 +1,12 @@
 import { parseCommand } from '@/shared/command'
 import { resolveActions } from '@/shared/resolver'
-import type { VaultSnapshot } from '@/shared/types'
+import type { ExternalWindowContext, VaultSnapshot } from '@/shared/types'
+
+const chromeTab = (title: string): ExternalWindowContext => ({
+  handle: '1',
+  appName: 'chrome',
+  windowTitle: title,
+})
 
 const snapshot: VaultSnapshot = {
   items: [
@@ -80,5 +86,48 @@ describe('resolveActions', () => {
     const actions = resolveActions(snapshot, parseCommand('generate passkey'))
 
     expect(actions.some((action) => action.kind === 'open-settings')).toBe(true)
+  })
+
+  it('ranks items matching the captured foreground window above recent-only items when the query is empty', () => {
+    const foregroundSnapshot: VaultSnapshot = {
+      items: [
+        {
+          id: 'recent_only',
+          itemType: 'login',
+          itemName: 'Recent Only',
+          username: 'u',
+          hasPassword: true,
+          hasOtp: false,
+          hasPasskey: false,
+        },
+        {
+          id: 'matches_tab',
+          itemType: 'login',
+          itemName: 'News',
+          username: 'u',
+          websites: ['https://news.example.com/path'],
+          hasPassword: true,
+          hasOtp: false,
+          hasPasskey: false,
+        },
+      ],
+      recents: [
+        {
+          id: 'r1',
+          actionId: 'open:recent_only',
+          itemId: 'recent_only',
+          label: 'Recent Only',
+          usedAt: new Date().toISOString(),
+        },
+      ],
+    }
+
+    const actions = resolveActions(
+      foregroundSnapshot,
+      parseCommand(''),
+      chromeTab('Home - news.example.com - Google Chrome'),
+    )
+
+    expect(actions[0]?.itemId).toBe('matches_tab')
   })
 })
