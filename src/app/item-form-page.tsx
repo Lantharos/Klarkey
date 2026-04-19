@@ -1,6 +1,6 @@
 import { Globe } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { KeyHint, ReturnHint, ShortcutHint } from '@/app/palette-ui'
+import { KeyHint, ReturnHint, ShortcutHint } from '@/app/palette'
 import type { ItemFormValues } from '@/app/palette-types'
 import { TotpField } from '@/app/totp-field'
 import type { ActionExecutionResult, TotpDetails } from '@/shared/types'

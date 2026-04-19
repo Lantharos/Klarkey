@@ -5,17 +5,17 @@ import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
-import { captureForegroundWindow, captureForegroundWindowAsync, pasteIntoWindow } from '@/electron/windows'
+import { executePaletteAction } from '@/electron/palette-action-execution'
+import { captureForegroundWindow, captureForegroundWindowAsync } from '@/electron/windows'
 import { PASSKEY_ORIGIN, PASSKEY_RP_ID } from '@/shared/passkeys'
 import { parseCommand } from '@/shared/command'
-import { resolveActions, resolveSearchResponse } from '@/shared/resolver'
+import { resolveSearchResponse } from '@/shared/resolver'
 import type {
   ActionExecutionResult,
   CommandQuery,
   CreateVaultPasskeyInput,
   ExternalWindowContext,
   CreateItemInput,
-  ItemDetails,
   ModifierKey,
   PasskeySupport,
   ResolvedAction,
@@ -27,7 +27,6 @@ import type {
 } from '@/shared/types'
 
 const LOCK_WINDOW_MS = Number.POSITIVE_INFINITY
-const INSERT_CLIPBOARD_CLEAR_SECONDS = 5
 const encodeWindowHandle = (buffer: Buffer) =>
   Array.from(buffer)
     .reduce((value, byte, index) => value | (BigInt(byte) << BigInt(index * 8)), 0n)
@@ -152,393 +151,21 @@ export class KlarkeyController {
   }
 
   execute(_: IpcMainInvokeEvent, actionId: string, modifier: ModifierKey): ActionExecutionResult {
-    const settings = this.repository.getSettings()
-    const parseAction = () => {
-      const [kind, itemId, field] = actionId.split(':')
-      return { kind, itemId, field }
-    }
-    const getItemField = (item: ItemDetails | undefined, field: string) => {
-      if (!item) {
-        return undefined
-      }
-
-      if (field === 'username') {
-        return item.username || undefined
-      }
-
-      if (field === 'password') {
-        return item.password
-      }
-
-      if (field === 'fullName') {
-        return item.fullName
-      }
-
-      if (field === 'email') {
-        return item.email
-      }
-
-      if (field === 'phone') {
-        return item.phone
-      }
-
-      if (field === 'address') {
-        return item.address
-      }
-
-      if (field === 'cardholderName') {
-        return item.cardholderName
-      }
-
-      if (field === 'cardNumber') {
-        return item.cardNumber
-      }
-
-      if (field === 'cardExpiry') {
-        return item.cardExpiry
-      }
-
-      if (field === 'cardCvc') {
-        return item.cardCvc
-      }
-
-      if (field === 'billingPostalCode') {
-        return item.billingPostalCode
-      }
-
-      if (field === 'content') {
-        return item.content || item.notes
-      }
-
-      return undefined
-    }
-
-    if (actionId.startsWith('paste:')) {
-      const { itemId, field } = parseAction()
-      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
-      const value =
-        !itemId || !field
-          ? undefined
-          : field === 'password'
-            ? this.repository.getPassword(itemId)
-            : field === 'otp'
-              ? this.repository.getOtp(itemId)
-            : field === 'username'
-              ? this.repository.getUsername(itemId)
-              : getItemField(item, field)
-
-      if (!value) {
-        return {
-          status: 'error',
-          title: 'Value missing',
-          message: 'This item does not have a value to insert.',
-        }
-      }
-
-      if (!this.lastExternalWindow) {
-        return {
-          status: 'error',
-          title: 'No previous field',
-          message: 'Open Klarkey from the field you want to fill.',
-        }
-      }
-
-      this.clipboard.copy(value, INSERT_CLIPBOARD_CLEAR_SECONDS)
-      this.window.hide()
-      const pasted = pasteIntoWindow(this.lastExternalWindow)
-      return pasted
-        ? {
-            status: 'success',
-            title: 'Value inserted',
-            message: 'Pasted into the last selected field.',
-          }
-        : {
-            status: 'error',
-            title: 'Insert failed',
-            message: 'Could not focus the previous window.',
-          }
-    }
-
-    if (actionId.startsWith('copy:')) {
-      const { itemId, field } = parseAction()
-      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
-      const value =
-        !itemId || !field
-          ? undefined
-          : field === 'password'
-            ? this.repository.getPassword(itemId)
-            : field === 'otp'
-              ? this.repository.getOtp(itemId)
-              : getItemField(item, field)
-
-      if (!itemId || !field || !value) {
-        return {
-          status: 'error',
-          title: 'Value missing',
-          message: 'The requested value could not be copied.',
-        }
-      }
-
-      this.clipboard.copy(value, settings.clearClipboardSeconds)
-      this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
-      return {
-        status: 'success',
-        title: 'Value copied',
-        message: 'Clipboard will clear automatically.',
-      }
-    }
-
-    if (actionId.startsWith('show:')) {
-      const { itemId, field } = parseAction()
-      const item = itemId ? this.repository.getItemDetails(itemId) : undefined
-      const value =
-        !itemId || !field
-          ? undefined
-          : field === 'password'
-            ? this.repository.getPassword(itemId)
-            : field === 'otp'
-              ? this.repository.getOtp(itemId)
-              : getItemField(item, field)
-
-      if (!itemId || !field || !value) {
-        return {
-          status: 'error',
-          title: 'Value missing',
-          message: 'The requested value could not be revealed.',
-        }
-      }
-
-      if (modifier === 'control') {
-        this.clipboard.copy(value, settings.clearClipboardSeconds)
-        this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
-        return {
-          status: 'success',
-          title: 'Value copied',
-          message: 'Clipboard will clear automatically.',
-        }
-      }
-
-      this.repository.remember(actionId, item?.itemName ?? 'Item', itemId)
-      return {
-        status: 'info',
-        title: field === 'otp' ? 'Current OTP' : 'Value revealed',
-        message: field === 'otp' ? 'Code refreshes every 30 seconds.' : 'Use this only when needed.',
-        secret: value,
-      }
-    }
-
-    const snapshot = this.repository.getSnapshot()
-    const action =
-      this.actionCache.get(actionId) ??
-      resolveActions(snapshot, parseCommand('settings')).find((candidate) => candidate.id === actionId)
-
-    if (!action) {
-      return {
-        status: 'error',
-        title: 'Action missing',
-        message: 'The selected action could not be resolved.',
-      }
-    }
-
-    if (action.requiresUnlock && this.isLocked()) {
-      return {
-        status: 'locked',
-        title: 'Unlock required',
-        message: 'Use the unlock button to continue with sensitive data.',
-      }
-    }
-
-    switch (action.kind) {
-      case 'open-item': {
-        if (!action.itemId) {
-          break
-        }
-
-        if (modifier === 'control') {
-          const password = this.repository.getPassword(action.itemId)
-          if (password) {
-            this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.itemId)
-            return {
-              status: 'success',
-              title: 'Password copied',
-              message: 'Clipboard will clear automatically.',
-            }
-          }
-        }
-
-        if (modifier === 'alt') {
-          const password = this.repository.getPassword(action.itemId)
-          if (password) {
-            this.repository.remember(action.id, action.title, action.itemId)
-            return {
-              status: 'info',
-              title: 'Password revealed',
-              message: 'Use this only when autofill is not available.',
-              secret: password,
-            }
-          }
-        }
-
-        const item = this.repository.getItemDetails(action.itemId)
-        const identityName = [item?.firstName, item?.middleName, item?.lastName]
-          .map((value) => value?.trim())
-          .filter(Boolean)
-          .join(' ')
-        const defaultValue =
-          item?.itemType === 'login'
-            ? item.username
-            : item?.itemType === 'identity'
-              ? item.fullName || identityName || item.email || item.username
-              : item?.content || item?.notes
-
-        if (defaultValue) {
-          this.clipboard.copy(defaultValue, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.itemId)
-          return {
-            status: 'success',
-            title: 'Value copied',
-            message: defaultValue,
-          }
-        }
-        break
-      }
-
-      case 'copy-password': {
-        if (!action.itemId) {
-          break
-        }
-
-        const password = this.repository.getPassword(action.itemId)
-        if (password) {
-          this.clipboard.copy(password, settings.clearClipboardSeconds)
-          this.repository.remember(action.id, action.title, action.itemId)
-          return {
-            status: 'success',
-            title: 'Password copied',
-            message: 'Clipboard will clear automatically.',
-          }
-        }
-        break
-      }
-
-      case 'copy-value': {
-        return this.execute(_, `copy:${action.itemId}:${action.id.endsWith(':username') ? 'username' : 'content'}`, modifier)
-      }
-
-      case 'show-password': {
-        if (!action.itemId) {
-          break
-        }
-
-        const password = this.repository.getPassword(action.itemId)
-        if (password) {
-          if (modifier === 'control') {
-            this.clipboard.copy(password, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.itemId)
-            return {
-              status: 'success',
-              title: 'Password copied',
-              message: 'Clipboard will clear automatically.',
-            }
-          }
-
-          this.repository.remember(action.id, action.title, action.itemId)
-          return {
-            status: 'info',
-            title: 'Password revealed',
-            message: 'Use this only when you need to inspect the secret.',
-            secret: password,
-          }
-        }
-        break
-      }
-
-      case 'show-otp':
-      case 'copy-otp': {
-        if (!action.itemId) {
-          break
-        }
-
-        const otp = this.repository.getOtp(action.itemId)
-        if (otp) {
-          if (action.kind === 'copy-otp' || modifier === 'control') {
-            this.clipboard.copy(otp, settings.clearClipboardSeconds)
-            this.repository.remember(action.id, action.title, action.itemId)
-            return {
-              status: 'success',
-              title: 'Code copied',
-              message: 'The current OTP is now on your clipboard.',
-            }
-          }
-
-          this.repository.remember(action.id, action.title, action.itemId)
-          return {
-            status: 'info',
-            title: 'Current OTP',
-            message: 'Code refreshes every 30 seconds.',
-            secret: otp,
-          }
-        }
-        break
-      }
-
-      case 'create-item': {
-        const itemType = action.itemType
-
-        if (!itemType || itemType === 'ssh-key') {
-          return {
-            status: 'info',
-            title: 'Coming soon',
-            message: 'That item type is not available yet.',
-          }
-        }
-
-        const itemName = action.subtitle.trim() || action.title.replace(/^Create\s+/i, '').trim()
-        const result = this.repository.createItem({ itemType, itemName })
-        this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
-        return result
-      }
-
-      case 'generate-passkey': {
-        return {
-          status: 'info',
-          title: 'Manage passkeys in Settings',
-          message: 'Klarkey passkeys are configured in Settings because website passkeys need the site origin itself.',
-        }
-      }
-
-      case 'switch-item': {
-        this.repository.remember(action.id, action.title, action.itemId)
-        return {
-          status: 'success',
-          title: 'Item switched',
-          message: 'This item is now the most recent one used.',
-        }
-      }
-
-      case 'coming-soon': {
-        return {
-          status: 'info',
-          title: 'Coming soon',
-          message: 'That item type is reserved for a future adapter.',
-        }
-      }
-
-      case 'open-settings': {
-        return {
-          status: 'info',
-          title: 'Settings',
-          message: 'The preferences panel is open.',
-        }
-      }
-    }
-
-    return {
-      status: 'error',
-      title: 'Action incomplete',
-      message: 'The requested action could not be completed.',
-    }
+    return executePaletteAction(
+      {
+        repository: this.repository,
+        clipboard: this.clipboard,
+        window: this.window,
+        getLastExternalWindow: () => this.lastExternalWindow,
+        getActionCache: () => this.actionCache,
+        isLocked: () => this.isLocked(),
+        extendUnlockWindow: () => {
+          this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
+        },
+      },
+      actionId,
+      modifier,
+    )
   }
 
   focus() {

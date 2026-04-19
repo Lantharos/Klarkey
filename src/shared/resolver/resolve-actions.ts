@@ -1,193 +1,13 @@
 import { AVAILABLE_ITEM_TYPES, getItemTypeDefinition } from '@/shared/item-types'
-import { normalizeLoginLogoDomain } from '@/shared/login-logo'
-import type {
-  ExternalWindowContext,
-  ItemProfile,
-  RecentAction,
-  ResolvedAction,
-  SearchResponse,
-  VaultSnapshot,
-} from '@/shared/types'
+import { includes, itemScore, scoreForegroundMatch, scoreRecent } from '@/shared/resolver/scoring'
+import { getLogoMeta, itemSubtitle } from '@/shared/resolver/item-display'
+import type { ExternalWindowContext, ResolvedAction, SearchResponse, VaultSnapshot } from '@/shared/types'
 import { parseCommand } from '@/shared/command'
 
-const defaultSearchLimit = 20
+export const defaultSearchLimit = 20
 
-const genericBrowserAppNames = new Set([
-  'brave',
-  'chrome',
-  'chromium',
-  'firefox',
-  'iexplore',
-  'microsoftedge',
-  'msedge',
-  'opera',
-  'vivaldi',
-  'waterfox',
-  'zen',
-  'zenbrowser',
-  'arc'
-])
-
-const stripTrailingBrowserFromTitle = (title: string) =>
-  title
-    .replace(/\s*[-—|]\s*(Google Chrome|Chromium|Microsoft Edge|Mozilla Firefox|Opera|Brave Browser|Brave|Vivaldi|Zen Browser|Arc)\s*$/i, '')
-    .trim()
-
-const websiteHostname = (website: string) => {
-  try {
-    const candidate = website.includes('://') ? website : `https://${website}`
-    return new URL(candidate).hostname.replace(/^www\./i, '').toLowerCase()
-  } catch {
-    return undefined
-  }
-}
-
-const scoreForegroundMatch = (item: ItemProfile, context?: ExternalWindowContext) => {
-  if (!context) {
-    return 0
-  }
-
-  const appKey = context.appName?.replace(/\.exe$/i, '').toLowerCase() ?? ''
-  const isGenericBrowser = appKey.length > 0 && genericBrowserAppNames.has(appKey)
-  const titleRaw = context.windowTitle?.trim()
-
-  let bonus = 0
-
-  if (!isGenericBrowser && appKey.length >= 2) {
-    const name = item.itemName.toLowerCase()
-    if (name === appKey || name.includes(appKey) || appKey.includes(name)) {
-      bonus = Math.max(bonus, 55)
-    }
-  }
-
-  if (!titleRaw) {
-    return bonus
-  }
-
-  const titleBlob = stripTrailingBrowserFromTitle(titleRaw).toLowerCase()
-
-  if (item.itemType === 'login') {
-    for (const site of item.websites ?? []) {
-      const host = websiteHostname(site)
-      if (host && host.length >= 4 && titleBlob.includes(host)) {
-        bonus = Math.max(bonus, 70)
-        break
-      }
-    }
-
-    const logoDomain = (item.websites ?? []).map((w) => normalizeLoginLogoDomain(w)).find(Boolean)
-    if (logoDomain && titleBlob.includes(logoDomain)) {
-      bonus = Math.max(bonus, 68)
-    }
-  }
-
-  const nameWords = item.itemName
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length >= 3)
-
-  for (const word of nameWords) {
-    if (titleBlob.includes(word)) {
-      bonus = Math.max(bonus, 38)
-      break
-    }
-  }
-
-  return bonus
-}
-
-const includes = (haystack: string | undefined, needle: string) =>
-  (haystack ?? '').toLowerCase().includes(needle.toLowerCase())
-
-const scoreRecent = (recents: RecentAction[], itemId?: string) => {
-  const hit = recents.find((recent) => recent.itemId === itemId)
-
-  if (!hit) {
-    return 0
-  }
-
-  const ageHours = (Date.now() - new Date(hit.usedAt).getTime()) / 3_600_000
-  return Math.max(0, 40 - ageHours)
-}
-
-const searchableFields = (item: ItemProfile) =>
-  [
-    item.itemName,
-    item.username,
-    item.fullName,
-    item.firstName,
-    item.middleName,
-    item.lastName,
-    item.company,
-    item.jobTitle,
-    item.birthDate,
-    item.email,
-    item.phone,
-    item.address,
-    item.addressLine1,
-    item.addressLine2,
-    item.city,
-    item.state,
-    item.postalCode,
-    item.country,
-    item.cardholderName,
-    item.cardNumber,
-    item.cardLastFour,
-    item.cardExpiry,
-    item.cardExpiryMonth,
-    item.cardExpiryYear,
-    item.cardBrand,
-    item.billingPostalCode,
-    item.content,
-    item.notes,
-    ...(item.websites ?? []),
-    ...(item.customFields?.flatMap((field) => [field.label, field.value]) ?? []),
-  ].filter(Boolean) as string[]
-
-const itemScore = (item: ItemProfile, query: string) => {
-  if (!query) {
-    return 0
-  }
-
-  if (includes(item.itemName, query)) {
-    return 32
-  }
-
-  const matchingField = searchableFields(item).find((value) => includes(value, query))
-
-  if (!matchingField) {
-    return 0
-  }
-
-  if (matchingField === item.username || matchingField === item.fullName || matchingField === item.email) {
-    return 24
-  }
-
-  if (matchingField === item.content || matchingField === item.notes) {
-    return 14
-  }
-
-  return 18
-}
-
-const itemSubtitle = (item: ItemProfile) =>
-  item.itemType === 'login'
-    ? item.username || item.itemName
-    : item.itemType === 'identity'
-      ? item.fullName || item.email || item.username || item.itemName
-      : item.itemType === 'card'
-        ? [item.cardBrand, item.cardLastFour ? `•••• ${item.cardLastFour}` : undefined, item.cardholderName]
-            .filter(Boolean)
-            .join(' · ') || item.itemName
-      : item.content?.trim() || item.notes?.trim() || 'Text note'
-
-const getLogoMeta = (item: ItemProfile) => ({
-  logoDomain: item.itemType === 'login' ? (item.websites ?? []).map((website) => normalizeLoginLogoDomain(website)).find(Boolean) : undefined,
-  logoName: item.itemType === 'login' ? item.itemName.trim() || undefined : undefined,
-})
-
-const createTypeActions = (literalName: string) =>
-  AVAILABLE_ITEM_TYPES.map((itemType, index) => {
+function createTypeActions(literalName: string) {
+  return AVAILABLE_ITEM_TYPES.map((itemType, index) => {
     const definition = getItemTypeDefinition(itemType)
 
     return {
@@ -203,8 +23,9 @@ const createTypeActions = (literalName: string) =>
       score: 100 - index,
     }
   })
+}
 
-const pageActions = (actions: ResolvedAction[], offset = 0, limit = defaultSearchLimit): SearchResponse => {
+export function pageActions(actions: ResolvedAction[], offset = 0, limit = defaultSearchLimit): SearchResponse {
   const nextOffset = Math.max(0, offset) + Math.max(1, limit)
   const pagedActions = actions.slice(Math.max(0, offset), nextOffset)
 
@@ -216,7 +37,7 @@ const pageActions = (actions: ResolvedAction[], offset = 0, limit = defaultSearc
   }
 }
 
-function buildResolvedActions(
+export function buildResolvedActions(
   snapshot: VaultSnapshot,
   query = parseCommand(''),
   targetContext?: ExternalWindowContext,
@@ -267,9 +88,7 @@ function buildResolvedActions(
         title: literalName ? `Create ${literalName}` : definition.createLabel,
         subtitle: literalName || definition.placeholderName,
         itemType: query.entryType,
-        primaryHint: literalName
-          ? `Create a new ${definition.noun}.`
-          : `Start a new ${definition.noun}.`,
+        primaryHint: literalName ? `Create a new ${definition.noun}.` : `Start a new ${definition.noun}.`,
         requiresUnlock: query.entryType === 'login',
         score: 100,
       },
@@ -483,31 +302,4 @@ function buildResolvedActions(
     }),
     settingsAction,
   ]
-}
-
-export function resolveActions(
-  snapshot: VaultSnapshot,
-  query = parseCommand(''),
-  targetContext?: ExternalWindowContext,
-) {
-  return buildResolvedActions(snapshot, query, targetContext)
-}
-
-export function resolveSearchResponse(
-  snapshot: VaultSnapshot,
-  query = parseCommand(''),
-  options?: {
-    offset?: number
-    limit?: number
-    locked?: boolean
-    targetContext?: ExternalWindowContext
-  },
-): SearchResponse {
-  const response = pageActions(
-    buildResolvedActions(snapshot, query, options?.targetContext),
-    options?.offset ?? 0,
-    options?.limit ?? defaultSearchLimit,
-  )
-  response.locked = options?.locked ?? false
-  return response
 }

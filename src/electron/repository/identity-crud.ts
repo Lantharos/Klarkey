@@ -1,0 +1,172 @@
+import { randomBytes } from 'node:crypto'
+import type Database from 'better-sqlite3'
+import { encryptValue } from '@/electron/crypto'
+import type { CreatableItemType } from '@/shared/item-types'
+import {
+  type ActionExecutionResult,
+  type CreateItemInput,
+  type UpdateItemInput,
+} from '@/shared/types'
+import {
+  type ItemDataPayload,
+  getOtpFallback,
+  id,
+  now,
+  parseJson,
+  sanitizeItemData,
+  slug,
+  tryDecrypt,
+} from '@/electron/repository/helpers'
+import { parseStoredTotp, parseTotpInput } from '@/shared/totp'
+
+export function insertIdentity(db: Database.Database, key: Buffer, input: CreateItemInput): ActionExecutionResult {
+  const itemType = input.itemType
+  const itemName = input.itemName.trim()
+  const username =
+    itemType === 'login'
+      ? input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}`
+      : itemType === 'identity'
+        ? input.username?.trim() || ''
+        : ''
+  const password =
+    itemType === 'login'
+      ? input.password?.trim() || (input.preserveEmptyPassword ? undefined : randomBytes(12).toString('base64url'))
+      : undefined
+  const otp =
+    itemType === 'login'
+      ? parseTotpInput(input.otp, {
+          issuer: itemName,
+          accountName: username || itemName,
+        })
+      : undefined
+  const timestamp = now()
+  const itemId = id('item')
+
+  db.prepare(
+    `
+        INSERT INTO identities (
+          id, itemType, itemName, username, email, websites, notes, customFields, itemData, passwordPayload, otpPayload, hasPasskey, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+  ).run(
+    itemId,
+    itemType,
+    itemName,
+    username,
+    input.email?.trim() || (itemType === 'login' ? `${username}@klarkey.local` : null),
+    JSON.stringify(input.websites ?? []),
+    input.notes ?? null,
+    JSON.stringify(input.customFields ?? []),
+    JSON.stringify(sanitizeItemData(itemType, input)),
+    password ? JSON.stringify(encryptValue(key, password)) : null,
+    otp ? JSON.stringify(encryptValue(key, JSON.stringify(otp))) : null,
+    0,
+    timestamp,
+    timestamp,
+  )
+
+  return {
+    status: 'success',
+    title: 'Item created',
+    message: `${itemName} is ready.`,
+    itemId,
+  } satisfies ActionExecutionResult
+}
+
+export function updateIdentity(db: Database.Database, key: Buffer, input: UpdateItemInput): ActionExecutionResult {
+  const current = db
+    .prepare('SELECT * FROM identities WHERE id = ?')
+    .get(input.itemId) as
+    | {
+        id: string
+        itemType?: string
+        itemName: string
+        username: string
+        email?: string
+        websites?: string
+        notes?: string
+        customFields?: string
+        itemData?: string
+        passwordPayload?: string
+        otpPayload?: string
+      }
+    | undefined
+
+  if (!current) {
+    return {
+      status: 'error',
+      title: 'Item missing',
+      message: 'This item could not be found.',
+    } satisfies ActionExecutionResult
+  }
+
+  const itemType = (input.itemType ?? current.itemType ?? 'login') as CreatableItemType
+  const itemName = input.itemName?.trim() || current.itemName
+  const username =
+    itemType === 'login'
+      ? input.username?.trim() || current.username
+      : itemType === 'identity'
+        ? input.username?.trim() || current.username
+        : ''
+  const password =
+    input.password === undefined
+      ? current.passwordPayload
+      : input.password.trim()
+        ? JSON.stringify(encryptValue(key, input.password.trim()))
+        : null
+  const currentOtp = parseStoredTotp(tryDecrypt(key, current.otpPayload), {
+    issuer: itemName,
+    accountName: username || itemName,
+  })
+  const otp =
+    input.otp === undefined
+      ? current.otpPayload
+      : input.otp.trim()
+        ? JSON.stringify(
+            encryptValue(
+              key,
+              JSON.stringify(
+                parseTotpInput(
+                  input.otp,
+                  getOtpFallback({
+                    itemName,
+                    username,
+                    existing: currentOtp,
+                  }),
+                ),
+              ),
+            ),
+          )
+        : null
+
+  db.prepare(
+    `
+        UPDATE identities
+        SET itemType = ?, itemName = ?, username = ?, email = ?, websites = ?, notes = ?, customFields = ?, itemData = ?, passwordPayload = ?, otpPayload = ?, updatedAt = ?
+        WHERE id = ?
+      `,
+  ).run(
+    itemType,
+    itemName,
+    username,
+    input.email?.trim() || (itemType === 'login' ? `${username}@klarkey.local` : current.email ?? null),
+    JSON.stringify(input.websites ?? parseJson<string[]>(current.websites, [])),
+    input.notes ?? current.notes ?? null,
+    JSON.stringify(input.customFields ?? parseJson(current.customFields, [])),
+    JSON.stringify({
+      ...parseJson<ItemDataPayload>(current.itemData, {}),
+      ...sanitizeItemData(itemType, input),
+    }),
+    password ?? null,
+    otp,
+    now(),
+    input.itemId,
+  )
+
+  return {
+    status: 'success',
+    title: 'Item updated',
+    message: `${itemName} was updated.`,
+    itemId: input.itemId,
+  } satisfies ActionExecutionResult
+}
