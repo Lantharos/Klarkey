@@ -8,6 +8,21 @@ const root = resolve(__dirname, '..')
 const extensionRoot = join(root, 'extension')
 const distRoot = join(root, 'dist-extension')
 const sharedRoot = join(extensionRoot, 'shared')
+
+function bundleExtensionSources() {
+  execFileSync(
+    'bun',
+    ['build', join(sharedRoot, 'background', 'index.js'), '--outfile', join(sharedRoot, 'background.js'), '--target', 'browser'],
+    { cwd: root, stdio: 'inherit' },
+  )
+  execFileSync(
+    'bun',
+    ['build', join(sharedRoot, 'content', 'index.js'), '--outfile', join(sharedRoot, 'content.js'), '--target', 'browser'],
+    { cwd: root, stdio: 'inherit' },
+  )
+}
+
+bundleExtensionSources()
 const iconPath = join(root, 'public', 'klarkey.png')
 const browsers = ['chromium', 'firefox']
 

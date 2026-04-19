@@ -1,0 +1,98 @@
+export const pageState = {
+  url: window.location.href,
+  title: document.title,
+  matches: [],
+  fieldSuggestions: [],
+  lastListUrl: '',
+  overlayInput: undefined,
+  formSnapshot: undefined,
+  activeMenuButtons: [],
+  activeMenuIndex: -1,
+  lastSavePromptKey: '',
+  activeSaveBannerKey: '',
+  triggerInput: undefined,
+  triggerElement: undefined,
+  menuElement: undefined,
+  menuOpen: false,
+  layoutFrame: undefined,
+  suppressedAutofillField: undefined,
+  suppressedAutofillForm: undefined,
+  suppressedFieldAttributes: undefined,
+  suppressedFormAttributes: undefined,
+}
+
+export const matchFetch = { generation: 0 }
+
+export const timers = {
+  savePrompt: undefined,
+  autoSubmit: undefined,
+}
+
+export const browserSettings = {
+  browserAutoOpenMenu: true,
+  browserAutoSubmitLogin: true,
+  browserSavePrompts: true,
+}
+
+export const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
+export const pendingOtpStorageKey = `klarkey:pending-otp:${window.location.hostname}`
+export const pendingSaveStorageKey = `klarkey:pending-save:${window.location.hostname}`
+
+export const menuSuppress = { until: 0, input: undefined }
+
+export const stateCodeToName = {
+  AL: 'alabama',
+  AK: 'alaska',
+  AZ: 'arizona',
+  AR: 'arkansas',
+  CA: 'california',
+  CO: 'colorado',
+  CT: 'connecticut',
+  DE: 'delaware',
+  FL: 'florida',
+  GA: 'georgia',
+  HI: 'hawaii',
+  ID: 'idaho',
+  IL: 'illinois',
+  IN: 'indiana',
+  IA: 'iowa',
+  KS: 'kansas',
+  KY: 'kentucky',
+  LA: 'louisiana',
+  ME: 'maine',
+  MD: 'maryland',
+  MA: 'massachusetts',
+  MI: 'michigan',
+  MN: 'minnesota',
+  MS: 'mississippi',
+  MO: 'missouri',
+  MT: 'montana',
+  NE: 'nebraska',
+  NV: 'nevada',
+  NH: 'newhampshire',
+  NJ: 'newjersey',
+  NM: 'newmexico',
+  NY: 'newyork',
+  NC: 'northcarolina',
+  ND: 'northdakota',
+  OH: 'ohio',
+  OK: 'oklahoma',
+  OR: 'oregon',
+  PA: 'pennsylvania',
+  RI: 'rhodeisland',
+  SC: 'southcarolina',
+  SD: 'southdakota',
+  TN: 'tennessee',
+  TX: 'texas',
+  UT: 'utah',
+  VT: 'vermont',
+  VA: 'virginia',
+  WA: 'washington',
+  WV: 'westvirginia',
+  WI: 'wisconsin',
+  WY: 'wyoming',
+  DC: 'districtofcolumbia',
+}
+
+export const regionDisplayNames =
+  typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['en'], { type: 'region' }) : undefined

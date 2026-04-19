@@ -11,6 +11,8 @@ node_modules
 dist
 dist-electron
 dist-extension
+extension/shared/background.js
+extension/shared/content.js
 dist-ssr
 *.local
 bin
