@@ -3,7 +3,7 @@ import { IPC_CHANNELS } from '@/electron/constants'
 import type { KlarkeyApi } from '@/shared/ipc'
 import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import { PASSKEY_RP_ID, PASSKEY_RP_NAME } from '@/shared/passkeys'
-import type { CreateVaultPasskeyInput, ExternalWindowContext, VaultPasskeyRecord } from '@/shared/types'
+import type { CreateVaultPasskeyInput, ExternalWindowContext, VaultLockInfo } from '@/shared/types'
 
 const createChallenge = () => crypto.getRandomValues(new Uint8Array(32))
 
@@ -140,6 +140,17 @@ const api: KlarkeyApi = {
   },
   vault: {
     unlock: () => ipcRenderer.invoke(IPC_CHANNELS.vaultUnlock),
+    lockState: () => ipcRenderer.invoke(IPC_CHANNELS.vaultLockState),
+    unlockWithHello: () => ipcRenderer.invoke(IPC_CHANNELS.vaultUnlockWithHello),
+    unlockWithPassword: (password) => ipcRenderer.invoke(IPC_CHANNELS.vaultUnlockWithPassword, password),
+    lock: () => ipcRenderer.invoke(IPC_CHANNELS.vaultLock),
+    setupMasterPassword: (password) => ipcRenderer.invoke(IPC_CHANNELS.vaultSetupMasterPassword, password),
+    changeMasterPassword: (currentPassword, newPassword) => ipcRenderer.invoke(IPC_CHANNELS.vaultChangeMasterPassword, currentPassword, newPassword),
+    removeMasterPassword: (currentPassword) => ipcRenderer.invoke(IPC_CHANNELS.vaultRemoveMasterPassword, currentPassword),
+    setPasscode: (passcode) => ipcRenderer.invoke(IPC_CHANNELS.vaultSetPasscode, passcode),
+    removePasscode: () => ipcRenderer.invoke(IPC_CHANNELS.vaultRemovePasscode),
+    confirmPasscode: (passcode) => ipcRenderer.invoke(IPC_CHANNELS.vaultConfirmPasscode, passcode),
+    verifyPasscode: (passcode) => ipcRenderer.invoke(IPC_CHANNELS.vaultVerifyPasscode, passcode),
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
@@ -233,6 +244,23 @@ const api: KlarkeyApi = {
     ipcRenderer.on(IPC_CHANNELS.paletteTargetChanged, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.paletteTargetChanged, listener)
   },
+  onLockStateChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, info: VaultLockInfo) => callback(info)
+    ipcRenderer.on(IPC_CHANNELS.vaultLockState, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.vaultLockState, listener)
+  },
+}
+
+const isDev = window.location.protocol === 'http:' || window.location.hostname === 'localhost' || window.location.port === '5173'
+
+if (isDev) {
+  api.dev = {
+    forceLock: () => ipcRenderer.invoke(IPC_CHANNELS.devForceLock),
+    forceUnlock: () => ipcRenderer.invoke(IPC_CHANNELS.devForceUnlock),
+    forcePasscode: () => ipcRenderer.invoke(IPC_CHANNELS.devForcePasscode),
+    dumpLockInfo: () => ipcRenderer.invoke(IPC_CHANNELS.devDumpLockInfo),
+    resetVault: () => ipcRenderer.invoke(IPC_CHANNELS.devResetVault),
+  }
 }
 
 contextBridge.exposeInMainWorld('klarkey', api)

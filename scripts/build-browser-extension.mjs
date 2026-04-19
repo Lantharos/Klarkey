@@ -9,6 +9,18 @@ const extensionRoot = join(root, 'extension')
 const distRoot = join(root, 'dist-extension')
 const sharedRoot = join(extensionRoot, 'shared')
 
+function safeRemove(path) {
+  try {
+    rmSync(path, { recursive: true, force: true })
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'EPERM') {
+      console.warn(`[build:extension] Skipping delete for locked path: ${path}`)
+      return
+    }
+    throw error
+  }
+}
+
 function bundleExtensionSources() {
   execFileSync(
     'bun',
@@ -26,17 +38,19 @@ bundleExtensionSources()
 const iconPath = join(root, 'public', 'klarkey.png')
 const browsers = ['chromium', 'firefox']
 
-rmSync(distRoot, { recursive: true, force: true })
+mkdirSync(distRoot, { recursive: true })
 
 for (const browser of browsers) {
   const targetRoot = join(distRoot, browser)
+  safeRemove(targetRoot)
   mkdirSync(join(targetRoot, 'icons'), { recursive: true })
-  cpSync(sharedRoot, targetRoot, { recursive: true })
-  cpSync(join(extensionRoot, browser, 'manifest.json'), join(targetRoot, 'manifest.json'))
-  cpSync(iconPath, join(targetRoot, 'icons', 'klarkey-128.png'))
+  cpSync(sharedRoot, targetRoot, { recursive: true, force: true })
+  cpSync(join(extensionRoot, browser, 'manifest.json'), join(targetRoot, 'manifest.json'), { force: true })
+  cpSync(iconPath, join(targetRoot, 'icons', 'klarkey-128.png'), { force: true })
 }
 
 const nativeHostRoot = join(distRoot, 'native-host')
+safeRemove(nativeHostRoot)
 mkdirSync(nativeHostRoot, { recursive: true })
 
 execFileSync(

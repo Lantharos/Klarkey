@@ -1,7 +1,7 @@
 import { clsx } from 'clsx'
 import { useEffect, useRef } from 'react'
 import { formatClipboardClearLabel } from '@/app/settings-constants'
-import type { UserSettings } from '@/shared/types'
+import type { VaultLockInfo, UserSettings } from '@/shared/types'
 
 function SettingRow({
   label,
@@ -90,6 +90,7 @@ function SettingRow({
 
 export function SettingsPage({
   settings,
+  lockInfo,
   selectedIndex,
   hotkeyRecording,
   onSelectRow,
@@ -99,9 +100,14 @@ export function SettingsPage({
   onToggleAutoOpenMenu,
   onToggleAutoSubmit,
   onToggleSavePrompts,
+  onCycleAutoLock,
+  onTogglePasscode,
+  onSetPasscode,
+  onSetupMasterPassword,
   pointerActive = true,
 }: {
   settings: UserSettings
+  lockInfo?: VaultLockInfo
   selectedIndex: number
   hotkeyRecording: boolean
   onSelectRow: (index: number) => void
@@ -111,10 +117,16 @@ export function SettingsPage({
   onToggleAutoOpenMenu: () => void
   onToggleAutoSubmit: () => void
   onToggleSavePrompts: () => void
+  onCycleAutoLock: () => void
+  onTogglePasscode: () => void
+  onSetPasscode: () => void
+  onSetupMasterPassword: () => void
   pointerActive?: boolean
 }) {
   const clipLabel = formatClipboardClearLabel(settings.clearClipboardSeconds)
   const shortcutValue = hotkeyRecording ? 'Recording…' : settings.hotkey
+  const passcodeLabel = lockInfo?.passcodeSet ? (settings.passcodeEnabled ? 'On' : 'Off') : 'Not set'
+  const masterPasswordLabel = lockInfo?.masterPasswordSet ? 'Set' : 'Not set'
 
   return (
     <div className="space-y-1 px-2 pb-3 pt-1">
@@ -168,6 +180,31 @@ export function SettingsPage({
         selected={selectedIndex === 5}
         onHover={() => onSelectRow(5)}
         onClick={onToggleSavePrompts}
+        pointerActive={pointerActive}
+      />
+      <div className="px-3 pb-1 pt-3 text-[12px] text-white/38">Security</div>
+      <SettingRow
+        label="Passcode on open"
+        value={passcodeLabel}
+        selected={selectedIndex === 6}
+        onHover={() => onSelectRow(6)}
+        onClick={lockInfo?.passcodeSet ? onTogglePasscode : onSetPasscode}
+        pointerActive={pointerActive}
+      />
+      <SettingRow
+        label="Master password"
+        value={masterPasswordLabel}
+        selected={selectedIndex === 7}
+        onHover={() => onSelectRow(7)}
+        onClick={onSetupMasterPassword}
+        pointerActive={pointerActive}
+      />
+      <SettingRow
+        label="Auto-lock after"
+        value={`${settings.autoLockMinutes} min`}
+        selected={selectedIndex === 8}
+        onHover={() => onSelectRow(8)}
+        onClick={onCycleAutoLock}
         pointerActive={pointerActive}
       />
     </div>

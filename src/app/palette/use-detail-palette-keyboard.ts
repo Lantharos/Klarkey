@@ -18,7 +18,7 @@ export function useDetailPaletteKeyboard({
   setPendingDeleteConfirm,
   deleteConfirmActive,
 }: {
-  page: 'home' | 'settings' | 'detail' | 'form'
+  page: 'home' | 'settings' | 'detail' | 'form' | 'dev' | 'locked' | 'passcode' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal'
   detailActions: DetailAction[]
   selectedDetailAction: DetailAction | undefined
   selectedIndex: number

@@ -126,6 +126,7 @@ export type BrowserExtensionResponse =
             desktopRequired: true;
             passkeyProviderReady: boolean;
             nativeUserVerificationReady: boolean;
+            vaultUnlocked: boolean;
           }
         | {
             matches: BrowserSiteMatch[];

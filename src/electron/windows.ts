@@ -113,6 +113,10 @@ export const captureForegroundWindowAsync = async (): Promise<ExternalWindowCont
 }
 
 export const pasteIntoWindow = (handle: string) => {
+  if (!handle || !/^\d+$/.test(handle)) {
+    return false
+  }
+
   try {
     runPowerShell(`
 Add-Type @"

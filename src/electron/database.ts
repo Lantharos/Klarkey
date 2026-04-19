@@ -170,3 +170,12 @@ export function createDatabase(): DatabaseHandle {
     close: () => db.close(),
   }
 }
+
+export function ensureLockSettings(db: Database.Database) {
+  const statement = db.prepare('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+  const existing = db.prepare("SELECT value FROM settings WHERE key = 'passcode_hash'").get() as { value: string } | undefined
+  if (!existing) {
+    statement.run('passcode_hash', '')
+    statement.run('passcode_salt', '')
+  }
+}

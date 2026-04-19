@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { keyboardEventToAccelerator } from '@/app/hotkey-accelerator'
-import { SETTINGS_FOCUSABLE_ROWS, nextClipboardSeconds } from '@/app/settings-constants'
+import { nextAutoLockMinutes, nextClipboardSeconds } from '@/app/settings-constants'
 import { usePaletteStore } from '@/app/usePaletteStore'
-import { DEFAULT_SETTINGS, type SettingsUpdate, type UserSettings } from '@/shared/types'
+import { DEFAULT_SETTINGS, type SettingsUpdate, type UserSettings, type VaultLockInfo } from '@/shared/types'
 
 export function useSettingsChrome(
-  page: 'home' | 'settings' | 'detail' | 'form',
+  page: 'home' | 'settings' | 'detail' | 'form' | 'dev' | 'locked' | 'passcode' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal',
   settings: UserSettings | undefined,
+  lockInfo: VaultLockInfo | undefined,
   selectedIndex: number,
   updateSettings: (update: SettingsUpdate) => Promise<void>,
 ) {
@@ -17,6 +18,8 @@ export function useSettingsChrome(
     setHotkeyRecording(false)
     setHotkeyError(undefined)
   }, [])
+
+  const totalSettingsRows = 9
 
   const settingsFooter = useMemo(() => {
     if (hotkeyError) {
@@ -42,6 +45,9 @@ export function useSettingsChrome(
       3: 'Enter toggles the inline autofill menu in the browser extension.',
       4: 'Enter toggles auto-submitting login forms after autofill.',
       5: 'Enter toggles saving new credentials when the extension offers to store them.',
+      6: 'Enter toggles passcode-on-open, or sets a new passcode if none exists.',
+      7: 'Enter sets up a master password.',
+      8: 'Enter cycles auto-lock minutes.',
     }
     return {
       barClass: '',
@@ -77,9 +83,33 @@ export function useSettingsChrome(
       }
       if (index === 5) {
         void updateSettings({ browserSavePrompts: !resolved.browserSavePrompts })
+        return
+      }
+      if (index === 6) {
+        if (!lockInfo?.passcodeSet) {
+          usePaletteStore.getState().openSetPasscodePage()
+          return
+        }
+
+        if (resolved.passcodeEnabled) {
+          usePaletteStore.getState().openConfirmPasscodeRemovalPage()
+          return
+        }
+
+        usePaletteStore.getState().openSetPasscodePage()
+        return
+      }
+
+      if (index === 7) {
+        usePaletteStore.getState().openSetMasterPasswordPage()
+        return
+      }
+
+      if (index === 8) {
+        void updateSettings({ autoLockMinutes: nextAutoLockMinutes(resolved.autoLockMinutes) })
       }
     },
-    [settings, updateSettings],
+    [lockInfo?.passcodeSet, settings, updateSettings],
   )
 
   useEffect(() => {
@@ -139,14 +169,14 @@ export function useSettingsChrome(
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         const { selectedIndex: current, setSelectedIndex } = usePaletteStore.getState()
-        setSelectedIndex((current + 1) % SETTINGS_FOCUSABLE_ROWS)
+        setSelectedIndex((current + 1) % totalSettingsRows)
         return
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault()
         const { selectedIndex: current, setSelectedIndex } = usePaletteStore.getState()
-        setSelectedIndex((current - 1 + SETTINGS_FOCUSABLE_ROWS) % SETTINGS_FOCUSABLE_ROWS)
+        setSelectedIndex((current - 1 + totalSettingsRows) % totalSettingsRows)
         return
       }
 
@@ -159,7 +189,7 @@ export function useSettingsChrome(
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activateSettingsRow, hotkeyRecording, page])
+  }, [activateSettingsRow, hotkeyRecording, page, totalSettingsRows])
 
   return {
     hotkeyRecording,

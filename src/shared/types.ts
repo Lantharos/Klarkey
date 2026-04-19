@@ -338,6 +338,27 @@ export interface SearchResponse {
   nextOffset: number
 }
 
+export type VaultLockState = 'locked' | 'passcode' | 'unlocked'
+
+export type VaultUnlockMethod = 'windowsHello' | 'masterPassword'
+
+export interface VaultOperationResult {
+  success: boolean
+  message: string
+}
+
+export interface VaultLockInfo {
+  state: VaultLockState
+  primaryMethods: VaultUnlockMethod[]
+  passcodeEnabled: boolean
+  passcodeSet: boolean
+  passcodeLength?: number
+  lockWarningSeconds?: number
+  masterPasswordSet: boolean
+  autoLockMinutes: number
+  safeStorageAvailable: boolean
+}
+
 export interface UserSettings {
   hotkey: string
   clearClipboardSeconds: number
@@ -345,6 +366,8 @@ export interface UserSettings {
   browserAutoOpenMenu: boolean
   browserAutoSubmitLogin: boolean
   browserSavePrompts: boolean
+  passcodeEnabled: boolean
+  autoLockMinutes: number
 }
 
 export interface SettingsUpdate {
@@ -354,6 +377,8 @@ export interface SettingsUpdate {
   browserAutoOpenMenu?: boolean
   browserAutoSubmitLogin?: boolean
   browserSavePrompts?: boolean
+  passcodeEnabled?: boolean
+  autoLockMinutes?: number
 }
 
 export interface CreateItemInput {
@@ -481,4 +506,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   browserAutoOpenMenu: true,
   browserAutoSubmitLogin: true,
   browserSavePrompts: true,
+  passcodeEnabled: true,
+  autoLockMinutes: 15,
 }

@@ -2,6 +2,8 @@ import { readSync, writeSync } from 'node:fs'
 import { PasskeyProviderBridgeController } from '@/electron/passkey-provider-controller'
 import type { PasskeyProviderBridgeRequest, PasskeyProviderBridgeResponse } from '@/shared/passkey-provider-bridge'
 
+const MAX_MESSAGE_LENGTH = 10 * 1024 * 1024
+
 export const readPasskeyProviderMessageSync = () => {
   const header = Buffer.alloc(4)
   const headerBytes = readSync(0, header, 0, header.byteLength, null)
@@ -10,7 +12,7 @@ export const readPasskeyProviderMessageSync = () => {
   }
 
   const messageLength = header.readUInt32LE(0)
-  if (messageLength <= 0) {
+  if (messageLength <= 0 || messageLength > MAX_MESSAGE_LENGTH) {
     return undefined
   }
 
@@ -34,6 +36,29 @@ const writeMessage = (response: PasskeyProviderBridgeResponse) => {
   const header = Buffer.alloc(4)
   header.writeUInt32LE(message.byteLength, 0)
   writeSync(1, Buffer.concat([header, message]))
+}
+
+const sanitizeProviderMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    const message = error.message
+    if (message.includes('ENOENT') || message.includes('EACCES') || message.includes('EPERM')) {
+      return 'A file system error occurred.'
+    }
+    if (message.includes('SQLITE')) {
+      return 'A database error occurred.'
+    }
+    if (message.includes('BUFFERS_TOO_LARGE') || message.includes('ERR_OSSL')) {
+      return 'A cryptographic error occurred.'
+    }
+    if (/[A-Z]:\\[\\\w\s]/i.test(message)) {
+      return 'An internal error occurred.'
+    }
+    if (message.length > 200) {
+      return 'An internal error occurred.'
+    }
+    return message
+  }
+  return 'The passkey provider bridge failed.'
 }
 
 export async function runPasskeyProviderBridgeHost(request = readPasskeyProviderMessageSync()) {
@@ -60,7 +85,7 @@ export async function runPasskeyProviderBridgeHost(request = readPasskeyProvider
       ok: false,
       error: {
         code: 'provider_bridge_failure',
-        message: error instanceof Error ? error.message : 'The passkey provider bridge failed.',
+        message: sanitizeProviderMessage(error),
       },
     })
   } finally {

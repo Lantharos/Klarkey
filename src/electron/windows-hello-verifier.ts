@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
-import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmodSync, existsSync } from 'node:fs'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { app } from 'electron'
+
+const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
 
 type WindowsHelloHelperResponse = {
   status?: string
@@ -45,19 +47,32 @@ const toPlatform = () => {
 }
 
 const listHelperCandidates = () => {
-  const root = app.getAppPath()
   const { platform, rid } = toPlatform()
-  const helperRoot = join(root, 'native', 'windows-passkey-provider', 'Klarkey.WindowsHelloVerifier', 'bin')
-  const explicitPath = process.env.KLARKEY_WINDOWS_HELLO_HELPER
+  const envPath = process.env.KLARKEY_WINDOWS_HELLO_HELPER
+  const roots = new Set([
+    app.getAppPath(),
+    process.cwd(),
+    resolve(app.getAppPath(), '..'),
+    resolve(process.cwd(), '..'),
+  ])
 
-  return [
-    explicitPath,
-    join(helperRoot, 'Debug', HELPER_TARGET_FRAMEWORK, HELPER_PROJECT_NAME),
-    join(helperRoot, 'Release', HELPER_TARGET_FRAMEWORK, HELPER_PROJECT_NAME),
-    join(helperRoot, platform, 'Debug', HELPER_TARGET_FRAMEWORK, rid, HELPER_PROJECT_NAME),
-    join(helperRoot, platform, 'Release', HELPER_TARGET_FRAMEWORK, rid, HELPER_PROJECT_NAME),
-    join(process.resourcesPath, HELPER_PROJECT_NAME),
-  ]
+  const candidates: (string | undefined)[] = [join(process.resourcesPath, HELPER_PROJECT_NAME)]
+
+  for (const root of roots) {
+    const helperRoot = join(root, 'native', 'windows-passkey-provider', 'Klarkey.WindowsHelloVerifier', 'bin')
+    candidates.push(
+      join(helperRoot, 'Debug', HELPER_TARGET_FRAMEWORK, HELPER_PROJECT_NAME),
+      join(helperRoot, 'Release', HELPER_TARGET_FRAMEWORK, HELPER_PROJECT_NAME),
+      join(helperRoot, platform, 'Debug', HELPER_TARGET_FRAMEWORK, rid, HELPER_PROJECT_NAME),
+      join(helperRoot, platform, 'Release', HELPER_TARGET_FRAMEWORK, rid, HELPER_PROJECT_NAME),
+    )
+  }
+
+  if (envPath && isDevMode) {
+    candidates.unshift(envPath)
+  }
+
+  return candidates
     .filter((candidate): candidate is string => Boolean(candidate))
     .map((candidate) => resolve(candidate))
 }
@@ -84,6 +99,8 @@ const runHelper = async (mode: 'check-availability' | 'verify-user', message?: s
   const responseFilePath = join(tempDir, 'response.json')
 
   try {
+    await writeFile(responseFilePath, '', { mode: 0o600 })
+
     await new Promise<void>((resolveProcess, rejectProcess) => {
       const args = ['--mode', mode, '--response-file', responseFilePath]
       if (message?.trim()) {
@@ -106,8 +123,18 @@ const runHelper = async (mode: 'check-availability' | 'verify-user', message?: s
       })
     })
 
-    const response = JSON.parse(await readFile(responseFilePath, 'utf8')) as WindowsHelloHelperResponse
-    return response
+    const parsed = JSON.parse(await readFile(responseFilePath, 'utf8')) as Record<string, unknown>
+    const status =
+      (typeof parsed.status === 'string' ? parsed.status : undefined) ??
+      (typeof parsed.Status === 'string' ? parsed.Status : undefined)
+    const parsedMessage =
+      (typeof parsed.message === 'string' ? parsed.message : undefined) ??
+      (typeof parsed.Message === 'string' ? parsed.Message : undefined)
+
+    return {
+      status,
+      message: parsedMessage,
+    } satisfies WindowsHelloHelperResponse
   } finally {
     await rm(tempDir, { force: true, recursive: true }).catch(() => undefined)
   }

@@ -38,6 +38,14 @@ function TypeIcon({ itemType }: { itemType: ResolvedAction['itemType'] }) {
 
 export function RowIcon({ action, title }: { action?: ResolvedAction; title?: string }) {
   if (action?.kind === 'open-settings') {
+    if (action.id === 'dev') {
+      return (
+        <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-yellow-500/18 text-yellow-300">
+          <Settings2 size={15} />
+        </div>
+      )
+    }
+
     return (
       <div className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-white/8 text-white/72">
         <Settings2 size={15} />

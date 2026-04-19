@@ -18,9 +18,12 @@ import { useDetailPaletteKeyboard } from '@/app/palette/use-detail-palette-keybo
 import { useSettingsChrome } from '@/app/palette/use-settings-chrome'
 import { useTargetWindow } from '@/app/palette/use-target-window'
 import { createFormValues } from '@/app/palette-utils'
-import { nextClipboardSeconds } from '@/app/settings-constants'
+import { nextAutoLockMinutes, nextClipboardSeconds } from '@/app/settings-constants'
 import { SettingsPage } from '@/app/settings/settings-page'
 import { usePaletteStore } from '@/app/usePaletteStore'
+import { VaultLockScreen, PasscodeScreen } from '@/app/vault-lock-screen'
+import { MasterPasswordSetupScreen, PasscodeConfirmScreen, PasscodeSetupScreen } from '@/app/security-setup-screen'
+import { DevPanel } from '@/app/dev-panel'
 import { DEFAULT_SETTINGS, type UpdateItemInput } from '@/shared/types'
 
 function App() {
@@ -53,6 +56,16 @@ function App() {
   const submitCreateForm = usePaletteStore((state) => state.submitCreateForm)
   const submitEditForm = usePaletteStore((state) => state.submitEditForm)
   const deleteCurrentItem = usePaletteStore((state) => state.deleteCurrentItem)
+  const unlockWithHello = usePaletteStore((state) => state.unlockWithHello)
+  const unlockWithPassword = usePaletteStore((state) => state.unlockWithPassword)
+  const verifyPasscode = usePaletteStore((state) => state.verifyPasscode)
+  const openSetPasscodePage = usePaletteStore((state) => state.openSetPasscodePage)
+  const openSetMasterPasswordPage = usePaletteStore((state) => state.openSetMasterPasswordPage)
+  const openConfirmPasscodeRemovalPage = usePaletteStore((state) => state.openConfirmPasscodeRemovalPage)
+  const submitSetPasscode = usePaletteStore((state) => state.submitSetPasscode)
+  const submitSetMasterPassword = usePaletteStore((state) => state.submitSetMasterPassword)
+  const confirmPasscodeRemoval = usePaletteStore((state) => state.confirmPasscodeRemoval)
+  const lockInfo = usePaletteStore((state) => state.lockInfo)
 
   const targetWindow = useTargetWindow()
   const [detailItem, setDetailItem] = useDetailItem(detailAction?.itemId, page, execution?.itemId)
@@ -66,7 +79,7 @@ function App() {
     resetSettingsChrome,
     setHotkeyRecording,
     setHotkeyError,
-  } = useSettingsChrome(page, settings, selectedIndex, updateSettings)
+  } = useSettingsChrome(page, settings, lockInfo, selectedIndex, updateSettings)
 
   const selection = actions[selectedIndex]
   const activeDetailItem = detailAction?.itemId === detailItem?.itemId ? detailItem : undefined
@@ -125,6 +138,10 @@ function App() {
   const footerMessage = execution?.secret ?? execution?.message
   const deleteConfirmActive = page === 'detail' && selectedDetailAction?.id === 'delete-item' && pendingDeleteConfirm
   const footerOtp = execution?.title === 'Current OTP' ? activeDetailItem?.otp : undefined
+  const lockWarningText =
+    lockInfo?.lockWarningSeconds && lockInfo.lockWarningSeconds > 0
+      ? `Locking in ${lockInfo.lockWarningSeconds}s`
+      : undefined
 
   useDetailPaletteKeyboard({
     page,
@@ -152,7 +169,42 @@ function App() {
       return undefined
     }
 
+    return window.klarkey.onLockStateChanged((info) => {
+      const previousState = usePaletteStore.getState().lockInfo?.state
+      usePaletteStore.setState({ lockInfo: info })
+
+      if (previousState === info.state) {
+        return
+      }
+
+      if (info.state === 'locked') {
+        usePaletteStore.setState({ page: 'locked', actions: [], hasMoreResults: false, nextOffset: 0, selectedIndex: 0, detailAction: undefined, formMode: undefined, execution: undefined })
+      } else if (info.state === 'passcode') {
+        usePaletteStore.setState({ page: 'passcode' })
+      } else if (info.state === 'unlocked') {
+        usePaletteStore.setState({ page: 'home' })
+        void usePaletteStore.getState().resetToHome()
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!window.klarkey) {
+      return undefined
+    }
+
     return window.klarkey.onPrepareOpen(() => {
+      const { lockInfo: currentLockInfo } = usePaletteStore.getState()
+      if (currentLockInfo?.state === 'locked') {
+        usePaletteStore.setState({ page: 'locked', actions: [], hasMoreResults: false, nextOffset: 0, selectedIndex: 0, detailAction: undefined, formMode: undefined, execution: undefined })
+        return
+      }
+
+      if (currentLockInfo?.state === 'passcode') {
+        usePaletteStore.setState({ page: 'passcode', actions: [], hasMoreResults: false, nextOffset: 0, selectedIndex: 0, detailAction: undefined, formMode: undefined, execution: undefined })
+        return
+      }
+
       setPointerActive(false)
       setPendingDeleteConfirm(false)
       resetSettingsChrome()
@@ -185,6 +237,81 @@ function App() {
         <div className="text-[15px] text-white/72">
           {bootError ? `Klarkey could not finish loading. ${bootError}` : 'Starting Klarkey...'}
         </div>
+      </div>
+    )
+  }
+
+  if (lockInfo?.state === 'locked' && page !== 'locked') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <VaultLockScreen
+          lockInfo={lockInfo}
+          onUnlockWithHello={unlockWithHello}
+          onUnlockWithPassword={unlockWithPassword}
+        />
+      </div>
+    )
+  }
+
+  if (lockInfo?.state === 'passcode' && page !== 'passcode') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <PasscodeScreen
+          passcodeLength={lockInfo.passcodeLength ?? 4}
+          onVerifyPasscode={verifyPasscode}
+        />
+      </div>
+    )
+  }
+
+  if (page === 'locked') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <VaultLockScreen
+          lockInfo={lockInfo ?? { state: 'locked', primaryMethods: [], passcodeEnabled: true, passcodeSet: false, masterPasswordSet: false, autoLockMinutes: 15, safeStorageAvailable: false }}
+          onUnlockWithHello={unlockWithHello}
+          onUnlockWithPassword={unlockWithPassword}
+        />
+      </div>
+    )
+  }
+
+  if (page === 'passcode') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <PasscodeScreen
+          passcodeLength={lockInfo?.passcodeLength ?? 4}
+          onVerifyPasscode={verifyPasscode}
+        />
+      </div>
+    )
+  }
+
+  if (page === 'set-passcode') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <PasscodeSetupScreen onSubmit={submitSetPasscode} onCancel={() => void goBackOrClose()} />
+      </div>
+    )
+  }
+
+  if (page === 'set-master-password') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <MasterPasswordSetupScreen onSubmit={submitSetMasterPassword} onCancel={() => void goBackOrClose()} />
+      </div>
+    )
+  }
+
+  if (page === 'confirm-passcode-removal') {
+    return (
+      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+        <PasscodeConfirmScreen
+          title="Confirm passcode to turn it off"
+          passcodeLength={lockInfo?.passcodeLength ?? 4}
+          onSubmit={confirmPasscodeRemoval}
+          onCancel={() => void goBackOrClose()}
+        />
       </div>
     )
   }
@@ -231,6 +358,12 @@ function App() {
             }}
             showIcon={false}
           />
+        ) : page === 'dev' ? (
+          <HeaderRow
+            title="Developer Options"
+            onBack={() => void goBackOrClose()}
+            showIcon={false}
+          />
         ) : page === 'form' ? (
           <HeaderRow
             title={formMode === 'edit' ? 'Edit item' : 'Create item'}
@@ -255,6 +388,7 @@ function App() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <SettingsPage
               settings={settings ?? DEFAULT_SETTINGS}
+              lockInfo={lockInfo}
               selectedIndex={selectedIndex}
               hotkeyRecording={hotkeyRecording}
               onSelectRow={setSelectedIndex}
@@ -287,6 +421,24 @@ function App() {
                   browserSavePrompts: !(settings ?? DEFAULT_SETTINGS).browserSavePrompts,
                 })
               }
+              onCycleAutoLock={() =>
+                void updateSettings({
+                  autoLockMinutes: nextAutoLockMinutes((settings ?? DEFAULT_SETTINGS).autoLockMinutes),
+                })
+              }
+              onTogglePasscode={() =>
+                !lockInfo?.passcodeSet
+                  ? openSetPasscodePage()
+                  : (settings ?? DEFAULT_SETTINGS).passcodeEnabled
+                    ? openConfirmPasscodeRemovalPage()
+                    : openSetPasscodePage()
+              }
+              onSetPasscode={() => {
+                openSetPasscodePage()
+              }}
+              onSetupMasterPassword={() => {
+                openSetMasterPasswordPage()
+              }}
               pointerActive={pointerActive}
             />
           </div>
@@ -296,12 +448,15 @@ function App() {
           >
             <span className={`min-w-0 leading-snug ${settingsFooter.primaryClass}`}>{settingsFooter.primary}</span>
             <div className="flex shrink-0 items-center gap-2">
+              {lockWarningText ? <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">{lockWarningText}</span> : null}
               {settingsFooter.keyHints.map((hint) => (
                 <KeyHint key={hint}>{hint}</KeyHint>
               ))}
             </div>
           </div>
         </>
+      ) : page === 'dev' ? (
+        <DevPanel />
       ) : page === 'detail' ? (
         <>
           <ItemDetailOverview item={activeDetailItem} />
@@ -330,15 +485,16 @@ function App() {
                   <ReturnHint />
                   <span>to confirm</span>
                 </span>
-              ) : footerOtp ? (
-                <FooterOtpStatus otp={footerOtp} />
-              ) : (
-                <>
-                  <span>{footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'}</span>
-                </>
+               ) : footerOtp ? (
+                 <FooterOtpStatus otp={footerOtp} />
+               ) : (
+                 <>
+                   <span>{footerMessage ?? selectedDetailAction?.title ?? detailAction?.title ?? 'Select an action.'}</span>
+                 </>
               )}
             </span>
             <div className="flex items-center gap-2">
+              {lockWarningText ? <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">{lockWarningText}</span> : null}
               <KeyHint>Esc</KeyHint>
             </div>
           </div>
@@ -411,11 +567,13 @@ function App() {
               {footerMessage ?? selection?.primaryHint ?? 'Type an item or action.'}
             </span>
             <div className="flex items-center gap-2">
+              {lockWarningText ? <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">{lockWarningText}</span> : null}
               <KeyHint>Esc</KeyHint>
             </div>
           </div>
         </>
       )}
+
     </div>
   )
 }

@@ -41,6 +41,7 @@ export function buildResolvedActions(
   snapshot: VaultSnapshot,
   query = parseCommand(''),
   targetContext?: ExternalWindowContext,
+  showDevOptions = false,
 ): ResolvedAction[] {
   const settingsAction: ResolvedAction = {
     id: 'settings',
@@ -52,15 +53,27 @@ export function buildResolvedActions(
     score: 1,
   }
 
+  const devAction: ResolvedAction = {
+    id: 'dev',
+    kind: 'open-settings' as const,
+    title: 'Developer Options',
+    subtitle: 'Dev tools',
+    primaryHint: 'Open developer options panel.',
+    requiresUnlock: false,
+    score: 0,
+  }
+
+  const utilityActions = showDevOptions ? [settingsAction, devAction] : [settingsAction]
+
   if (query.intent === 'settings') {
-    return [settingsAction]
+    return utilityActions
   }
 
   if (query.intent === 'create') {
     const literalName = query.itemQuery?.trim() || ''
 
     if (!query.entryType) {
-      return [...createTypeActions(literalName), settingsAction]
+      return [...createTypeActions(literalName), ...utilityActions]
     }
 
     const definition = getItemTypeDefinition(query.entryType)
@@ -77,8 +90,8 @@ export function buildResolvedActions(
           requiresUnlock: false,
           score: 100,
         },
-        settingsAction,
-      ]
+          ...utilityActions,
+        ]
     }
 
     return [
@@ -92,7 +105,7 @@ export function buildResolvedActions(
         requiresUnlock: query.entryType === 'login',
         score: 100,
       },
-      settingsAction,
+      ...utilityActions,
     ]
   }
 
@@ -132,7 +145,7 @@ export function buildResolvedActions(
       score: foreground + recent,
     }))
 
-    return [...recentActions, settingsAction]
+    return [...recentActions, ...utilityActions]
   }
 
   const matchingItems = snapshot.items
@@ -296,7 +309,7 @@ export function buildResolvedActions(
   }
 
   if (actions.length === 0) {
-    return [settingsAction]
+    return utilityActions
   }
 
   return [
@@ -307,6 +320,6 @@ export function buildResolvedActions(
 
       return left.title.localeCompare(right.title)
     }),
-    settingsAction,
+    ...utilityActions,
   ]
 }

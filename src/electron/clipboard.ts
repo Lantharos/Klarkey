@@ -8,6 +8,14 @@ export class ClipboardManager {
     this.clearSoon(timeoutSeconds)
   }
 
+  clearNow() {
+    if (this.clearTimer) {
+      clearTimeout(this.clearTimer)
+      this.clearTimer = undefined
+    }
+    clipboard.clear()
+  }
+
   private clearSoon(timeoutSeconds: number) {
     if (this.clearTimer) {
       clearTimeout(this.clearTimer)

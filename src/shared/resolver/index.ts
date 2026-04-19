@@ -2,8 +2,13 @@ import type { ExternalWindowContext, SearchResponse, VaultSnapshot } from '@/sha
 import { parseCommand } from '@/shared/command'
 import { buildResolvedActions, defaultSearchLimit, pageActions } from '@/shared/resolver/resolve-actions'
 
-export function resolveActions(snapshot: VaultSnapshot, query = parseCommand(''), targetContext?: ExternalWindowContext) {
-  return buildResolvedActions(snapshot, query, targetContext)
+export function resolveActions(
+  snapshot: VaultSnapshot,
+  query = parseCommand(''),
+  targetContext?: ExternalWindowContext,
+  showDevOptions = false,
+) {
+  return buildResolvedActions(snapshot, query, targetContext, showDevOptions)
 }
 
 export function resolveSearchResponse(
@@ -14,9 +19,14 @@ export function resolveSearchResponse(
     limit?: number
     locked?: boolean
     targetContext?: ExternalWindowContext
+    showDevOptions?: boolean
   },
 ): SearchResponse {
-  const response = pageActions(buildResolvedActions(snapshot, query, options?.targetContext), options?.offset ?? 0, options?.limit ?? defaultSearchLimit)
+  const response = pageActions(
+    buildResolvedActions(snapshot, query, options?.targetContext, options?.showDevOptions ?? false),
+    options?.offset ?? 0,
+    options?.limit ?? defaultSearchLimit,
+  )
   response.locked = options?.locked ?? false
   return response
 }

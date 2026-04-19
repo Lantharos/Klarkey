@@ -38,6 +38,9 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  define: {
+    'import.meta.env.KLARKEY_DEV_MODE': JSON.stringify(true),
+  },
   test: {
     globals: true,
     environment: 'jsdom',

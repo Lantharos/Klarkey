@@ -11,6 +11,8 @@ import {
   type SettingsUpdate,
   type UpdateItemInput,
   type UserSettings,
+  type VaultLockInfo,
+  type VaultOperationResult,
 } from '@/shared/types'
 
 const searchPageSize = 20
@@ -36,7 +38,18 @@ const fallbackApi: KlarkeyApi = {
     delete: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
   },
   vault: {
-    unlock: async () => ({ status: 'success', title: 'Ready', message: 'Vault unlocked.' }),
+    unlock: async () => ({ status: 'locked', title: 'Bridge unavailable', message: 'Desktop bridge unavailable. Vault remains locked.' }),
+    lockState: async () => ({ state: 'locked' as const, primaryMethods: [], passcodeEnabled: true, passcodeSet: false, passcodeLength: 4, masterPasswordSet: false, autoLockMinutes: 15, safeStorageAvailable: false }),
+    unlockWithHello: async () => ({ success: false, message: 'Desktop bridge unavailable.' }),
+    unlockWithPassword: async () => ({ success: false, message: 'Desktop bridge unavailable.' }),
+    lock: async () => undefined,
+    setupMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
+    changeMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
+    removeMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
+    setPasscode: async () => ({ success: false, message: 'Not available.' }),
+    removePasscode: async () => ({ success: false, message: 'Not available.' }),
+    confirmPasscode: async () => ({ success: false, message: 'Not available.' }),
+    verifyPasscode: async () => ({ success: false, message: 'Not available.' }),
   },
   settings: {
     get: async () => DEFAULT_SETTINGS,
@@ -65,6 +78,7 @@ const fallbackApi: KlarkeyApi = {
   onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
   onTargetWindowChange: () => () => undefined,
+  onLockStateChanged: () => () => undefined,
 }
 
 const api = window.klarkey ?? fallbackApi
@@ -77,7 +91,7 @@ interface PaletteState {
   resolveKey: number
   bootError?: string
   execution?: ActionExecutionResult
-  page: 'home' | 'settings' | 'detail' | 'form'
+  page: 'home' | 'settings' | 'detail' | 'form' | 'locked' | 'passcode' | 'dev' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal'
   query: CommandQuery
   actions: ResolvedAction[]
   hasMoreResults: boolean
@@ -86,6 +100,7 @@ interface PaletteState {
   detailAction?: ResolvedAction
   formMode?: 'create' | 'edit'
   settings?: UserSettings
+  lockInfo?: VaultLockInfo
   boot: () => Promise<void>
   primeHome: () => void
   resetToHome: () => Promise<void>
@@ -104,6 +119,19 @@ interface PaletteState {
   goBackOrClose: () => Promise<void>
   closePalette: () => Promise<void>
   unlockVault: () => Promise<void>
+  lockVault: () => Promise<void>
+  unlockWithHello: () => Promise<VaultOperationResult>
+  unlockWithPassword: (password: string) => Promise<VaultOperationResult>
+  verifyPasscode: (passcode: string) => Promise<{ success: boolean; message: string }>
+  setupMasterPassword: (password: string) => Promise<VaultOperationResult>
+  setPasscode: (passcode: string) => Promise<VaultOperationResult>
+  removePasscode: () => Promise<VaultOperationResult>
+  openSetPasscodePage: () => void
+  openSetMasterPasswordPage: () => void
+  submitSetPasscode: (passcode: string, confirmPasscode: string) => Promise<{ success: boolean; message: string }>
+  submitSetMasterPassword: (password: string, confirmPassword: string) => Promise<{ success: boolean; message: string }>
+  openConfirmPasscodeRemovalPage: () => void
+  confirmPasscodeRemoval: (passcode: string) => Promise<{ success: boolean; message: string }>
   focusInput: () => void
   updateSettings: (update: SettingsUpdate) => Promise<void>
   loadMoreActions: () => Promise<void>
@@ -129,17 +157,20 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   hasMoreResults: false,
   nextOffset: 0,
   selectedIndex: 0,
-  detailAction: undefined,
-  formMode: undefined,
+detailAction: undefined,
+  lockInfo: undefined,
   settings: DEFAULT_SETTINGS,
   async boot() {
     try {
       const resolveKey = ++nextResolveKey
       const settings = await api.settings.get()
+      const lockInfo = await api.vault.lockState()
+      const startPage = lockInfo.state === 'locked' ? 'locked' as const : lockInfo.state === 'passcode' ? 'passcode' as const : 'home' as const
       set({
         resolveKey,
         settings,
-        page: 'home',
+        lockInfo,
+        page: startPage,
         detailAction: undefined,
         formMode: undefined,
         execution: undefined,
@@ -158,7 +189,6 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       set({
         actions: response.actions,
         hasMoreResults: response.hasMore,
-        nextOffset: response.nextOffset,
         isLoadingResults: false,
       })
       set({ hydrated: true, bootError: undefined })
@@ -268,6 +298,10 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     }
 
     if (action.kind === 'open-settings') {
+      if (action.id === 'dev') {
+        set({ page: 'dev' as const, selectedIndex: 0, execution: undefined })
+        return
+      }
       set({ page: 'settings', selectedIndex: 0, execution: undefined })
       return
     }
@@ -389,7 +423,12 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       return
     }
 
-    if (page === 'settings') {
+    if (page === 'set-passcode' || page === 'set-master-password' || page === 'confirm-passcode-removal') {
+      set({ page: 'settings', selectedIndex: 0, formMode: undefined, execution: undefined })
+      return
+    }
+
+    if (page === 'settings' || page === 'dev') {
       set({ page: 'home', selectedIndex: 0, formMode: undefined, execution: undefined })
       return
     }
@@ -406,6 +445,108 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   },
   async unlockVault() {
     await api.vault.unlock()
+  },
+  async lockVault() {
+    await api.vault.lock()
+    const lockInfo = await api.vault.lockState()
+    set({ lockInfo, page: 'locked', actions: [], hasMoreResults: false, nextOffset: 0, selectedIndex: 0, detailAction: undefined, formMode: undefined, execution: undefined })
+  },
+  async unlockWithHello() {
+    const result = await api.vault.unlockWithHello()
+    if (result.success) {
+      const lockInfo = await api.vault.lockState()
+      set({ lockInfo, page: lockInfo.state === 'passcode' ? 'passcode' : lockInfo.state === 'unlocked' ? 'home' : 'locked' })
+      if (lockInfo.state === 'unlocked' || lockInfo.state === 'passcode') {
+        await get().resetToHome()
+      }
+    } else {
+      set({ lockInfo: { ...(get().lockInfo ?? { state: 'locked' as const, primaryMethods: [], passcodeEnabled: true, passcodeSet: false, masterPasswordSet: false, autoLockMinutes: 15, safeStorageAvailable: true }), state: 'locked' } })
+    }
+    return result
+  },
+  async unlockWithPassword(password: string) {
+    const result = await api.vault.unlockWithPassword(password)
+    if (result.success) {
+      const lockInfo = await api.vault.lockState()
+      set({ lockInfo, page: lockInfo.state === 'passcode' ? 'passcode' : lockInfo.state === 'unlocked' ? 'home' : 'locked' })
+      if (lockInfo.state === 'unlocked' || lockInfo.state === 'passcode') {
+        await get().resetToHome()
+      }
+    }
+    return result
+  },
+  async verifyPasscode(passcode: string) {
+    const result = await api.vault.verifyPasscode(passcode)
+    if (result.success) {
+      const lockInfo = await api.vault.lockState()
+      set({ lockInfo, page: 'home' })
+      await get().resetToHome()
+    }
+    return result
+  },
+  async setupMasterPassword(password: string) {
+    return await api.vault.setupMasterPassword(password)
+  },
+  async setPasscode(passcode: string) {
+    return await api.vault.setPasscode(passcode)
+  },
+  async removePasscode() {
+    const result = await api.vault.removePasscode()
+    if (result.success) {
+      const [lockInfo, settings] = await Promise.all([api.vault.lockState(), api.settings.get()])
+      set({ lockInfo, settings, page: 'settings', selectedIndex: 6 })
+    }
+    return result
+  },
+  openSetPasscodePage() {
+    set({ page: 'set-passcode', execution: undefined })
+  },
+  openSetMasterPasswordPage() {
+    set({ page: 'set-master-password', execution: undefined })
+  },
+  openConfirmPasscodeRemovalPage() {
+    set({ page: 'confirm-passcode-removal', execution: undefined })
+  },
+  async submitSetPasscode(passcode: string, confirmPasscode: string) {
+    if (passcode !== confirmPasscode) {
+      return { success: false, message: 'Passcodes do not match.' }
+    }
+
+    const result = await api.vault.setPasscode(passcode)
+    if (result.success) {
+      const settings = await api.settings.set({ passcodeEnabled: true })
+      const lockInfo = await api.vault.lockState()
+      set({ lockInfo, settings, page: 'settings', selectedIndex: 6 })
+    }
+    return result
+  },
+  async submitSetMasterPassword(password: string, confirmPassword: string) {
+    if (password !== confirmPassword) {
+      return { success: false, message: 'Passwords do not match.' }
+    }
+
+    const result = await api.vault.setupMasterPassword(password)
+    if (result.success) {
+      const [lockInfo, settings] = await Promise.all([api.vault.lockState(), api.settings.get()])
+      set({ lockInfo, settings, page: 'settings', selectedIndex: 7 })
+    }
+    return result
+  },
+  async confirmPasscodeRemoval(passcode: string) {
+    const confirm = await api.vault.confirmPasscode(passcode)
+    if (!confirm.success) {
+      return confirm
+    }
+
+    const remove = await api.vault.removePasscode()
+    if (!remove.success) {
+      return remove
+    }
+
+    const settings = await api.settings.set({ passcodeEnabled: false })
+    const lockInfo = await api.vault.lockState()
+    set({ lockInfo, settings, page: 'settings', selectedIndex: 6 })
+    return { success: true, message: 'Passcode removed.' }
   },
   focusInput() {
     document.querySelector('input')?.focus()

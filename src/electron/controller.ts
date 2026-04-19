@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
+import { VaultLockManager } from '@/electron/vault-lock'
 import { executePaletteAction } from '@/electron/palette-action-execution'
 import { captureForegroundWindow, captureForegroundWindowAsync } from '@/electron/windows'
 import { PASSKEY_ORIGIN, PASSKEY_RP_ID } from '@/shared/passkeys'
@@ -21,12 +22,12 @@ import type {
   ResolvedAction,
   SearchResponse,
   SettingsUpdate,
-  UpdateItemInput,
   UserSettings,
+  VaultLockInfo,
+  VaultOperationResult,
   VaultPasskeyRecord,
 } from '@/shared/types'
 
-const LOCK_WINDOW_MS = Number.POSITIVE_INFINITY
 const encodeWindowHandle = (buffer: Buffer) =>
   Array.from(buffer)
     .reduce((value, byte, index) => value | (BigInt(byte) << BigInt(index * 8)), 0n)
@@ -35,23 +36,102 @@ const encodeWindowHandle = (buffer: Buffer) =>
 export class KlarkeyController {
   private readonly keyManager = new KeyManager()
   private readonly database = createDatabase()
-  private readonly repository = new VaultRepository(this.database.db, this.keyManager.getKey())
   private readonly clipboard = new ClipboardManager()
   private readonly window: BrowserWindow
+  private readonly lockManager: VaultLockManager
   private readonly paletteWindowHandle: string
-  private unlockedUntil = 0
   private lastExternalWindow?: string
   private externalWindow?: ExternalWindowContext
   private actionCache = new Map<string, ResolvedAction>()
+  private readonly isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
 
   constructor(window: BrowserWindow) {
     this.window = window
     this.paletteWindowHandle = encodeWindowHandle(window.getNativeWindowHandle())
-    this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
+
+    let key: Buffer
+    if (this.keyManager.hasKeyFile()) {
+      if (this.keyManager.isSafeStorageAvailable()) {
+        this.keyManager.unlockFromSystem()
+      }
+      if (this.keyManager.isKeyInMemory() || this.keyManager.hasMasterPassword()) {
+        key = this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
+      } else {
+        key = Buffer.alloc(0)
+      }
+    } else if (this.keyManager.isSafeStorageAvailable()) {
+      key = this.keyManager.setupNewVault()
+    } else {
+      key = Buffer.alloc(0)
+    }
+
+    this.repository = new VaultRepository(this.database.db, key)
+    this.lockManager = new VaultLockManager(this.keyManager, this.database.db, this.repository.getSettings())
+
+    if (this.keyManager.isKeyInMemory()) {
+      this.lockManager.transitionAfterUnlock()
+    }
+
+    this.lockManager.onStateChange((info) => {
+      this.window.webContents.send(IPC_CHANNELS.vaultLockState, info)
+      if (info.state === 'locked') {
+        this.repository.clearKey()
+        this.clipboard.clearNow()
+      } else if (info.state === 'unlocked' || info.state === 'passcode') {
+        if (this.keyManager.isKeyInMemory()) {
+          this.repository.setKey(this.keyManager.getKey())
+        }
+      }
+    })
   }
 
   dispose() {
+    this.lockManager.lock()
     this.database.close()
+  }
+
+  getLockInfo() {
+    return this.lockManager.getLockInfo()
+  }
+
+  async unlockWithWindowsHello(): Promise<VaultOperationResult> {
+    return this.lockManager.unlockWithWindowsHello()
+  }
+
+  unlockWithPassword(password: string): VaultOperationResult {
+    return this.lockManager.unlockWithPassword(password)
+  }
+
+  lock() {
+    this.lockManager.lock()
+  }
+
+  setupMasterPassword(password: string) {
+    return this.lockManager.setupMasterPassword(password)
+  }
+
+  changeMasterPassword(currentPassword: string, newPassword: string) {
+    return this.lockManager.changeMasterPassword(currentPassword, newPassword)
+  }
+
+  removeMasterPassword(currentPassword: string) {
+    return this.lockManager.removeMasterPassword(currentPassword)
+  }
+
+  setPasscode(passcode: string) {
+    return this.lockManager.setPasscode(passcode)
+  }
+
+  removePasscode() {
+    return this.lockManager.removePasscode()
+  }
+
+  verifyPasscode(passcode: string) {
+    return this.lockManager.verifyPasscode(passcode)
+  }
+
+  confirmPasscode(passcode: string) {
+    return this.lockManager.confirmPasscode(passcode)
   }
 
   getSettings(): UserSettings {
@@ -60,23 +140,36 @@ export class KlarkeyController {
 
   updateSettings(update: SettingsUpdate) {
     const settings = this.repository.updateSettings(update)
+    this.lockManager.updateSettings(settings)
     app.setLoginItemSettings({ openAtLogin: settings.launchOnStartup })
     return settings
   }
 
   createItem(input: CreateItemInput) {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
     return this.repository.createItem(input)
   }
 
   getItem(itemId: string) {
+    if (this.lockManager.isLocked()) {
+      return undefined
+    }
     return this.repository.getItemDetails(itemId)
   }
 
   updateItem(input: UpdateItemInput) {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
     return this.repository.updateItem(input)
   }
 
   deleteItem(itemId: string) {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
     return this.repository.deleteItem(itemId)
   }
 
@@ -98,19 +191,35 @@ export class KlarkeyController {
   }
 
   listVaultPasskeys(): VaultPasskeyRecord[] {
+    if (this.lockManager.isLocked()) {
+      return []
+    }
     return this.repository.listVaultPasskeys()
   }
 
   createVaultPasskey(input: CreateVaultPasskeyInput): ActionExecutionResult {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
     return this.repository.createVaultPasskey(input)
   }
 
   authenticateVaultPasskey(credentialId: string): ActionExecutionResult {
-    this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
-    return this.repository.touchVaultPasskey(credentialId)
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
+
+    const result = this.repository.touchVaultPasskey(credentialId)
+    if (result.status === 'success') {
+      this.lockManager.transitionAfterUnlock()
+    }
+    return result
   }
 
   deleteVaultPasskey(passkeyId: string): ActionExecutionResult {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
     return this.repository.deleteVaultPasskey(passkeyId)
   }
 
@@ -123,8 +232,9 @@ export class KlarkeyController {
     const response = resolveSearchResponse(snapshot, request.query, {
       offset: request.offset,
       limit: request.limit,
-      locked: this.isLocked(),
+      locked: this.lockManager.isLocked() || this.lockManager.requiresPasscode(),
       targetContext: this.externalWindow,
+      showDevOptions: this.isDevMode,
     })
 
     if ((request.offset ?? 0) === 0) {
@@ -137,20 +247,39 @@ export class KlarkeyController {
 
     return {
       ...response,
-      locked: this.isLocked(),
+      locked: this.lockManager.isLocked() || this.lockManager.requiresPasscode(),
     }
   }
 
   unlock(): ActionExecutionResult {
-    this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
+    if (this.lockManager.isUnlocked()) {
+      return {
+        status: 'success',
+        title: 'Vault ready',
+        message: 'Sensitive actions are already available.',
+      }
+    }
+
     return {
-      status: 'success',
-      title: 'Vault ready',
-      message: 'Sensitive actions are already available.',
+      status: 'locked',
+      title: 'Vault locked',
+      message: 'Use Windows Hello or your master password to unlock.',
     }
   }
 
   execute(_: IpcMainInvokeEvent, actionId: string, modifier: ModifierKey): ActionExecutionResult {
+    if (this.lockManager.isLocked()) {
+      return lockedResult()
+    }
+
+    if (this.lockManager.requiresPasscode()) {
+      return {
+        status: 'locked',
+        title: 'Passcode required',
+        message: 'Enter your passcode to continue.',
+      }
+    }
+
     return executePaletteAction(
       {
         repository: this.repository,
@@ -158,9 +287,11 @@ export class KlarkeyController {
         window: this.window,
         getLastExternalWindow: () => this.lastExternalWindow,
         getActionCache: () => this.actionCache,
-        isLocked: () => this.isLocked(),
+        isLocked: () => this.lockManager.isLocked(),
         extendUnlockWindow: () => {
-          this.unlockedUntil = Date.now() + LOCK_WINDOW_MS
+          if (this.lockManager.isUnlocked()) {
+            this.lockManager.updateSettings(this.repository.getSettings())
+          }
         },
       },
       actionId,
@@ -211,7 +342,41 @@ export class KlarkeyController {
     this.setExternalWindowContext(await captureForegroundWindowAsync())
   }
 
-  private isLocked() {
-    return Date.now() > this.unlockedUntil
+  isVaultUnlockedForExtension() {
+    return !this.lockManager.isLocked()
+  }
+
+  devForceLock() {
+    this.lockManager.lock()
+  }
+
+  devForceUnlock() {
+    if (this.keyManager.isSafeStorageAvailable()) {
+      this.keyManager.unlockFromSystem()
+    }
+    if (this.keyManager.isKeyInMemory()) {
+      this.lockManager.transitionAfterUnlock()
+      this.repository.setKey(this.keyManager.getKey())
+    }
+  }
+
+  devForcePasscode() {
+    this.lockManager.forcePasscodeState()
+  }
+
+  devDumpLockInfo(): VaultLockInfo & { keyInMemory: boolean; keyFileExists: boolean } {
+    return {
+      ...this.lockManager.getLockInfo(),
+      keyInMemory: this.keyManager.isKeyInMemory(),
+      keyFileExists: this.keyManager.hasKeyFile(),
+    }
+  }
+}
+
+function lockedResult(): ActionExecutionResult {
+  return {
+    status: 'locked',
+    title: 'Vault locked',
+    message: 'Unlock the vault to continue.',
   }
 }

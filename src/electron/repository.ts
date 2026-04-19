@@ -45,8 +45,8 @@ import {
 } from '@/shared/types'
 
 export class VaultRepository {
-  private readonly db: Database.Database
-  private readonly key: Buffer
+  private db: Database.Database
+  private key: Buffer
 
   constructor(
     db: Database.Database,
@@ -55,6 +55,21 @@ export class VaultRepository {
     this.db = db
     this.key = key
     this.prunePendingPasskeys()
+  }
+
+  setKey(key: Buffer) {
+    this.key = key
+  }
+
+  clearKey() {
+    if (this.key && this.key.length > 0) {
+      this.key.fill(0)
+    }
+    this.key = Buffer.alloc(0)
+  }
+
+  isLocked(): boolean {
+    return this.key.length !== 32
   }
 
   private prunePendingPasskeys() {

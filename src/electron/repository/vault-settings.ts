@@ -18,6 +18,8 @@ export function readVaultSettings(db: Database.Database): UserSettings {
     browserAutoOpenMenu: fromDb.browserAutoOpenMenu === 'false' ? false : DEFAULT_SETTINGS.browserAutoOpenMenu,
     browserAutoSubmitLogin: fromDb.browserAutoSubmitLogin === 'false' ? false : DEFAULT_SETTINGS.browserAutoSubmitLogin,
     browserSavePrompts: fromDb.browserSavePrompts === 'false' ? false : DEFAULT_SETTINGS.browserSavePrompts,
+    passcodeEnabled: fromDb.passcodeEnabled === 'false' ? false : DEFAULT_SETTINGS.passcodeEnabled,
+    autoLockMinutes: Number(fromDb.autoLockMinutes ?? DEFAULT_SETTINGS.autoLockMinutes) || DEFAULT_SETTINGS.autoLockMinutes,
   }
 }
 
@@ -34,6 +36,8 @@ export function mergeVaultSettings(db: Database.Database, update: SettingsUpdate
   statement.run('browserAutoOpenMenu', String(next.browserAutoOpenMenu))
   statement.run('browserAutoSubmitLogin', String(next.browserAutoSubmitLogin))
   statement.run('browserSavePrompts', String(next.browserSavePrompts))
+  statement.run('passcodeEnabled', String(next.passcodeEnabled))
+  statement.run('autoLockMinutes', String(next.autoLockMinutes))
 
   return next
 }

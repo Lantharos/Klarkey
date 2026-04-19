@@ -1,5 +1,6 @@
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { unlinkSync } from 'node:fs'
 import {
   app,
   BrowserWindow,
@@ -21,6 +22,8 @@ import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native
 import { readPasskeyProviderMessageSync, runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 
+const ALLOWED_SENDER_PROTOCOLS = [PASSKEY_SCHEME, 'http', 'https']
+
 protocol.registerSchemesAsPrivileged([
   {
     scheme: PASSKEY_SCHEME,
@@ -38,7 +41,8 @@ let windowRef: BrowserWindow | null = null
 let controllerRef: KlarkeyController | null = null
 let isQuitting = false
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const isDevMode = process.argv.includes('--dev')
+const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
+const shouldOpenPaletteOnStart = process.argv.includes('--open-palette')
 const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
 const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
 const initialNativeHostRequest = isNativeMessagingHostMode ? readNativeMessageSync() : undefined
@@ -72,6 +76,17 @@ const registerAppProtocol = () => {
 
     return net.fetch(pathToFileURL(resolveAppAssetPath(url.pathname)).toString())
   })
+}
+
+const validateIpcSender = (event: Electron.IpcMainInvokeEvent) => {
+  if (isDevMode && event.senderFrame.url.startsWith('http://')) {
+    return
+  }
+
+  const senderProtocol = new URL(event.senderFrame.url).protocol.replace(':', '')
+  if (!ALLOWED_SENDER_PROTOCOLS.includes(senderProtocol as typeof ALLOWED_SENDER_PROTOCOLS[number])) {
+    throw new Error('Unauthorized IPC sender')
+  }
 }
 
 const createWindow = async () => {
@@ -140,7 +155,7 @@ const createWindow = async () => {
   }
 
   window.once('ready-to-show', () => {
-    if (isDevMode) {
+    if (isDevMode || shouldOpenPaletteOnStart) {
       openPalette()
     }
   })
@@ -186,6 +201,8 @@ const createTray = () => {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Open Klarkey', click: openPalette },
+      { label: 'Lock Vault', click: () => controllerRef?.lock() },
+      { type: 'separator' },
       {
         label: 'Quit',
         click: () => {
@@ -199,21 +216,106 @@ const createTray = () => {
 }
 
 const bindIpc = () => {
-  ipcMain.handle(IPC_CHANNELS.paletteOpen, async () => openPalette())
-  ipcMain.handle(IPC_CHANNELS.paletteClose, async () => closePalette())
-  ipcMain.handle(IPC_CHANNELS.commandParse, (event, raw) => controllerRef?.parseCommand(event, raw))
-  ipcMain.handle(IPC_CHANNELS.searchResolve, (event, query) => controllerRef?.resolve(event, query))
-  ipcMain.handle(IPC_CHANNELS.actionExecute, (event, actionId, modifier) =>
-    controllerRef?.execute(event, actionId, modifier),
-  )
-  ipcMain.handle(IPC_CHANNELS.itemGet, (_, itemId) => controllerRef?.getItem(itemId))
-  ipcMain.handle(IPC_CHANNELS.itemCreate, (_, input) => controllerRef?.createItem(input))
-  ipcMain.handle(IPC_CHANNELS.itemUpdate, (_, input) => controllerRef?.updateItem(input))
-  ipcMain.handle(IPC_CHANNELS.itemDelete, (_, itemId) => controllerRef?.deleteItem(itemId))
-  ipcMain.handle(IPC_CHANNELS.vaultUnlock, () => controllerRef?.unlock())
-  ipcMain.handle(IPC_CHANNELS.settingsGet, () => controllerRef?.getSettings())
-  ipcMain.handle(IPC_CHANNELS.paletteTargetGet, () => controllerRef?.getExternalWindowContext())
-  ipcMain.handle(IPC_CHANNELS.settingsSet, (_, update) => {
+  const vaultLockedResult = {
+    status: 'locked',
+    title: 'Vault locked',
+    message: 'Unlock the vault to continue.',
+  } as const
+
+  const withVaultUnlocked = <TArgs extends unknown[], TResult>(
+    lockedFallback: TResult,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => TResult,
+  ) => {
+    return (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => {
+      validateIpcSender(event)
+      const state = controllerRef?.getLockInfo().state
+      if (state !== 'unlocked') {
+        return lockedFallback
+      }
+      return handler(event, ...args)
+    }
+  }
+
+  ipcMain.handle(IPC_CHANNELS.paletteOpen, async (event) => {
+    validateIpcSender(event)
+    openPalette()
+  })
+  ipcMain.handle(IPC_CHANNELS.paletteClose, async (event) => {
+    validateIpcSender(event)
+    closePalette()
+  })
+  ipcMain.handle(IPC_CHANNELS.commandParse, (event, raw) => {
+    validateIpcSender(event)
+    return controllerRef?.parseCommand(event, raw)
+  })
+  ipcMain.handle(IPC_CHANNELS.searchResolve, (event, query) => {
+    validateIpcSender(event)
+    return controllerRef?.resolve(event, query)
+  })
+  ipcMain.handle(IPC_CHANNELS.actionExecute, withVaultUnlocked(vaultLockedResult, (event, actionId, modifier) => controllerRef?.execute(event, actionId, modifier) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.itemGet, withVaultUnlocked(undefined, (_event, itemId) => controllerRef?.getItem(itemId)))
+  ipcMain.handle(IPC_CHANNELS.itemCreate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createItem(input) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.itemUpdate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.updateItem(input) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.itemDelete, withVaultUnlocked(vaultLockedResult, (_event, itemId) => controllerRef?.deleteItem(itemId) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.vaultUnlock, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.unlock()
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultLockState, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.getLockInfo()
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithHello, async (event) => {
+    validateIpcSender(event)
+    const result = await controllerRef?.unlockWithWindowsHello()
+    return result ?? { success: false, message: 'Controller not available.' }
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, (event, password: string) => {
+    validateIpcSender(event)
+    return controllerRef?.unlockWithPassword(password)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultLock, (event) => {
+    validateIpcSender(event)
+    controllerRef?.lock()
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultSetupMasterPassword, (event, password: string) => {
+    validateIpcSender(event)
+    return controllerRef?.setupMasterPassword(password)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultChangeMasterPassword, (event, currentPassword: string, newPassword: string) => {
+    validateIpcSender(event)
+    return controllerRef?.changeMasterPassword(currentPassword, newPassword)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultRemoveMasterPassword, (event, currentPassword: string) => {
+    validateIpcSender(event)
+    return controllerRef?.removeMasterPassword(currentPassword)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultSetPasscode, (event, passcode: string) => {
+    validateIpcSender(event)
+    return controllerRef?.setPasscode(passcode)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultRemovePasscode, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.removePasscode()
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultConfirmPasscode, (event, passcode: string) => {
+    validateIpcSender(event)
+    return controllerRef?.confirmPasscode(passcode)
+  })
+  ipcMain.handle(IPC_CHANNELS.vaultVerifyPasscode, (event, passcode: string) => {
+    validateIpcSender(event)
+    return controllerRef?.verifyPasscode(passcode)
+  })
+  ipcMain.handle(IPC_CHANNELS.settingsGet, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.getSettings()
+  })
+  ipcMain.handle(IPC_CHANNELS.paletteTargetGet, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.getExternalWindowContext()
+  })
+  ipcMain.handle(IPC_CHANNELS.settingsSet, (event, update) => {
+    validateIpcSender(event)
     const previous = controllerRef?.getSettings()
     if (!previous) {
       return undefined
@@ -232,13 +334,66 @@ const bindIpc = () => {
 
     return controllerRef?.updateSettings(update)
   })
-  ipcMain.handle(IPC_CHANNELS.passkeySupport, () => controllerRef?.getPasskeySupport())
-  ipcMain.handle(IPC_CHANNELS.passkeyList, () => controllerRef?.listVaultPasskeys())
-  ipcMain.handle(IPC_CHANNELS.passkeyCreate, (_, input) => controllerRef?.createVaultPasskey(input))
-  ipcMain.handle(IPC_CHANNELS.passkeyAuthenticate, (_, credentialId) =>
-    controllerRef?.authenticateVaultPasskey(credentialId),
-  )
-  ipcMain.handle(IPC_CHANNELS.passkeyDelete, (_, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId))
+  ipcMain.handle(IPC_CHANNELS.passkeySupport, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.getPasskeySupport()
+  })
+  ipcMain.handle(IPC_CHANNELS.passkeyList, withVaultUnlocked([], () => controllerRef?.listVaultPasskeys() ?? []))
+  ipcMain.handle(IPC_CHANNELS.passkeyCreate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(input) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.passkeyAuthenticate, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(credentialId) ?? vaultLockedResult))
+  ipcMain.handle(IPC_CHANNELS.passkeyDelete, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId) ?? vaultLockedResult))
+
+  if (isDevMode) {
+    ipcMain.handle(IPC_CHANNELS.devForceLock, (event) => {
+      validateIpcSender(event)
+      controllerRef?.devForceLock()
+      return controllerRef?.getLockInfo()
+    })
+    ipcMain.handle(IPC_CHANNELS.devForceUnlock, (event) => {
+      validateIpcSender(event)
+      controllerRef?.devForceUnlock()
+      return controllerRef?.getLockInfo()
+    })
+    ipcMain.handle(IPC_CHANNELS.devForcePasscode, (event) => {
+      validateIpcSender(event)
+      controllerRef?.devForcePasscode()
+      return controllerRef?.getLockInfo()
+    })
+    ipcMain.handle(IPC_CHANNELS.devDumpLockInfo, (event) => {
+      validateIpcSender(event)
+      return controllerRef?.devDumpLockInfo()
+    })
+    ipcMain.handle(IPC_CHANNELS.devResetVault, async (event) => {
+      validateIpcSender(event)
+
+      controllerRef?.dispose()
+      controllerRef = null
+
+      const dbPath = join(app.getPath('userData'), 'klarkey.sqlite')
+      const dbWalPath = `${dbPath}-wal`
+      const dbShmPath = `${dbPath}-shm`
+      const keyPath = join(app.getPath('userData'), 'vault.key')
+      try { unlinkSync(dbPath) } catch { /* ok */ }
+      try { unlinkSync(dbWalPath) } catch { /* ok */ }
+      try { unlinkSync(dbShmPath) } catch { /* ok */ }
+      try { unlinkSync(keyPath) } catch { /* ok */ }
+
+      try {
+        await session.defaultSession.clearCache()
+      } catch {
+        // ignore cache clear failures in dev reset
+      }
+
+      if (process.env.VITE_DEV_SERVER_URL) {
+        app.quit()
+        return { status: 'quit' }
+      }
+
+      app.relaunch()
+      app.exit(0)
+      return { status: 'restarting' }
+    })
+  }
 }
 
 app.whenReady()
@@ -301,6 +456,7 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   controllerRef?.dispose()
+  controllerRef = null
 })
 
 app.on('window-all-closed', () => undefined)

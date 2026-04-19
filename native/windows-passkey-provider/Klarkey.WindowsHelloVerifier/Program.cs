@@ -117,12 +117,14 @@ internal static class Program
             }
 
             ApplicationConfiguration.Initialize();
+            var activeScreen = Screen.FromPoint(Cursor.Position).WorkingArea;
             using var ownerWindow = new Form
             {
                 ShowInTaskbar = false,
+                FormBorderStyle = FormBorderStyle.None,
                 StartPosition = FormStartPosition.Manual,
-                Left = -32000,
-                Top = -32000,
+                Left = activeScreen.Left + (activeScreen.Width / 2),
+                Top = activeScreen.Top + (activeScreen.Height / 2),
                 Width = 1,
                 Height = 1,
                 Opacity = 0,

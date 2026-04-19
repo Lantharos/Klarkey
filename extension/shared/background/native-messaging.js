@@ -7,6 +7,7 @@ let nativePort
 let nativePortPromise
 let nativePortGeneration = 0
 const nativePortRequests = new Map()
+let lastKnownUnlockedAt = 0
 
 let desktopState = {
   connected: false,
@@ -16,6 +17,19 @@ let desktopState = {
 
 export const OPERATION_TIMEOUT_MS = 4000
 export const HOST_TIMEOUT_MS = 15000
+export const UNLOCK_RETRY_WAIT_MS = 15000
+export const UNLOCK_POLL_INTERVAL_MS = 350
+export const UNLOCK_GRACE_MS = 20000
+const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
+  'list-logins',
+  'list-field-suggestions',
+  'get-login',
+  'get-identity',
+  'get-card',
+  'passkeys-status',
+  'passkey-create-plan',
+  'passkey-get-plan',
+])
 
 export const createRequestId = () =>
   `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
@@ -158,7 +172,7 @@ export async function getPageContext(tab) {
   }
 }
 
-export async function requestHost(payload) {
+async function sendHostRequest(payload) {
   const port = await ensureNativePort()
   const id = createRequestId()
 
@@ -189,6 +203,50 @@ export async function requestHost(payload) {
     'Timed out while contacting the Klarkey desktop bridge.',
     HOST_TIMEOUT_MS,
   )
+}
+
+async function waitForDesktopUnlock(timeoutMs = UNLOCK_RETRY_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const ping = await sendHostRequest({ type: 'ping' }).catch(() => undefined)
+    if (ping?.ok && ping?.result?.vaultUnlocked) {
+      lastKnownUnlockedAt = Date.now()
+      return true
+    }
+
+    await new Promise((resolve) => globalThis.setTimeout(resolve, UNLOCK_POLL_INTERVAL_MS))
+  }
+
+  return false
+}
+
+export async function requestHost(payload) {
+  const inUnlockGraceWindow = Date.now() - lastKnownUnlockedAt <= UNLOCK_GRACE_MS
+  if (inUnlockGraceWindow && RETRYABLE_AFTER_UNLOCK_TYPES.has(payload?.type)) {
+    const optimistic = await sendHostRequest(payload)
+    if (!(optimistic?.ok && optimistic?.result?.status === 'locked')) {
+      return optimistic
+    }
+  }
+
+  const response = await sendHostRequest(payload)
+  const shouldRetryAfterUnlock =
+    RETRYABLE_AFTER_UNLOCK_TYPES.has(payload?.type) &&
+    response?.ok &&
+    response?.result?.status === 'locked'
+
+  if (!shouldRetryAfterUnlock) {
+    return response
+  }
+
+  const unlocked = await waitForDesktopUnlock()
+  if (!unlocked) {
+    return response
+  }
+
+  lastKnownUnlockedAt = Date.now()
+  return sendHostRequest(payload)
 }
 
 export async function ensureDesktopConnected() {

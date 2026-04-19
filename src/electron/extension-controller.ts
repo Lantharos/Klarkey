@@ -1,17 +1,103 @@
+import { spawn } from 'node:child_process'
 import { KeyManager } from '@/electron/crypto'
 import { readCreateUserVerification, readGetUserVerification } from '@/electron/passkey-user-verification'
 import { createDatabase } from '@/electron/database'
 import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
 import { VaultRepository } from '@/electron/repository'
-import { KLARKEY_EXTENSION_PROTOCOL_VERSION, type BrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
+import { app } from 'electron'
+import { KLARKEY_EXTENSION_PROTOCOL_VERSION, normalizeBrowserHostname, type BrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
+
+const validateOrigin = (origin: string, url: string): string | undefined => {
+  try {
+    const originHostname = new URL(origin).hostname.toLowerCase()
+    const urlHostname = normalizeBrowserHostname(url)
+    if (!urlHostname) {
+      return originHostname
+    }
+    if (originHostname === urlHostname || originHostname.endsWith(`.${urlHostname}`) || urlHostname.endsWith(`.${originHostname}`)) {
+      return originHostname
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
 
 export class BrowserExtensionController {
   private readonly keyManager = new KeyManager()
   private readonly database = createDatabase()
-  private readonly repository = new VaultRepository(this.database.db, this.keyManager.getKey())
+  private readonly repository: VaultRepository
+  private lastUnlockPromptAt = 0
+
+  private readDesktopLockState(): 'locked' | 'passcode' | 'unlocked' {
+    const row = this.database.db.prepare('SELECT value FROM settings WHERE key = ?').get('vault_lock_state') as { value?: string } | undefined
+    if (row?.value === 'unlocked' || row?.value === 'passcode' || row?.value === 'locked') {
+      return row.value
+    }
+    return 'locked'
+  }
+
+  constructor() {
+    if (this.keyManager.isSafeStorageAvailable()) {
+      this.keyManager.unlockFromSystem()
+    }
+
+    const key = this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
+    this.repository = new VaultRepository(this.database.db, key)
+  }
 
   dispose() {
     this.database.close()
+  }
+
+  private ensureVaultReady() {
+    const lockState = this.readDesktopLockState()
+    if (lockState !== 'unlocked') {
+      return false
+    }
+
+    if (!this.keyManager.isKeyInMemory() && this.keyManager.isSafeStorageAvailable()) {
+      this.keyManager.unlockFromSystem()
+    }
+
+    if (this.keyManager.isKeyInMemory()) {
+      this.repository.setKey(this.keyManager.getKey())
+      return true
+    }
+
+    return false
+  }
+
+  private lockedExtensionResult() {
+    return {
+      status: 'locked',
+      title: 'Vault locked',
+      message: 'Unlock Klarkey to use browser autofill.',
+    } as const
+  }
+
+  private promptDesktopUnlock() {
+    const now = Date.now()
+    if (now - this.lastUnlockPromptAt < 2500) {
+      return
+    }
+    this.lastUnlockPromptAt = now
+
+    const appPath = app.getAppPath()
+    const args = appPath && appPath !== process.execPath
+      ? [appPath, '--open-palette']
+      : ['--open-palette']
+
+    try {
+      const child = spawn(process.execPath, args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      })
+      child.unref()
+    } catch {
+      // ignore spawn failures; extension still gets locked response
+    }
   }
 
   private buildWindowsHelloMessage(operation: 'create' | 'get', url: string) {
@@ -99,9 +185,20 @@ export class BrowserExtensionController {
   }
 
   async handle(request: BrowserExtensionRequest): Promise<BrowserExtensionResponse> {
+    const requiresVault = request.type !== 'ping' && request.type !== 'get-settings'
+    if (requiresVault && !this.ensureVaultReady()) {
+      this.promptDesktopUnlock()
+      return {
+        id: request.id,
+        ok: true,
+        result: this.lockedExtensionResult(),
+      }
+    }
+
     switch (request.type) {
       case 'ping': {
         const availability = await getWindowsHelloAvailability()
+        const vaultUnlocked = this.readDesktopLockState() === 'unlocked' && this.ensureVaultReady()
         return {
           id: request.id,
           ok: true,
@@ -110,6 +207,7 @@ export class BrowserExtensionController {
             desktopRequired: true,
             passkeyProviderReady: false,
             nativeUserVerificationReady: availability.available,
+            vaultUnlocked,
           },
         }
       }
@@ -123,7 +221,15 @@ export class BrowserExtensionController {
           },
         }
 
-      case 'get-login':
+      case 'get-login': {
+        const loginVerification = await this.resolveUserVerification('get', '', request.url)
+        if (!loginVerification.ok) {
+          return {
+            id: request.id,
+            ok: true,
+            result: loginVerification.result,
+          }
+        }
         return {
           id: request.id,
           ok: true,
@@ -131,8 +237,17 @@ export class BrowserExtensionController {
             login: this.repository.getBrowserFillLogin(request.itemId),
           },
         }
+      }
 
-      case 'get-identity':
+      case 'get-identity': {
+        const identityVerification = await this.resolveUserVerification('get', '', request.url)
+        if (!identityVerification.ok) {
+          return {
+            id: request.id,
+            ok: true,
+            result: identityVerification.result,
+          }
+        }
         return {
           id: request.id,
           ok: true,
@@ -140,8 +255,17 @@ export class BrowserExtensionController {
             identity: this.repository.getBrowserFillIdentity(request.itemId),
           },
         }
+      }
 
-      case 'get-card':
+      case 'get-card': {
+        const cardVerification = await this.resolveUserVerification('get', '', request.url)
+        if (!cardVerification.ok) {
+          return {
+            id: request.id,
+            ok: true,
+            result: cardVerification.result,
+          }
+        }
         return {
           id: request.id,
           ok: true,
@@ -149,6 +273,7 @@ export class BrowserExtensionController {
             card: this.repository.getBrowserFillCard(request.itemId),
           },
         }
+      }
 
       case 'list-field-suggestions':
         return {
@@ -192,6 +317,29 @@ export class BrowserExtensionController {
         }
 
       case 'passkey-create-credential': {
+        if (!request.origin) {
+          return {
+            id: request.id,
+            ok: false,
+            error: {
+              code: 'missing_origin',
+              message: 'The passkey creation request is missing the origin.',
+            },
+          }
+        }
+
+        const validOrigin = validateOrigin(request.origin, request.url)
+        if (!validOrigin) {
+          return {
+            id: request.id,
+            ok: false,
+            error: {
+              code: 'invalid_origin',
+              message: 'The passkey origin does not match the requesting site.',
+            },
+          }
+        }
+
         const verification = await this.resolveUserVerification('create', request.requestDetailsJson, request.url)
         if (!verification.ok) {
           return {
@@ -257,6 +405,29 @@ export class BrowserExtensionController {
         }
 
       case 'passkey-get-credential': {
+        if (!request.origin) {
+          return {
+            id: request.id,
+            ok: false,
+            error: {
+              code: 'missing_origin',
+              message: 'The passkey authentication request is missing the origin.',
+            },
+          }
+        }
+
+        const validOrigin = validateOrigin(request.origin, request.url)
+        if (!validOrigin) {
+          return {
+            id: request.id,
+            ok: false,
+            error: {
+              code: 'invalid_origin',
+              message: 'The passkey origin does not match the requesting site.',
+            },
+          }
+        }
+
         const verification = await this.resolveUserVerification('get', request.requestDetailsJson, request.url)
         if (!verification.ok) {
           return {
