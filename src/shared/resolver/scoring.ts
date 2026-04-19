@@ -1,3 +1,4 @@
+import { normalizeBrowserHostname, primarySiteLabelFromHostname } from '@/shared/browser-extension'
 import { normalizeLoginLogoDomain } from '@/shared/login-logo'
 import type { ExternalWindowContext, ItemProfile, RecentAction } from '@/shared/types'
 
@@ -21,15 +22,6 @@ const stripTrailingBrowserFromTitle = (title: string) =>
   title
     .replace(/\s*[-—|]\s*(Google Chrome|Chromium|Microsoft Edge|Mozilla Firefox|Opera|Brave Browser|Brave|Vivaldi|Zen Browser|Arc)\s*$/i, '')
     .trim()
-
-const websiteHostname = (website: string) => {
-  try {
-    const candidate = website.includes('://') ? website : `https://${website}`
-    return new URL(candidate).hostname.replace(/^www\./i, '').toLowerCase()
-  } catch {
-    return undefined
-  }
-}
 
 export function scoreForegroundMatch(item: ItemProfile, context?: ExternalWindowContext) {
   if (!context) {
@@ -57,10 +49,17 @@ export function scoreForegroundMatch(item: ItemProfile, context?: ExternalWindow
 
   if (item.itemType === 'login') {
     for (const site of item.websites ?? []) {
-      const host = websiteHostname(site)
-      if (host && host.length >= 4 && titleBlob.includes(host)) {
+      const host = normalizeBrowserHostname(site)
+      if (!host || host.length < 4) {
+        continue
+      }
+      if (titleBlob.includes(host)) {
         bonus = Math.max(bonus, 70)
-        break
+      } else {
+        const primaryLabel = primarySiteLabelFromHostname(host)
+        if (primaryLabel && titleBlob.includes(primaryLabel)) {
+          bonus = Math.max(bonus, 66)
+        }
       }
     }
 

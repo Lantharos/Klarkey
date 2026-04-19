@@ -1,4 +1,4 @@
-import { scoreWebsiteMatch } from '@/shared/browser-extension'
+import { normalizeBrowserHostname, primarySiteLabelFromHostname, scoreWebsiteMatch } from '@/shared/browser-extension'
 import { getHostnameLabel, normalizeSearchText, scoreTextHit } from '@/electron/repository/helpers'
 import type { BrowserSiteMatch, VaultSnapshot } from '@/shared/types'
 
@@ -13,12 +13,21 @@ export function buildBrowserSiteMatches(snapshot: VaultSnapshot, url: string, ti
       score: (() => {
         const siteScore = scoreWebsiteMatch(item.websites ?? [], url)
         const itemName = normalizeSearchText(item.itemName)
-        const username = normalizeSearchText(item.username)
         const labelScore = siteLabel ? scoreTextHit(itemName, siteLabel, 28, 20) : 0
         const titleScore = itemName ? scoreTextHit(titleText, itemName, 26, 18) : 0
         const urlScore = itemName ? scoreTextHit(urlText, itemName, 20, 14) : 0
-        const usernameTitleScore = username ? scoreTextHit(titleText, username, 18, 12) : 0
-        return siteScore + labelScore + titleScore + urlScore + usernameTitleScore
+        let savedSiteLabelInTitleScore = 0
+        for (const site of item.websites ?? []) {
+          const host = normalizeBrowserHostname(site)
+          if (!host) {
+            continue
+          }
+          const primaryLabel = primarySiteLabelFromHostname(host)
+          if (primaryLabel && titleText.includes(primaryLabel)) {
+            savedSiteLabelInTitleScore = Math.max(savedSiteLabelInTitleScore, 28)
+          }
+        }
+        return siteScore + labelScore + titleScore + urlScore + savedSiteLabelInTitleScore
       })(),
     }))
     .filter((entry) => entry.score > 0)

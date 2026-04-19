@@ -97,7 +97,23 @@ export function buildResolvedActions(
   }
 
   if (!query.raw) {
-    const recentActions = snapshot.items.map((item) => ({
+    const ranked = snapshot.items
+      .map((item) => ({
+        item,
+        foreground: scoreForegroundMatch(item, targetContext),
+        recent: scoreRecent(snapshot.recents, item.id),
+      }))
+      .sort((a, b) => {
+        if (b.foreground !== a.foreground) {
+          return b.foreground - a.foreground
+        }
+        if (b.recent !== a.recent) {
+          return b.recent - a.recent
+        }
+        return a.item.itemName.localeCompare(b.item.itemName)
+      })
+
+    const recentActions = ranked.map(({ item, foreground, recent }) => ({
       id: `open:${item.id}`,
       kind: 'open-item' as const,
       title: item.itemName,
@@ -113,19 +129,10 @@ export function buildResolvedActions(
             }
           : undefined,
       requiresUnlock: false,
-      score: scoreRecent(snapshot.recents, item.id) + scoreForegroundMatch(item, targetContext),
+      score: foreground + recent,
     }))
 
-    return [
-      ...recentActions.sort((left, right) => {
-        if (right.score !== left.score) {
-          return right.score - left.score
-        }
-
-        return left.title.localeCompare(right.title)
-      }),
-      settingsAction,
-    ]
+    return [...recentActions, settingsAction]
   }
 
   const matchingItems = snapshot.items
