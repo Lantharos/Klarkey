@@ -105,6 +105,8 @@ export function SettingsPage({
   onSetPasscode,
   onSetupMasterPassword,
   onToggleSshAgent,
+  onExportVault,
+  onImportVault,
   pointerActive = true,
 }: {
   settings: UserSettings
@@ -123,6 +125,8 @@ export function SettingsPage({
   onSetPasscode: () => void
   onSetupMasterPassword: () => void
   onToggleSshAgent: () => void
+  onExportVault: () => void
+  onImportVault: () => void
   pointerActive?: boolean
 }) {
   const clipLabel = formatClipboardClearLabel(settings.clearClipboardSeconds)
@@ -216,6 +220,23 @@ export function SettingsPage({
         selected={selectedIndex === 9}
         onHover={() => onSelectRow(9)}
         onClick={onToggleSshAgent}
+        pointerActive={pointerActive}
+      />
+      <div className="px-3 pb-1 pt-3 text-[12px] text-white/38">Data</div>
+      <SettingRow
+        label="Export vault"
+        value="Klarkey or CSV"
+        selected={selectedIndex === 10}
+        onHover={() => onSelectRow(10)}
+        onClick={onExportVault}
+        pointerActive={pointerActive}
+      />
+      <SettingRow
+        label="Import vault"
+        value="1Password, Bitwarden, etc."
+        selected={selectedIndex === 11}
+        onHover={() => onSelectRow(11)}
+        onClick={onImportVault}
         pointerActive={pointerActive}
       />
     </div>

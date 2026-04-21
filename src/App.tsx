@@ -24,6 +24,8 @@ import { usePaletteStore } from '@/app/usePaletteStore'
 import { VaultLockScreen, PasscodeScreen } from '@/app/vault-lock-screen'
 import { MasterPasswordSetupScreen, PasscodeConfirmScreen, PasscodeSetupScreen } from '@/app/security-setup-screen'
 import { DevPanel } from '@/app/dev-panel'
+import { FormatPickerPage } from '@/app/format-picker-page'
+import { ImportLoadingPage } from '@/app/import-loading-page'
 import { DEFAULT_SETTINGS, type UpdateItemInput } from '@/shared/types'
 
 function App() {
@@ -66,6 +68,8 @@ function App() {
   const submitSetMasterPassword = usePaletteStore((state) => state.submitSetMasterPassword)
   const confirmPasscodeRemoval = usePaletteStore((state) => state.confirmPasscodeRemoval)
   const lockInfo = usePaletteStore((state) => state.lockInfo)
+  const exportVault = usePaletteStore((state) => state.exportVault)
+  const importVault = usePaletteStore((state) => state.importVault)
 
   const targetWindow = useTargetWindow()
   const [detailItem, setDetailItem] = useDetailItem(detailAction?.itemId, page, execution?.itemId)
@@ -228,6 +232,52 @@ function App() {
     }
   }, [focusInput, page])
 
+  useEffect(() => {
+    if (page !== 'export' && page !== 'import') {
+      return undefined
+    }
+
+    const optionCount = page === 'export' ? 2 : 8
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        usePaletteStore.setState({ page: 'settings', selectedIndex: page === 'export' ? 10 : 11 })
+        return
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setSelectedIndex((selectedIndex + 1) % optionCount)
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSelectedIndex((selectedIndex - 1 + optionCount) % optionCount)
+        return
+      }
+
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        if (page === 'export') {
+          const formats = ['klarkey-json', 'csv'] as const
+          void exportVault(formats[selectedIndex] ?? 'klarkey-json')
+        } else {
+          const formats = ['auto', '1pux', 'bitwarden-json', 'dashlane-json', 'csv', 'lastpass-csv', 'dashlane-csv', 'chrome-csv'] as const
+          void importVault(formats[selectedIndex] ?? 'auto')
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [exportVault, importVault, page, selectedIndex, setSelectedIndex])
+
   if (!hydrated) {
     return (
       <div className="flex h-full min-h-full items-center justify-center px-6 py-5 text-white">
@@ -361,6 +411,18 @@ function App() {
             onBack={() => void goBackOrClose()}
             showIcon={false}
           />
+        ) : page === 'export' ? (
+          <HeaderRow
+            title="Export vault"
+            onBack={() => void goBackOrClose()}
+            showIcon={false}
+          />
+        ) : page === 'import' ? (
+          <HeaderRow
+            title="Import vault"
+            onBack={() => void goBackOrClose()}
+            showIcon={false}
+          />
         ) : page === 'form' ? (
           <HeaderRow
             title={formMode === 'edit' ? 'Edit item' : 'Create item'}
@@ -441,6 +503,12 @@ function App() {
                   sshAgentEnabled: !(settings ?? DEFAULT_SETTINGS).sshAgentEnabled,
                 })
               }
+              onExportVault={() => {
+                usePaletteStore.setState({ page: 'export', selectedIndex: 0, execution: undefined })
+              }}
+              onImportVault={() => {
+                usePaletteStore.setState({ page: 'import', selectedIndex: 0, execution: undefined })
+              }}
               pointerActive={pointerActive}
             />
           </div>
@@ -459,6 +527,63 @@ function App() {
         </>
       ) : page === 'dev' ? (
         <DevPanel />
+      ) : page === 'export' ? (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <FormatPickerPage
+              title="Choose format"
+              options={[
+                { id: 'klarkey-json', label: 'Klarkey JSON', description: 'Full backup with all data' },
+                { id: 'csv', label: 'CSV', description: 'Standard spreadsheet format' },
+              ]}
+              selectedIndex={selectedIndex}
+              onSelectRow={setSelectedIndex}
+              onPick={(id) => void exportVault(id as 'klarkey-json' | 'csv')}
+              pointerActive={pointerActive}
+            />
+          </div>
+          <div className="h-px bg-white/8" />
+          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+            <span className="text-white/48">Enter exports your vault in the selected format.</span>
+            <div className="flex items-center gap-2">
+              <KeyHint>Esc</KeyHint>
+            </div>
+          </div>
+        </>
+      ) : page === 'import' ? (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <FormatPickerPage
+              title="Choose source"
+              options={[
+                { id: 'auto', label: 'Auto-detect', description: 'Best for most files' },
+                { id: '1pux', label: '1Password (.1pux)', description: '1Password export' },
+                { id: 'bitwarden-json', label: 'Bitwarden (.json)', description: 'Bitwarden export' },
+                { id: 'dashlane-json', label: 'Dashlane (.json)', description: 'Dashlane export' },
+                { id: 'csv', label: 'Generic CSV', description: 'Standard CSV format' },
+                { id: 'lastpass-csv', label: 'LastPass (.csv)', description: 'LastPass export' },
+                { id: 'dashlane-csv', label: 'Dashlane (.csv)', description: 'Dashlane CSV export' },
+                { id: 'chrome-csv', label: 'Chrome / Edge (.csv)', description: 'Browser password export' },
+              ]}
+              selectedIndex={selectedIndex}
+              onSelectRow={setSelectedIndex}
+              onPick={(id) => void importVault(id as 'auto' | 'klarkey-json' | 'csv' | '1pux' | 'bitwarden-json' | 'lastpass-csv' | 'dashlane-csv' | 'dashlane-json' | 'chrome-csv')}
+              pointerActive={pointerActive}
+            />
+          </div>
+          <div className="h-px bg-white/8" />
+          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+            <span className="text-white/48">Enter imports items from the selected source.</span>
+            <div className="flex items-center gap-2">
+              <KeyHint>Esc</KeyHint>
+            </div>
+          </div>
+        </>
+      ) : page === 'import-loading' ? (
+        <ImportLoadingPage
+          message="Importing your items…"
+          submessage="This may take a moment"
+        />
       ) : page === 'detail' ? (
         <>
           <ItemDetailOverview item={activeDetailItem} />

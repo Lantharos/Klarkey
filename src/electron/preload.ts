@@ -229,6 +229,12 @@ const api: KlarkeyApi = {
   targetWindow: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.paletteTargetGet),
   },
+  importExport: {
+    exportVault: (options) => ipcRenderer.invoke(IPC_CHANNELS.exportVault, options),
+    importVault: (options) => ipcRenderer.invoke(IPC_CHANNELS.importVault, options),
+    pickImportFile: (format) => ipcRenderer.invoke(IPC_CHANNELS.pickImportFile, format),
+    pickExportFile: (format) => ipcRenderer.invoke(IPC_CHANNELS.pickExportFile, format),
+  },
   onPrepareOpen: (callback) => {
     const listener = () => callback()
     ipcRenderer.on(IPC_CHANNELS.palettePrepare, listener)

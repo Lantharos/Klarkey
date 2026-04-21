@@ -13,7 +13,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['better-sqlite3', 'koffi'],
+              external: ['better-sqlite3', 'koffi', 'extract-zip'],
               output: {
                 entryFileNames: 'main.js',
               },

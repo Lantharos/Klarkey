@@ -1,11 +1,12 @@
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { unlinkSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
 import {
   app,
   BrowserWindow,
   desktopCapturer,
+  dialog,
   globalShortcut,
   ipcMain,
   Menu,
@@ -413,6 +414,53 @@ const bindIpc = () => {
   ipcMain.handle(IPC_CHANNELS.passkeyCreate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(input) ?? vaultLockedResult))
   ipcMain.handle(IPC_CHANNELS.passkeyAuthenticate, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(credentialId) ?? vaultLockedResult))
   ipcMain.handle(IPC_CHANNELS.passkeyDelete, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId) ?? vaultLockedResult))
+  const exportLockedResult = { success: false, exportedCount: 0, message: 'Vault locked' } as const
+  const importLockedResult = { success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Vault locked' } as const
+  ipcMain.handle(IPC_CHANNELS.exportVault, async (event, options) => {
+    validateIpcSender(event)
+    if (controllerRef?.getLockInfo().state !== 'unlocked') {
+      return exportLockedResult
+    }
+    return controllerRef?.exportVault(options) ?? exportLockedResult
+  })
+  ipcMain.handle(IPC_CHANNELS.importVault, async (event, options) => {
+    validateIpcSender(event)
+    if (controllerRef?.getLockInfo().state !== 'unlocked') {
+      return importLockedResult
+    }
+    return controllerRef?.importVault(options) ?? importLockedResult
+  })
+  ipcMain.handle(IPC_CHANNELS.pickImportFile, async (event, format: string) => {
+    validateIpcSender(event)
+    const filters: Electron.FileFilter[] = []
+    if (format === '1pux') {
+      filters.push({ name: '1Password Export', extensions: ['1pux'] })
+    } else if (format === 'bitwarden-json') {
+      filters.push({ name: 'Bitwarden JSON', extensions: ['json'] })
+    } else if (format === 'dashlane-json') {
+      filters.push({ name: 'Dashlane JSON', extensions: ['json'] })
+    } else if (format === 'klarkey-json') {
+      filters.push({ name: 'Klarkey JSON', extensions: ['json'] })
+    } else {
+      filters.push({ name: 'Supported files', extensions: ['csv', 'json', '1pux'] })
+    }
+    filters.push({ name: 'All files', extensions: ['*'] })
+
+    const result = await dialog.showOpenDialog(windowRef!, { filters, properties: ['openFile'] })
+    return result.canceled ? undefined : result.filePaths[0]
+  })
+  ipcMain.handle(IPC_CHANNELS.pickExportFile, async (event, format: string) => {
+    validateIpcSender(event)
+    const filters: Electron.FileFilter[] = []
+    if (format === 'klarkey-json') {
+      filters.push({ name: 'Klarkey JSON', extensions: ['json'] })
+    } else {
+      filters.push({ name: 'CSV', extensions: ['csv'] })
+    }
+
+    const result = await dialog.showSaveDialog(windowRef!, { filters, properties: ['createDirectory', 'showOverwriteConfirmation'] })
+    return result.canceled ? undefined : result.filePath
+  })
 
   if (isDevMode) {
     ipcMain.handle(IPC_CHANNELS.devForceLock, (event) => {
@@ -437,17 +485,40 @@ const bindIpc = () => {
     ipcMain.handle(IPC_CHANNELS.devResetVault, async (event) => {
       validateIpcSender(event)
 
+      // Close the database and clear the controller BEFORE destroying the
+      // window, because dispose() triggers lock() which fires a state-change
+      // callback that sends IPC to windowRef.
       controllerRef?.dispose()
       controllerRef = null
 
+      // Now it's safe to tear down the window/renderer.
+      windowRef?.destroy()
+      windowRef = null
+
       const dbPath = join(app.getPath('userData'), 'klarkey.sqlite')
-      const dbWalPath = `${dbPath}-wal`
-      const dbShmPath = `${dbPath}-shm`
       const keyPath = join(app.getPath('userData'), 'vault.key')
-      try { unlinkSync(dbPath) } catch { /* ok */ }
-      try { unlinkSync(dbWalPath) } catch { /* ok */ }
-      try { unlinkSync(dbShmPath) } catch { /* ok */ }
-      try { unlinkSync(keyPath) } catch { /* ok */ }
+
+      // On Windows, better-sqlite3 with WAL mode keeps the DB file locked
+      // even after close(). Instead of fighting the OS to delete files,
+      // just reopen the DB and wipe every table. The file stays but is empty.
+      // Then delete the key file so a new vault key is generated on restart.
+      const { default: Database } = await import('better-sqlite3')
+      const tmpDb = new Database(dbPath)
+      try {
+        tmpDb.exec(`
+          DELETE FROM identities;
+          DELETE FROM passkeys;
+          DELETE FROM pending_passkeys;
+          DELETE FROM vault_passkeys;
+          DELETE FROM recent_actions;
+          DELETE FROM settings;
+          VACUUM;
+        `)
+      } finally {
+        tmpDb.close()
+      }
+
+      try { rmSync(keyPath, { force: true }) } catch { /* ok */ }
 
       try {
         await session.defaultSession.clearCache()

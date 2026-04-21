@@ -13,7 +13,10 @@ export function useDetailItem(
     | 'dev'
     | 'set-passcode'
     | 'set-master-password'
-    | 'confirm-passcode-removal',
+    | 'confirm-passcode-removal'
+    | 'export'
+    | 'import'
+    | 'import-loading',
   executionItemId: string | undefined,
 ) {
   const [detailItem, setDetailItem] = useState<ItemDetails>()

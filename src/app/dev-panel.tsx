@@ -112,7 +112,10 @@ export function DevPanel() {
             onClick={async () => {
               const confirmed = window.confirm('This will DELETE all vault data (database + key) and restart the app. Are you sure?')
               if (!confirmed) return
-              await api.dev!.resetVault()
+              const result = await api.dev!.resetVault()
+              if (result?.status === 'error') {
+                window.alert(`Reset failed: ${result.message}`)
+              }
             }}
             className="flex w-full items-center gap-3 rounded-[10px] bg-red-900/20 px-3 py-2.5 text-left text-[14px] font-medium text-red-300 transition hover:bg-red-900/40"
           >

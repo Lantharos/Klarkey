@@ -15,7 +15,10 @@ export function useSettingsChrome(
     | 'dev'
     | 'set-passcode'
     | 'set-master-password'
-    | 'confirm-passcode-removal',
+    | 'confirm-passcode-removal'
+    | 'export'
+    | 'import'
+    | 'import-loading',
   settings: UserSettings | undefined,
   lockInfo: VaultLockInfo | undefined,
   selectedIndex: number,
@@ -29,7 +32,7 @@ export function useSettingsChrome(
     setHotkeyError(undefined)
   }, [])
 
-  const totalSettingsRows = 10
+  const totalSettingsRows = 12
 
   const settingsFooter = useMemo(() => {
     if (hotkeyError) {
@@ -59,6 +62,8 @@ export function useSettingsChrome(
       7: 'Enter sets up a master password.',
       8: 'Enter cycles auto-lock minutes.',
       9: 'Enter toggles the Windows SSH agent pipe for Git and OpenSSH clients.',
+      10: 'Enter exports your vault to a file.',
+      11: 'Enter imports items from another password manager.',
     }
     return {
       barClass: '',
@@ -123,6 +128,17 @@ export function useSettingsChrome(
 
       if (index === 9) {
         void updateSettings({ sshAgentEnabled: !resolved.sshAgentEnabled })
+        return
+      }
+
+      if (index === 10) {
+        usePaletteStore.getState().openExportPage()
+        return
+      }
+
+      if (index === 11) {
+        usePaletteStore.getState().openImportPage()
+        return
       }
     },
     [lockInfo?.passcodeSet, settings, updateSettings],

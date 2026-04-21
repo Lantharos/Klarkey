@@ -131,7 +131,7 @@ const parseOpenSshPrivateKey = (pem: string) => {
   const [keyType, kOff1] = readSshString(privateSection, pOffset)
 
   if (keyType.toString('ascii') === 'ssh-ed25519') {
-    const [publicKey, kOff2] = readSshString(privateSection, kOff1)
+    const [, kOff2] = readSshString(privateSection, kOff1)
     const [privateKeyBytes] = readSshString(privateSection, kOff2)
 
     if (privateKeyBytes.length !== 64) {

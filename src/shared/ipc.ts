@@ -1,3 +1,4 @@
+import type { ExportFormat, ExportOptions, ExportResult, ImportFormat, ImportOptions, ImportResult } from '@/shared/import-export'
 import type {
   ActionExecutionResult,
   CommandQuery,
@@ -66,6 +67,12 @@ export interface KlarkeyApi {
   targetWindow: {
     get: () => Promise<ExternalWindowContext | undefined>
   }
+  importExport: {
+    exportVault: (options: ExportOptions) => Promise<ExportResult>
+    importVault: (options: ImportOptions) => Promise<ImportResult>
+    pickImportFile: (format: ImportFormat) => Promise<string | undefined>
+    pickExportFile: (format: ExportFormat) => Promise<string | undefined>
+  }
   onPrepareOpen: (callback: () => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
   onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
@@ -75,6 +82,6 @@ export interface KlarkeyApi {
     forceUnlock: () => Promise<VaultLockInfo>
     forcePasscode: () => Promise<VaultLockInfo>
     dumpLockInfo: () => Promise<VaultLockInfo & { keyInMemory: boolean; keyFileExists: boolean }>
-    resetVault: () => Promise<{ status: string }>
+    resetVault: () => Promise<{ status: string; message?: string }>
   }
 }

@@ -6,11 +6,14 @@ import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
 import { VaultLockManager } from '@/electron/vault-lock'
+import { exportVault } from '@/electron/export'
+import { importVault } from '@/electron/import'
 import { executePaletteAction } from '@/electron/palette-action-execution'
 import { captureForegroundWindow, captureForegroundWindowAsync } from '@/electron/windows'
 import { PASSKEY_ORIGIN, PASSKEY_RP_ID } from '@/shared/passkeys'
 import { parseCommand } from '@/shared/command'
 import { resolveSearchResponse } from '@/shared/resolver'
+import type { ExportOptions, ExportResult, ImportOptions, ImportResult } from '@/shared/import-export'
 import type {
   ActionExecutionResult,
   CommandQuery,
@@ -223,6 +226,30 @@ export class KlarkeyController {
       return lockedResult()
     }
     return this.repository.deleteVaultPasskey(passkeyId)
+  }
+
+  async exportVault(options: ExportOptions): Promise<ExportResult> {
+    if (this.lockManager.isLocked()) {
+      return {
+        success: false,
+        exportedCount: 0,
+        message: 'Vault is locked. Unlock to export.',
+      }
+    }
+    return exportVault(this.repository, options)
+  }
+
+  async importVault(options: ImportOptions): Promise<ImportResult> {
+    if (this.lockManager.isLocked()) {
+      return {
+        success: false,
+        importedCount: 0,
+        skippedCount: 0,
+        errorCount: 0,
+        message: 'Vault is locked. Unlock to import.',
+      }
+    }
+    return importVault(this.repository, options)
   }
 
   parseCommand(_: IpcMainInvokeEvent, raw: string) {

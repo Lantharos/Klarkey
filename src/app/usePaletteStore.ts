@@ -75,6 +75,12 @@ const fallbackApi: KlarkeyApi = {
   targetWindow: {
     get: async () => undefined,
   },
+  importExport: {
+    exportVault: async () => ({ success: false, exportedCount: 0, message: 'Desktop bridge unavailable.' }),
+    importVault: async () => ({ success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Desktop bridge unavailable.' }),
+    pickImportFile: async () => undefined,
+    pickExportFile: async () => undefined,
+  },
   onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
   onTargetWindowChange: () => () => undefined,
@@ -91,7 +97,7 @@ interface PaletteState {
   resolveKey: number
   bootError?: string
   execution?: ActionExecutionResult
-  page: 'home' | 'settings' | 'detail' | 'form' | 'locked' | 'passcode' | 'dev' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal'
+  page: 'home' | 'settings' | 'detail' | 'form' | 'locked' | 'passcode' | 'dev' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal' | 'export' | 'import' | 'import-loading'
   query: CommandQuery
   actions: ResolvedAction[]
   hasMoreResults: boolean
@@ -132,9 +138,13 @@ interface PaletteState {
   submitSetMasterPassword: (password: string, confirmPassword: string) => Promise<{ success: boolean; message: string }>
   openConfirmPasscodeRemovalPage: () => void
   confirmPasscodeRemoval: (passcode: string) => Promise<{ success: boolean; message: string }>
+  openExportPage: () => void
+  openImportPage: () => void
   focusInput: () => void
   updateSettings: (update: SettingsUpdate) => Promise<void>
   loadMoreActions: () => Promise<void>
+  exportVault: (format: 'klarkey-json' | 'csv') => Promise<{ success: boolean; message: string }>
+  importVault: (format: 'auto' | 'klarkey-json' | 'csv' | '1pux' | 'bitwarden-json' | 'lastpass-csv' | 'dashlane-csv' | 'dashlane-json' | 'chrome-csv') => Promise<{ success: boolean; message: string }>
 }
 
 const defaultQuery: CommandQuery = {
@@ -434,6 +444,11 @@ detailAction: undefined,
       return
     }
 
+    if (page === 'export' || page === 'import') {
+      set({ page: 'settings', selectedIndex: page === 'export' ? 10 : 11, formMode: undefined, execution: undefined })
+      return
+    }
+
     if (page === 'settings' || page === 'dev') {
       set({ page: 'home', selectedIndex: 0, formMode: undefined, execution: undefined })
       return
@@ -513,6 +528,12 @@ detailAction: undefined,
   openConfirmPasscodeRemovalPage() {
     set({ page: 'confirm-passcode-removal', execution: undefined })
   },
+  openExportPage() {
+    set({ page: 'export', selectedIndex: 0, execution: undefined })
+  },
+  openImportPage() {
+    set({ page: 'import', selectedIndex: 0, execution: undefined })
+  },
   async submitSetPasscode(passcode: string, confirmPasscode: string) {
     if (passcode !== confirmPasscode) {
       return { success: false, message: 'Passcodes do not match.' }
@@ -560,6 +581,37 @@ detailAction: undefined,
   async updateSettings(update) {
     const settings = await api.settings.set(update)
     set({ settings })
+  },
+  async exportVault(format) {
+    const filePath = await api.importExport.pickExportFile(format)
+    if (!filePath) {
+      return { success: false, message: 'Export cancelled.' }
+    }
+
+    set({ page: 'import-loading' as const, execution: undefined })
+    const result = await api.importExport.exportVault({ format, filePath })
+    if (result.success) {
+      set({ page: 'settings', selectedIndex: 10, execution: { status: 'success', title: 'Export complete', message: result.message } })
+    } else {
+      set({ page: 'settings', selectedIndex: 10, execution: { status: 'error', title: 'Export failed', message: result.message } })
+    }
+    return { success: result.success, message: result.message }
+  },
+  async importVault(format) {
+    const filePath = await api.importExport.pickImportFile(format)
+    if (!filePath) {
+      return { success: false, message: 'Import cancelled.' }
+    }
+
+    set({ page: 'import-loading' as const, execution: undefined })
+    const result = await api.importExport.importVault({ format, filePath })
+    if (result.success) {
+      set({ page: 'settings', selectedIndex: 11, execution: { status: 'success', title: 'Import complete', message: result.message } })
+      await get().resetToHome()
+    } else {
+      set({ page: 'settings', selectedIndex: 11, execution: { status: 'error', title: 'Import failed', message: result.message } })
+    }
+    return { success: result.success, message: result.message }
   },
   async loadMoreActions() {
     const { hasMoreResults, isLoadingMore, isLoadingResults, nextOffset, query, page, resolveKey } = get()
