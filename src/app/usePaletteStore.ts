@@ -43,9 +43,9 @@ const fallbackApi: KlarkeyApi = {
     unlockWithHello: async () => ({ success: false, message: 'Desktop bridge unavailable.' }),
     unlockWithPassword: async () => ({ success: false, message: 'Desktop bridge unavailable.' }),
     lock: async () => undefined,
-    setupMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
-    changeMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
-    removeMasterPassword: async () => ({ status: 'error', title: 'Unavailable', message: 'Not available.' }),
+    setupMasterPassword: async () => ({ success: false, message: 'Not available.' }),
+    changeMasterPassword: async () => ({ success: false, message: 'Not available.' }),
+    removeMasterPassword: async () => ({ success: false, message: 'Not available.' }),
     setPasscode: async () => ({ success: false, message: 'Not available.' }),
     removePasscode: async () => ({ success: false, message: 'Not available.' }),
     confirmPasscode: async () => ({ success: false, message: 'Not available.' }),
@@ -343,7 +343,13 @@ detailAction: undefined,
   },
   async submitCreateForm(input) {
     const execution = await api.item.create(input)
+    if (execution.status === 'error') {
+      set({ execution })
+      return execution
+    }
+
     await get().refresh('')
+    set({ execution })
     return execution
   },
   async submitEditForm(input) {

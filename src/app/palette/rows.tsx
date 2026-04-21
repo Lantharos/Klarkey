@@ -130,7 +130,7 @@ export function ResultRow({
       </div>
       <div className="flex items-center gap-3 text-[13px] text-white/38">
         <span>
-          {action.kind === 'create-item' && action.itemType && action.itemType !== 'ssh-key'
+          {action.kind === 'create-item' && action.itemType
             ? getCreateTitle(action.itemType)
             : actionKindLabel(action)}
         </span>

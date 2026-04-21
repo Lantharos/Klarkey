@@ -22,6 +22,7 @@ import type {
   ResolvedAction,
   SearchResponse,
   SettingsUpdate,
+  UpdateItemInput,
   UserSettings,
   VaultLockInfo,
   VaultOperationResult,
@@ -39,6 +40,7 @@ export class KlarkeyController {
   private readonly clipboard = new ClipboardManager()
   private readonly window: BrowserWindow
   private readonly lockManager: VaultLockManager
+  private readonly repository: VaultRepository
   private readonly paletteWindowHandle: string
   private lastExternalWindow?: string
   private externalWindow?: ExternalWindowContext

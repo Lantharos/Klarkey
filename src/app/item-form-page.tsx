@@ -65,6 +65,7 @@ export function ItemFormPage({
   mode,
   initialValue,
   existingOtp,
+  execution,
   loading,
   onAutoSave,
   onSubmit,
@@ -72,6 +73,7 @@ export function ItemFormPage({
   mode: 'create' | 'edit'
   initialValue: ItemFormValues
   existingOtp?: TotpDetails
+  execution?: ActionExecutionResult
   loading: boolean
   onAutoSave?: (value: ItemFormValues) => Promise<ActionExecutionResult | undefined>
   onSubmit: (value: ItemFormValues) => void
@@ -210,8 +212,8 @@ export function ItemFormPage({
   }
 
   const showWebsites = value.itemType === 'login'
-  const showCustomFields = value.itemType !== 'note'
-  const showNotes = value.itemType !== 'note'
+  const showCustomFields = value.itemType !== 'note' && value.itemType !== 'ssh-key'
+  const showNotes = value.itemType !== 'note' && value.itemType !== 'ssh-key'
   type IdentityFieldKey =
     | 'username'
     | 'firstName'
@@ -303,6 +305,8 @@ export function ItemFormPage({
                   ? 'Personal identity'
                   : value.itemType === 'card'
                     ? 'Visa ending in 4242'
+                    : value.itemType === 'ssh-key'
+                      ? 'GitHub signing key'
                     : 'Netflix'
             }
           />
@@ -366,6 +370,41 @@ export function ItemFormPage({
                 />
               </FieldShell>
             ))}
+          </>
+        ) : null}
+
+        {value.itemType === 'ssh-key' ? (
+          <>
+            <FieldShell label="Private key">
+              <textarea
+                data-nav-input="true"
+                value={value.sshPrivateKey}
+                onChange={(event) => updateValue((current) => ({ ...current, sshPrivateKey: event.target.value }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder={mode === 'create' ? 'Leave blank to generate a new Ed25519 key, or paste an existing private key.' : 'Paste a replacement private key to rotate this item.'}
+                className="min-h-[120px] w-full resize-y bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+              />
+            </FieldShell>
+            {mode === 'edit' || value.sshPublicKey.trim() ? (
+              <FieldShell label="Public key">
+                <textarea
+                  data-nav-input="true"
+                  value={value.sshPublicKey}
+                  onKeyDown={onFieldKeyDown}
+                  placeholder="Public key is derived automatically when a private key is saved."
+                  className="min-h-[84px] w-full resize-y bg-transparent text-[15px] text-white outline-none placeholder:text-white/24"
+                  readOnly
+                />
+              </FieldShell>
+            ) : null}
+            <FieldShell label="Key comment">
+              <TextField
+                value={value.sshComment}
+                onChange={(sshComment) => updateValue((current) => ({ ...current, sshComment }))}
+                onKeyDown={onFieldKeyDown}
+                placeholder="me@github"
+              />
+            </FieldShell>
           </>
         ) : null}
 
@@ -504,18 +543,20 @@ export function ItemFormPage({
       </div>
       <div className="h-px bg-white/8" />
       <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
-        <span>
+        <span className={execution?.status === 'error' ? 'text-red-300/85' : undefined}>
           {loading
             ? 'Loading item...'
-            : mode === 'edit'
-              ? saveState === 'saving'
-                ? 'Saving...'
-                : saveState === 'saved'
-                  ? 'Saved.'
-                  : saveState === 'error'
-                    ? 'Could not save.'
-                    : 'Saved automatically.'
-              : 'Press Ctrl + Return to create.'}
+            : execution?.status === 'error'
+              ? execution.message
+              : mode === 'edit'
+                ? saveState === 'saving'
+                  ? 'Saving...'
+                  : saveState === 'saved'
+                    ? 'Saved.'
+                    : saveState === 'error'
+                      ? 'Could not save.'
+                      : 'Saved automatically.'
+                : execution?.message ?? 'Press Ctrl + Return to create.'}
         </span>
         <div className="flex items-center gap-2">
           <KeyHint>Esc</KeyHint>

@@ -1,7 +1,7 @@
 import { getItemTypeDefinition, type CreatableItemType, type ItemType } from '@/shared/item-types'
 import type { DetailAction } from '@/app/palette-types'
 import type { ExternalWindowContext, ItemDetails } from '@/shared/types'
-import { ContactRound, CreditCard, FileText, KeyRound, Mail, MapPinned, Pencil, Phone, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
+import { ContactRound, CreditCard, FileText, Fingerprint, KeyRound, Mail, MapPinned, Pencil, Phone, Settings, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
 
 export function getItemTypeIcon(itemType: ItemType) {
   if (itemType === 'identity') {
@@ -14,6 +14,10 @@ export function getItemTypeIcon(itemType: ItemType) {
 
   if (itemType === 'card') {
     return 'card'
+  }
+
+  if (itemType === 'ssh-key') {
+    return 'ssh-key'
   }
 
   return undefined
@@ -38,6 +42,13 @@ export function getItemTypeAccent(itemType: ItemType) {
     return {
       container: 'bg-sky-400/18 text-sky-200',
       subtleContainer: 'bg-sky-400/12 text-sky-200/82',
+    }
+  }
+
+  if (itemType === 'ssh-key') {
+    return {
+      container: 'bg-violet-400/18 text-violet-200',
+      subtleContainer: 'bg-violet-400/12 text-violet-200/82',
     }
   }
 
@@ -113,6 +124,18 @@ export function buildDetailActions(item?: ItemDetails, target?: ExternalWindowCo
       ...(hasBillingPostalCode ? [{ id: 'copy-billing-postal-code', title: 'Copy billing postal code', icon: MapPinned, actionId: `copy:${item.itemId}:billingPostalCode` }] : []),
       ...(hasCardNumber ? [{ id: 'show-card-number', title: 'Show card number', icon: CreditCard, actionId: `show:${item.itemId}:cardNumber` }] : []),
       ...(hasCardCvc ? [{ id: 'show-card-cvc', title: 'Show security code', icon: ShieldCheck, actionId: `show:${item.itemId}:cardCvc` }] : []),
+      { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
+      { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
+    ]
+  }
+
+  if (item.itemType === 'ssh-key') {
+    return [
+      ...(hasValue(item.sshPublicKey) ? [{ id: 'copy-ssh-public-key', title: 'Copy public key', icon: KeyRound, actionId: `copy:${item.itemId}:sshPublicKey` }] : []),
+      ...(hasValue(item.sshPrivateKey) ? [{ id: 'copy-ssh-private-key', title: 'Copy private key', icon: ShieldCheck, actionId: `copy:${item.itemId}:sshPrivateKey` }] : []),
+      ...(hasValue(item.sshFingerprint) ? [{ id: 'copy-ssh-fingerprint', title: 'Copy fingerprint', icon: Fingerprint, actionId: `copy:${item.itemId}:sshFingerprint` }] : []),
+      ...(hasValue(item.sshPublicKey) ? [{ id: 'configure-git-signing', title: 'Configure Git signing', icon: Settings, actionId: `configure:${item.itemId}:gitSigning` }] : []),
+      ...(hasValue(item.sshPublicKey) ? [{ id: 'copy-git-signing-snippet', title: 'Copy Git signing config', icon: FileText, actionId: `copy:${item.itemId}:sshGitConfig` }] : []),
       { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
       { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
     ]

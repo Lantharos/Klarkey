@@ -44,6 +44,9 @@ export type ItemFormValues = {
   cardCvc: string
   cardBrand: string
   billingPostalCode: string
+  sshPublicKey: string
+  sshPrivateKey: string
+  sshComment: string
   content: string
   notes: string
   websites: string[]

@@ -1,6 +1,7 @@
 import type {
   ActionExecutionResult,
   CommandQuery,
+  CreateItemInput,
   CreateVaultPasskeyInput,
   ExternalWindowContext,
   ItemDetails,
@@ -8,9 +9,8 @@ import type {
   PasskeySupport,
   SearchRequest,
   SearchResponse,
-  UpdateItemInput,
-  CreateItemInput,
   SettingsUpdate,
+  UpdateItemInput,
   UserSettings,
   VaultLockInfo,
   VaultOperationResult,
@@ -77,41 +77,4 @@ export interface KlarkeyApi {
     dumpLockInfo: () => Promise<VaultLockInfo & { keyInMemory: boolean; keyFileExists: boolean }>
     resetVault: () => Promise<{ status: string }>
   }
-}
-  command: {
-    parse: (raw: string) => Promise<CommandQuery>
-  }
-  search: {
-    resolve: (request: SearchRequest) => Promise<SearchResponse>
-  }
-  action: {
-    execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>
-  }
-  item: {
-    get: (itemId: string) => Promise<ItemDetails | undefined>
-    create: (input: CreateItemInput) => Promise<ActionExecutionResult>
-    update: (input: UpdateItemInput) => Promise<ActionExecutionResult>
-    delete: (itemId: string) => Promise<ActionExecutionResult>
-  }
-  vault: {
-    unlock: () => Promise<ActionExecutionResult>
-  }
-  settings: {
-    get: () => Promise<UserSettings>
-    set: (update: SettingsUpdate) => Promise<UserSettings>
-  }
-  passkeys: {
-    getSupport: () => Promise<PasskeySupport>
-    list: () => Promise<VaultPasskeyRecord[]>
-    create: (label?: string) => Promise<ActionExecutionResult>
-    authenticate: () => Promise<ActionExecutionResult>
-    save: (input: CreateVaultPasskeyInput) => Promise<ActionExecutionResult>
-    remove: (passkeyId: string) => Promise<ActionExecutionResult>
-  }
-  targetWindow: {
-    get: () => Promise<ExternalWindowContext | undefined>
-  }
-  onPrepareOpen: (callback: () => void) => () => void
-  onFocusRequest: (callback: () => void) => () => void
-  onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
 }

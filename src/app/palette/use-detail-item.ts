@@ -1,7 +1,21 @@
 import { useEffect, useState } from 'react'
 import type { ItemDetails } from '@/shared/types'
 
-export function useDetailItem(itemId: string | undefined, page: 'home' | 'settings' | 'detail' | 'form', executionItemId: string | undefined) {
+export function useDetailItem(
+  itemId: string | undefined,
+  page:
+    | 'home'
+    | 'settings'
+    | 'detail'
+    | 'form'
+    | 'locked'
+    | 'passcode'
+    | 'dev'
+    | 'set-passcode'
+    | 'set-master-password'
+    | 'confirm-passcode-removal',
+  executionItemId: string | undefined,
+) {
   const [detailItem, setDetailItem] = useState<ItemDetails>()
 
   useEffect(() => {

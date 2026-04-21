@@ -19,7 +19,7 @@ function createTypeActions(literalName: string) {
       primaryHint: literalName
         ? `Create a ${definition.noun} named ${literalName}.`
         : `Start a new ${definition.noun}.`,
-      requiresUnlock: itemType === 'login',
+      requiresUnlock: itemType === 'login' || itemType === 'ssh-key',
       score: 100 - index,
     }
   })
@@ -102,7 +102,7 @@ export function buildResolvedActions(
         subtitle: literalName || definition.placeholderName,
         itemType: query.entryType,
         primaryHint: literalName ? `Create a new ${definition.noun}.` : `Start a new ${definition.noun}.`,
-        requiresUnlock: query.entryType === 'login',
+        requiresUnlock: query.entryType === 'login' || query.entryType === 'ssh-key',
         score: 100,
       },
       ...utilityActions,

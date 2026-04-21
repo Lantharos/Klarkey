@@ -3,8 +3,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { VaultLockInfo } from '@/shared/types'
 
-let lastAutoSystemUnlockAttemptAt = 0
-
 export function VaultLockScreen({
   lockInfo,
   onUnlockWithHello,
@@ -17,7 +15,6 @@ export function VaultLockScreen({
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [helloLoading, setHelloLoading] = useState(false)
-  const [helloAttempted, setHelloAttempted] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -34,6 +31,7 @@ export function VaultLockScreen({
   const needsPassword = lockInfo.primaryMethods.includes('masterPassword')
 
   const handleHello = async () => {
+    if (helloLoading) return
     setHelloLoading(true)
     if (!needsPassword) {
       setError('')
@@ -44,22 +42,6 @@ export function VaultLockScreen({
     }
     setHelloLoading(false)
   }
-
-  useEffect(() => {
-    if (!canUseHello || helloAttempted) {
-      return
-    }
-
-    const now = Date.now()
-    if (now - lastAutoSystemUnlockAttemptAt < 2000) {
-      setHelloAttempted(true)
-      return
-    }
-
-    setHelloAttempted(true)
-    lastAutoSystemUnlockAttemptAt = now
-    void handleHello()
-  }, [canUseHello, helloAttempted])
 
   const handlePassword = async () => {
     if (!password.trim()) {
@@ -92,7 +74,7 @@ export function VaultLockScreen({
             : needsPassword
               ? 'Enter your master password to unlock.'
               : canUseHello
-                ? 'Unlock with Windows Hello by reopening the palette if needed.'
+                ? 'Unlock the vault to continue.'
                 : 'Set up a master password to protect your vault.'}
         </div>
       </div>
@@ -100,31 +82,43 @@ export function VaultLockScreen({
       {(canUseHello || needsPassword) && (
         <div className="flex w-full max-w-[280px] flex-col gap-3">
           {needsPassword && (
-            <>
-              <div className="flex flex-col gap-2">
-                <input
-                  ref={inputRef}
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      void handlePassword()
-                    }
-                  }}
-                  placeholder="Master password"
-                  className="h-10 w-full rounded-[10px] bg-white/8 px-3 text-[14px] text-white outline-none placeholder:text-white/30 focus:ring-2 focus:ring-white/20"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => void handlePassword()}
-                  className="flex h-10 w-full items-center justify-center rounded-[10px] bg-white/10 text-[14px] font-medium text-white transition hover:bg-white/14"
-                >
-                  Unlock
-                </button>
-              </div>
-            </>
+            <div className="flex flex-col gap-2">
+              <input
+                ref={inputRef}
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    void handlePassword()
+                  }
+                }}
+                placeholder="Master password"
+                className="h-10 w-full rounded-[10px] bg-white/8 px-3 text-[14px] text-white outline-none placeholder:text-white/30 focus:ring-2 focus:ring-white/20"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => void handlePassword()}
+                className="flex h-10 w-full items-center justify-center rounded-[10px] bg-white/10 text-[14px] font-medium text-white transition hover:bg-white/14"
+              >
+                Unlock
+              </button>
+            </div>
+          )}
+          {canUseHello && (
+            <button
+              type="button"
+              onClick={() => void handleHello()}
+              disabled={helloLoading}
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-white/10 text-[14px] font-medium text-white transition hover:bg-white/14 disabled:opacity-60"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              {helloLoading ? 'Verifying...' : 'Unlock with Windows Hello'}
+            </button>
           )}
         </div>
       )}

@@ -10,7 +10,9 @@ export function itemSubtitle(item: ItemProfile) {
         ? [item.cardBrand, item.cardLastFour ? `•••• ${item.cardLastFour}` : undefined, item.cardholderName]
             .filter(Boolean)
             .join(' · ') || item.itemName
-        : item.content?.trim() || item.notes?.trim() || 'Text note'
+        : item.itemType === 'ssh-key'
+          ? item.sshAlgorithm || item.sshComment || item.itemName
+          : item.content?.trim() || item.notes?.trim() || 'Text note'
 }
 
 export function getLogoMeta(item: ItemProfile) {

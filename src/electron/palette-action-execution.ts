@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process'
 import type { BrowserWindow } from 'electron'
 import { ClipboardManager } from '@/electron/clipboard'
 import type { VaultRepository } from '@/electron/repository'
+import { createGitSigningSnippet } from '@/electron/ssh'
 import { pasteIntoWindow } from '@/electron/windows'
 import { parseCommand } from '@/shared/command'
 import { resolveActions } from '@/shared/resolver'
@@ -79,6 +81,22 @@ export function executePaletteAction(
 
     if (field === 'content') {
       return item.content || item.notes
+    }
+
+    if (field === 'sshPublicKey') {
+      return item.sshPublicKey
+    }
+
+    if (field === 'sshPrivateKey') {
+      return item.sshPrivateKey
+    }
+
+    if (field === 'sshFingerprint') {
+      return item.sshFingerprint
+    }
+
+    if (field === 'sshGitConfig') {
+      return item.sshPublicKey ? createGitSigningSnippet(item.sshPublicKey) : undefined
     }
 
     return undefined
@@ -195,6 +213,51 @@ export function executePaletteAction(
       title: field === 'otp' ? 'Current OTP' : 'Value revealed',
       message: field === 'otp' ? 'Code refreshes every 30 seconds.' : 'Use this only when needed.',
       secret: value,
+    }
+  }
+
+  if (actionId.startsWith('configure:')) {
+    const [, itemId, field] = actionId.split(':')
+    const item = itemId ? ctx.repository.getItemDetails(itemId) : undefined
+
+    if (!item || field !== 'gitSigning' || !item.sshPublicKey) {
+      return {
+        status: 'error',
+        title: 'Configuration failed',
+        message: 'This item does not have a public key to configure.',
+      }
+    }
+
+    const gitVersion = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true })
+    if (gitVersion.error || gitVersion.status !== 0) {
+      return {
+        status: 'error',
+        title: 'Git not found',
+        message: 'Git does not appear to be installed or available on your PATH.',
+      }
+    }
+
+    const configs = [
+      ['gpg.format', 'ssh'],
+      ['user.signingkey', item.sshPublicKey],
+      ['commit.gpgsign', 'true'],
+    ] as const
+
+    for (const [key, value] of configs) {
+      const result = spawnSync('git', ['config', '--global', key, value], { encoding: 'utf8', windowsHide: true })
+      if (result.error || result.status !== 0) {
+        return {
+          status: 'error',
+          title: 'Git config failed',
+          message: `Could not set git config ${key}. ${result.stderr?.trim() || 'Unknown error.'}`,
+        }
+      }
+    }
+
+    return {
+      status: 'success',
+      title: 'Git signing configured',
+      message: 'Your global Git config is now set to sign commits with this SSH key.',
     }
   }
 
@@ -360,7 +423,7 @@ export function executePaletteAction(
     case 'create-item': {
       const itemType = action.itemType
 
-      if (!itemType || itemType === 'ssh-key') {
+      if (!itemType) {
         return {
           status: 'info',
           title: 'Coming soon',

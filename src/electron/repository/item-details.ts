@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3'
 import {
   type ItemDataPayload,
+  decryptPrivateKeyPayload,
   getCardLastFour,
   joinCardExpiry,
   joinIdentityAddress,
@@ -94,6 +95,11 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
     cardCvc: itemData.cardCvc,
     cardBrand: itemData.cardBrand,
     billingPostalCode: itemData.billingPostalCode,
+    sshAlgorithm: itemData.sshAlgorithm,
+    sshFingerprint: itemData.sshFingerprint,
+    sshPublicKey: itemData.sshPublicKey,
+    sshPrivateKey: decryptPrivateKeyPayload(key, itemData.sshPrivateKeyPayload),
+    sshComment: itemData.sshComment,
     content: itemData.content,
     notes: row.notes ?? undefined,
     websites: parseJson<string[]>(row.websites, []),

@@ -58,6 +58,7 @@ const defaultSettings: UserSettings = {
   browserSavePrompts: true,
   passcodeEnabled: true,
   autoLockMinutes: 15,
+  sshAgentEnabled: false,
 }
 
 function createSettingsDbMock() {

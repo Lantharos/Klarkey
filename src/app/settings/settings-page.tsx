@@ -104,6 +104,7 @@ export function SettingsPage({
   onTogglePasscode,
   onSetPasscode,
   onSetupMasterPassword,
+  onToggleSshAgent,
   pointerActive = true,
 }: {
   settings: UserSettings
@@ -121,12 +122,14 @@ export function SettingsPage({
   onTogglePasscode: () => void
   onSetPasscode: () => void
   onSetupMasterPassword: () => void
+  onToggleSshAgent: () => void
   pointerActive?: boolean
 }) {
   const clipLabel = formatClipboardClearLabel(settings.clearClipboardSeconds)
   const shortcutValue = hotkeyRecording ? 'Recording…' : settings.hotkey
   const passcodeLabel = lockInfo?.passcodeSet ? (settings.passcodeEnabled ? 'On' : 'Off') : 'Not set'
   const masterPasswordLabel = lockInfo?.masterPasswordSet ? 'Set' : 'Not set'
+  const sshAgentLabel = settings.sshAgentEnabled ? 'On' : 'Off'
 
   return (
     <div className="space-y-1 px-2 pb-3 pt-1">
@@ -205,6 +208,14 @@ export function SettingsPage({
         selected={selectedIndex === 8}
         onHover={() => onSelectRow(8)}
         onClick={onCycleAutoLock}
+        pointerActive={pointerActive}
+      />
+      <SettingRow
+        label="SSH agent"
+        value={sshAgentLabel}
+        selected={selectedIndex === 9}
+        onHover={() => onSelectRow(9)}
+        onClick={onToggleSshAgent}
         pointerActive={pointerActive}
       />
     </div>

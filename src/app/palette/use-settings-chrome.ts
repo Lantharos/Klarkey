@@ -5,7 +5,17 @@ import { usePaletteStore } from '@/app/usePaletteStore'
 import { DEFAULT_SETTINGS, type SettingsUpdate, type UserSettings, type VaultLockInfo } from '@/shared/types'
 
 export function useSettingsChrome(
-  page: 'home' | 'settings' | 'detail' | 'form' | 'dev' | 'locked' | 'passcode' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal',
+  page:
+    | 'home'
+    | 'settings'
+    | 'detail'
+    | 'form'
+    | 'locked'
+    | 'passcode'
+    | 'dev'
+    | 'set-passcode'
+    | 'set-master-password'
+    | 'confirm-passcode-removal',
   settings: UserSettings | undefined,
   lockInfo: VaultLockInfo | undefined,
   selectedIndex: number,
@@ -19,7 +29,7 @@ export function useSettingsChrome(
     setHotkeyError(undefined)
   }, [])
 
-  const totalSettingsRows = 9
+  const totalSettingsRows = 10
 
   const settingsFooter = useMemo(() => {
     if (hotkeyError) {
@@ -48,6 +58,7 @@ export function useSettingsChrome(
       6: 'Enter toggles passcode-on-open, or sets a new passcode if none exists.',
       7: 'Enter sets up a master password.',
       8: 'Enter cycles auto-lock minutes.',
+      9: 'Enter toggles the Windows SSH agent pipe for Git and OpenSSH clients.',
     }
     return {
       barClass: '',
@@ -107,6 +118,11 @@ export function useSettingsChrome(
 
       if (index === 8) {
         void updateSettings({ autoLockMinutes: nextAutoLockMinutes(resolved.autoLockMinutes) })
+        return
+      }
+
+      if (index === 9) {
+        void updateSettings({ sshAgentEnabled: !resolved.sshAgentEnabled })
       }
     },
     [lockInfo?.passcodeSet, settings, updateSettings],

@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import { encryptValue } from '@/electron/crypto'
+import { normalizeSshItemInput, replaceSshPublicKeyComment } from '@/electron/ssh'
 import type { CreatableItemType } from '@/shared/item-types'
 import {
   type ActionExecutionResult,
@@ -41,6 +42,26 @@ export function insertIdentity(db: Database.Database, key: Buffer, input: Create
       : undefined
   const timestamp = now()
   const itemId = id('item')
+  const itemData: ItemDataPayload = sanitizeItemData(itemType, input)
+
+  let sshKey
+  try {
+    sshKey = normalizeSshItemInput(input, itemName)
+  } catch (error) {
+    return {
+      status: 'error',
+      title: 'SSH key import failed',
+      message: error instanceof Error ? error.message : 'Klarkey could not read that SSH private key.',
+    } satisfies ActionExecutionResult
+  }
+
+  if (itemType === 'ssh-key' && sshKey) {
+    itemData.sshAlgorithm = sshKey.algorithm
+    itemData.sshFingerprint = sshKey.fingerprint
+    itemData.sshPublicKey = sshKey.publicKey
+    itemData.sshComment = sshKey.comment
+    itemData.sshPrivateKeyPayload = JSON.stringify(encryptValue(key, sshKey.privateKey))
+  }
 
   db.prepare(
     `
@@ -57,7 +78,7 @@ export function insertIdentity(db: Database.Database, key: Buffer, input: Create
     JSON.stringify(input.websites ?? []),
     input.notes ?? null,
     JSON.stringify(input.customFields ?? []),
-    JSON.stringify(sanitizeItemData(itemType, input)),
+    JSON.stringify(itemData),
     password ? JSON.stringify(encryptValue(key, password)) : null,
     otp ? JSON.stringify(encryptValue(key, JSON.stringify(otp))) : null,
     0,
@@ -138,6 +159,35 @@ export function updateIdentity(db: Database.Database, key: Buffer, input: Update
             ),
           )
         : null
+  const mergedItemData = {
+    ...parseJson<ItemDataPayload>(current.itemData, {}),
+    ...sanitizeItemData(itemType, input),
+  } satisfies ItemDataPayload
+
+  let sshKey
+  try {
+    sshKey = normalizeSshItemInput({ ...input, itemType }, itemName)
+  } catch (error) {
+    return {
+      status: 'error',
+      title: 'SSH key import failed',
+      message: error instanceof Error ? error.message : 'Klarkey could not read that SSH private key.',
+    } satisfies ActionExecutionResult
+  }
+
+  if (itemType === 'ssh-key' && sshKey) {
+    mergedItemData.sshAlgorithm = sshKey.algorithm
+    mergedItemData.sshFingerprint = sshKey.fingerprint
+    mergedItemData.sshPublicKey = sshKey.publicKey
+    mergedItemData.sshComment = sshKey.comment
+    mergedItemData.sshPrivateKeyPayload = JSON.stringify(encryptValue(key, sshKey.privateKey))
+  } else if (itemType === 'ssh-key' && input.sshComment !== undefined) {
+    const nextComment = input.sshComment.trim()
+    mergedItemData.sshComment = nextComment || undefined
+    if (mergedItemData.sshPublicKey) {
+      mergedItemData.sshPublicKey = replaceSshPublicKeyComment(mergedItemData.sshPublicKey, nextComment)
+    }
+  }
 
   db.prepare(
     `
@@ -153,10 +203,7 @@ export function updateIdentity(db: Database.Database, key: Buffer, input: Update
     JSON.stringify(input.websites ?? parseJson<string[]>(current.websites, [])),
     input.notes ?? current.notes ?? null,
     JSON.stringify(input.customFields ?? parseJson(current.customFields, [])),
-    JSON.stringify({
-      ...parseJson<ItemDataPayload>(current.itemData, {}),
-      ...sanitizeItemData(itemType, input),
-    }),
+    JSON.stringify(mergedItemData),
     password ?? null,
     otp,
     now(),

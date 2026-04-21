@@ -1,6 +1,7 @@
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { unlinkSync } from 'node:fs'
+import { spawn, type ChildProcess } from 'node:child_process'
 import {
   app,
   BrowserWindow,
@@ -20,6 +21,7 @@ import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native-host'
 import { readPasskeyProviderMessageSync, runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
+import { runSshAgentHost } from '@/electron/ssh-agent-host'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 
 const ALLOWED_SENDER_PROTOCOLS = [PASSKEY_SCHEME, 'http', 'https']
@@ -39,12 +41,14 @@ protocol.registerSchemesAsPrivileged([
 
 let windowRef: BrowserWindow | null = null
 let controllerRef: KlarkeyController | null = null
+let sshAgentHostProcess: ChildProcess | null = null
 let isQuitting = false
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
 const shouldOpenPaletteOnStart = process.argv.includes('--open-palette')
 const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
 const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
+const isSshAgentHostMode = process.argv.includes('--ssh-agent-host')
 const initialNativeHostRequest = isNativeMessagingHostMode ? readNativeMessageSync() : undefined
 const initialPasskeyProviderRequest = isPasskeyProviderBridgeMode ? readPasskeyProviderMessageSync() : undefined
 const rendererDistPath = () => join(app.getAppPath(), 'dist')
@@ -52,7 +56,56 @@ const devServerUrl = () => process.env.VITE_DEV_SERVER_URL ?? (isDevMode ? 'http
 const appIconPath = () =>
   isDevMode ? join(app.getAppPath(), 'public', 'klarkey.png') : join(app.getAppPath(), 'dist', 'klarkey.png')
 const appIcon = () => nativeImage.createFromPath(appIconPath())
-const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode ? true : app.requestSingleInstanceLock()
+const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode || isSshAgentHostMode ? true : app.requestSingleInstanceLock()
+
+const spawnBackgroundHost = (modeFlag: '--ssh-agent-host') => {
+  const appPath = app.getAppPath()
+  const args = appPath && appPath !== process.execPath
+    ? [appPath, modeFlag]
+    : [modeFlag]
+
+  return spawn(process.execPath, args, {
+    detached: false,
+    stdio: 'ignore',
+    windowsHide: true,
+  })
+}
+
+const stopSshAgentHost = () => {
+  if (!sshAgentHostProcess || sshAgentHostProcess.killed) {
+    sshAgentHostProcess = null
+    return
+  }
+
+  sshAgentHostProcess.kill()
+  sshAgentHostProcess = null
+}
+
+const syncSshAgentHost = () => {
+  if (process.platform !== 'win32') {
+    stopSshAgentHost()
+    return
+  }
+
+  const enabled = controllerRef?.getSettings().sshAgentEnabled ?? false
+  if (!enabled) {
+    stopSshAgentHost()
+    return
+  }
+
+  if (sshAgentHostProcess && !sshAgentHostProcess.killed) {
+    return
+  }
+
+  const child = spawnBackgroundHost('--ssh-agent-host')
+  child.unref()
+  child.once('exit', () => {
+    if (sshAgentHostProcess === child) {
+      sshAgentHostProcess = null
+    }
+  })
+  sshAgentHostProcess = child
+}
 
 if (!hasSingleInstanceLock) {
   app.quit()
@@ -79,11 +132,16 @@ const registerAppProtocol = () => {
 }
 
 const validateIpcSender = (event: Electron.IpcMainInvokeEvent) => {
-  if (isDevMode && event.senderFrame.url.startsWith('http://')) {
+  const frameUrl = event.senderFrame?.url
+  if (!frameUrl) {
+    throw new Error('Unauthorized IPC sender')
+  }
+
+  if (isDevMode && frameUrl.startsWith('http://')) {
     return
   }
 
-  const senderProtocol = new URL(event.senderFrame.url).protocol.replace(':', '')
+  const senderProtocol = new URL(frameUrl).protocol.replace(':', '')
   if (!ALLOWED_SENDER_PROTOCOLS.includes(senderProtocol as typeof ALLOWED_SENDER_PROTOCOLS[number])) {
     throw new Error('Unauthorized IPC sender')
   }
@@ -125,7 +183,7 @@ const createWindow = async () => {
   })
 
   window.on('blur', () => {
-    if (!isQuitting && window.isVisible()) {
+    if (!isQuitting && window.isVisible() && !shouldKeepPaletteVisibleOnBlur()) {
       window.hide()
     }
   })
@@ -186,6 +244,11 @@ const openPalette = () => {
 
 const closePalette = () => {
   windowRef?.hide()
+}
+
+const shouldKeepPaletteVisibleOnBlur = () => {
+  const state = controllerRef?.getLockInfo().state
+  return state === 'locked' || state === 'passcode'
 }
 
 const registerHotkey = () => {
@@ -332,7 +395,9 @@ const bindIpc = () => {
       registerHotkey()
     }
 
-    return controllerRef?.updateSettings(update)
+    const nextSettings = controllerRef?.updateSettings(update)
+    syncSshAgentHost()
+    return nextSettings
   })
   ipcMain.handle(IPC_CHANNELS.passkeySupport, (event) => {
     validateIpcSender(event)
@@ -410,6 +475,12 @@ app.whenReady()
       return
     }
 
+    if (isSshAgentHostMode) {
+      await runSshAgentHost()
+      app.quit()
+      return
+    }
+
     session.defaultSession.setDisplayMediaRequestHandler(
       async (_, callback) => {
         const sources = await desktopCapturer.getSources({
@@ -436,6 +507,7 @@ app.whenReady()
     createTray()
     registerHotkey()
     app.setLoginItemSettings({ openAtLogin: controllerRef?.getSettings().launchOnStartup ?? false })
+    syncSshAgentHost()
   })
   .catch((error) => {
     console.error('Failed to initialize Klarkey', error)
@@ -455,6 +527,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  stopSshAgentHost()
   controllerRef?.dispose()
   controllerRef = null
 })

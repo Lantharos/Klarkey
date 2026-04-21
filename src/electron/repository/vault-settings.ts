@@ -20,6 +20,7 @@ export function readVaultSettings(db: Database.Database): UserSettings {
     browserSavePrompts: fromDb.browserSavePrompts === 'false' ? false : DEFAULT_SETTINGS.browserSavePrompts,
     passcodeEnabled: fromDb.passcodeEnabled === 'false' ? false : DEFAULT_SETTINGS.passcodeEnabled,
     autoLockMinutes: Number(fromDb.autoLockMinutes ?? DEFAULT_SETTINGS.autoLockMinutes) || DEFAULT_SETTINGS.autoLockMinutes,
+    sshAgentEnabled: fromDb.sshAgentEnabled === 'true' ? true : DEFAULT_SETTINGS.sshAgentEnabled,
   }
 }
 
@@ -38,6 +39,7 @@ export function mergeVaultSettings(db: Database.Database, update: SettingsUpdate
   statement.run('browserSavePrompts', String(next.browserSavePrompts))
   statement.run('passcodeEnabled', String(next.passcodeEnabled))
   statement.run('autoLockMinutes', String(next.autoLockMinutes))
+  statement.run('sshAgentEnabled', String(next.sshAgentEnabled))
 
   return next
 }

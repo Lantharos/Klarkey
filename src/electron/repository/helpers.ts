@@ -18,6 +18,14 @@ export const tryDecrypt = (key: Buffer, payload?: string) => {
   }
 }
 
+export const decryptPrivateKeyPayload = (key: Buffer, payload?: string) => {
+  if (!payload) {
+    return undefined
+  }
+
+  return tryDecrypt(key, payload)
+}
+
 export const getOtpFallback = ({
   itemName,
   username,
@@ -151,6 +159,11 @@ export type ItemDataPayload = {
   cardCvc?: string
   cardBrand?: string
   billingPostalCode?: string
+  sshAlgorithm?: string
+  sshFingerprint?: string
+  sshPublicKey?: string
+  sshComment?: string
+  sshPrivateKeyPayload?: string
   content?: string
 }
 
@@ -249,6 +262,15 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
     return {
       ...itemData,
       cardExpiry: joinCardExpiry(itemData),
+    } satisfies ItemDataPayload
+  }
+
+  if (itemType === 'ssh-key') {
+    return {
+      sshAlgorithm: input.sshAlgorithm?.trim() || undefined,
+      sshFingerprint: input.sshFingerprint?.trim() || undefined,
+      sshPublicKey: input.sshPublicKey?.trim() || undefined,
+      sshComment: input.sshComment?.trim() || undefined,
     } satisfies ItemDataPayload
   }
 

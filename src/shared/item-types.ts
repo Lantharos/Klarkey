@@ -1,5 +1,5 @@
-export const AVAILABLE_ITEM_TYPES = ['login', 'identity', 'card', 'note'] as const
-export const FUTURE_ITEM_TYPES = ['ssh-key'] as const
+export const AVAILABLE_ITEM_TYPES = ['login', 'identity', 'card', 'note', 'ssh-key'] as const
+export const FUTURE_ITEM_TYPES = [] as const
 export const ALL_ITEM_TYPES = [...AVAILABLE_ITEM_TYPES, ...FUTURE_ITEM_TYPES] as const
 
 export type CreatableItemType = (typeof AVAILABLE_ITEM_TYPES)[number]
@@ -65,7 +65,7 @@ export const ITEM_TYPE_DEFINITIONS: Record<ItemType, ItemTypeDefinition> = {
     createLabel: 'New SSH key',
     placeholderName: 'SSH key',
     supportsSecrets: true,
-    available: false,
+    available: true,
   },
 }
 

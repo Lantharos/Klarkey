@@ -73,7 +73,7 @@ describe('resolveActions', () => {
   it('offers explicit item types when create has no type yet', () => {
     const actions = resolveActions(snapshot, parseCommand('new'))
 
-    expect(actions.slice(0, 4).map((action) => action.itemType)).toEqual(['login', 'identity', 'card', 'note'])
+    expect(actions.slice(0, 5).map((action) => action.itemType)).toEqual(['login', 'identity', 'card', 'note', 'ssh-key'])
   })
 
   it('matches identity items by person fields', () => {

@@ -77,6 +77,10 @@ export interface ItemProfile {
   cardCvc?: string
   cardBrand?: string
   billingPostalCode?: string
+  sshAlgorithm?: string
+  sshFingerprint?: string
+  sshPublicKey?: string
+  sshComment?: string
   content?: string
   websites?: string[]
   notes?: string
@@ -368,6 +372,7 @@ export interface UserSettings {
   browserSavePrompts: boolean
   passcodeEnabled: boolean
   autoLockMinutes: number
+  sshAgentEnabled: boolean
 }
 
 export interface SettingsUpdate {
@@ -379,6 +384,7 @@ export interface SettingsUpdate {
   browserSavePrompts?: boolean
   passcodeEnabled?: boolean
   autoLockMinutes?: number
+  sshAgentEnabled?: boolean
 }
 
 export interface CreateItemInput {
@@ -412,6 +418,11 @@ export interface CreateItemInput {
   cardCvc?: string
   cardBrand?: string
   billingPostalCode?: string
+  sshPublicKey?: string
+  sshPrivateKey?: string
+  sshComment?: string
+  sshAlgorithm?: string
+  sshFingerprint?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -449,6 +460,11 @@ export interface UpdateItemInput {
   cardCvc?: string
   cardBrand?: string
   billingPostalCode?: string
+  sshPublicKey?: string
+  sshPrivateKey?: string
+  sshComment?: string
+  sshAlgorithm?: string
+  sshFingerprint?: string
   content?: string
   notes?: string
   websites?: string[]
@@ -487,6 +503,11 @@ export interface ItemDetails {
   cardCvc?: string
   cardBrand?: string
   billingPostalCode?: string
+  sshAlgorithm?: string
+  sshFingerprint?: string
+  sshPublicKey?: string
+  sshPrivateKey?: string
+  sshComment?: string
   content?: string
   notes?: string
   websites: string[]
@@ -508,4 +529,5 @@ export const DEFAULT_SETTINGS: UserSettings = {
   browserSavePrompts: true,
   passcodeEnabled: true,
   autoLockMinutes: 15,
+  sshAgentEnabled: false,
 }

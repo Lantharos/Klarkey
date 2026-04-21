@@ -28,6 +28,7 @@ import {
   listVaultDevicePasskeys,
   touchVaultDevicePasskey,
 } from '@/electron/repository/vault-device-passkeys'
+import { toSshIdentityRecord, type SshIdentityRecord, type SshPrivateIdentityRecord } from '@/electron/ssh'
 import { getTotpCode, parseStoredTotp } from '@/shared/totp'
 import {
   type ActionExecutionResult,
@@ -351,5 +352,26 @@ export class VaultRepository {
 
   rememberSitePasskeyAssertion(credentialId: string) {
     return rememberSitePasskeyAssertionResult(this.db, this.browserPasskeyMutations(), credentialId)
+  }
+
+  listSshPublicIdentities(): SshIdentityRecord[] {
+    return this.getSnapshot().items
+      .filter((item) => item.itemType === 'ssh-key' && item.sshAlgorithm && item.sshFingerprint && item.sshPublicKey && item.sshComment)
+      .map((item) => ({
+        itemId: item.id,
+        itemName: item.itemName,
+        algorithm: item.sshAlgorithm as SshIdentityRecord['algorithm'],
+        fingerprint: item.sshFingerprint!,
+        publicKey: item.sshPublicKey!,
+        comment: item.sshComment!,
+      }))
+  }
+
+  listSshIdentities(): SshPrivateIdentityRecord[] {
+    const items = this.db.prepare('SELECT id FROM identities WHERE itemType = ? ORDER BY itemName ASC').all('ssh-key') as Array<{ id: string }>
+    return items
+      .map(({ id }) => this.getItemDetails(id))
+      .map((item) => (item ? toSshIdentityRecord(item) : undefined))
+      .filter((item): item is SshPrivateIdentityRecord => Boolean(item))
   }
 }

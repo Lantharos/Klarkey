@@ -86,14 +86,8 @@ function App() {
   const detailActions = useMemo(() => buildDetailActions(activeDetailItem, targetWindow), [activeDetailItem, targetWindow])
   const selectedDetailAction = detailActions[selectedIndex]
   const formLoading = page === 'form' && formMode === 'edit' && Boolean(detailAction?.itemId) && !activeDetailItem
-  const createItemType =
-    detailAction?.itemType && detailAction.itemType !== 'ssh-key'
-      ? detailAction.itemType
-      : query.entryType && query.entryType !== 'ssh-key'
-        ? query.entryType
-        : 'login'
-  const formItemType =
-    activeDetailItem?.itemType && activeDetailItem.itemType !== 'ssh-key' ? activeDetailItem.itemType : createItemType
+  const createItemType = detailAction?.itemType || query.entryType || 'login'
+  const formItemType = activeDetailItem?.itemType || createItemType
   const createSeed = useMemo(
     () => ({
       itemType: createItemType,
@@ -128,6 +122,9 @@ function App() {
       cardCvc: '',
       cardBrand: '',
       billingPostalCode: '',
+      sshPublicKey: '',
+      sshPrivateKey: '',
+      sshComment: '',
       content: '',
       notes: '',
       websites: [''],
@@ -439,6 +436,11 @@ function App() {
               onSetupMasterPassword={() => {
                 openSetMasterPasswordPage()
               }}
+              onToggleSshAgent={() =>
+                void updateSettings({
+                  sshAgentEnabled: !(settings ?? DEFAULT_SETTINGS).sshAgentEnabled,
+                })
+              }
               pointerActive={pointerActive}
             />
           </div>
@@ -506,6 +508,7 @@ function App() {
           loading={formLoading}
           initialValue={createFormValues(formMode === 'edit' ? formItemType : createItemType, formMode === 'edit' ? activeDetailItem : createSeed)}
           existingOtp={activeDetailItem?.otp}
+          execution={execution}
           onAutoSave={(value) => {
             if (formMode !== 'edit' || !detailAction?.itemId) {
               return Promise.resolve(undefined)

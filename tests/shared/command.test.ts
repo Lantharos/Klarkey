@@ -20,6 +20,15 @@ describe('parseCommand', () => {
     expect(query.tokens.map((token) => token.kind)).toEqual(['intent', 'item-type'])
   })
 
+  it('detects ssh key item types', () => {
+    const query = parseCommand('new ssh key github signing')
+
+    expect(query.intent).toBe('create')
+    expect(query.entryType).toBe('ssh-key')
+    expect(query.itemQuery).toBe('github signing')
+    expect(query.tokens.map((token) => token.kind)).toEqual(['intent', 'item-type'])
+  })
+
   it('detects credential-specific actions', () => {
     const query = parseCommand('show 2fa discord')
 

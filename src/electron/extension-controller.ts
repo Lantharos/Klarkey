@@ -222,7 +222,7 @@ export class BrowserExtensionController {
         }
 
       case 'get-login': {
-        const loginVerification = await this.resolveUserVerification('get', '', request.url)
+        const loginVerification = await this.resolveUserVerification('get', '', '')
         if (!loginVerification.ok) {
           return {
             id: request.id,
@@ -240,7 +240,7 @@ export class BrowserExtensionController {
       }
 
       case 'get-identity': {
-        const identityVerification = await this.resolveUserVerification('get', '', request.url)
+        const identityVerification = await this.resolveUserVerification('get', '', '')
         if (!identityVerification.ok) {
           return {
             id: request.id,
@@ -258,7 +258,7 @@ export class BrowserExtensionController {
       }
 
       case 'get-card': {
-        const cardVerification = await this.resolveUserVerification('get', '', request.url)
+        const cardVerification = await this.resolveUserVerification('get', '', '')
         if (!cardVerification.ok) {
           return {
             id: request.id,

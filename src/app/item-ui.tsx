@@ -1,4 +1,4 @@
-import { CreditCard, IdCard, NotebookPen } from 'lucide-react'
+import { CreditCard, IdCard, KeyRound, NotebookPen } from 'lucide-react'
 import type { ItemType } from '@/shared/item-types'
 
 export function StaticItemTypeIcon({ itemType }: { itemType: ItemType }) {
@@ -12,6 +12,10 @@ export function StaticItemTypeIcon({ itemType }: { itemType: ItemType }) {
 
   if (itemType === 'card') {
     return <CreditCard size={15} />
+  }
+
+  if (itemType === 'ssh-key') {
+    return <KeyRound size={15} />
   }
 
   return null
