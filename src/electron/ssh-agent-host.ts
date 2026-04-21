@@ -190,6 +190,11 @@ class SshAgentController {
     return `${identity.itemId}::${processPath ?? `pid:${processId ?? 0}`}`
   }
 
+  private formatFingerprint(fingerprint: string) {
+    const withoutPrefix = fingerprint.replace(/^SHA256:/, '')
+    return withoutPrefix.length > 16 ? `${withoutPrefix.slice(0, 16)}…` : withoutPrefix
+  }
+
   private async authorize(identity: SshIdentityRecord, processPath?: string, processId?: number) {
     const cacheKey = this.approvalKey(identity, processPath, processId)
     if (this.approvals.has(cacheKey)) {
@@ -202,8 +207,9 @@ class SshAgentController {
     }
 
     const appLabel = processPath ? basename(processPath) : `PID ${processId ?? 'unknown'}`
+    const shortFingerprint = this.formatFingerprint(identity.fingerprint)
     const verification = await verifyWithWindowsHello(
-      `Verify with Windows Hello to allow ${appLabel} to use ${identity.itemName} (${identity.fingerprint}) in Klarkey.`,
+      `Allow ${appLabel} to use the SSH key "${identity.itemName}" (${shortFingerprint}) in Klarkey.`,
     )
 
     if (!verification.verified) {
