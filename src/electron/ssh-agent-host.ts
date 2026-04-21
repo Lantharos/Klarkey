@@ -120,7 +120,7 @@ class SshAgentController {
 
   private promptDesktopUnlock() {
     const now = Date.now()
-    if (now - this.lastUnlockPromptAt < 5000) {
+    if (now - this.lastUnlockPromptAt < 15000) {
       return
     }
 

@@ -1,66 +1,96 @@
-import { clsx } from 'clsx'
-import { useEffect, useRef, useState } from 'react'
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
-import type { VaultLockInfo } from '@/shared/types'
+import { clsx } from "clsx";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { VaultLockInfo } from "@/shared/types";
+import { FingerprintIcon } from "lucide-react";
 
 export function VaultLockScreen({
   lockInfo,
   onUnlockWithHello,
   onUnlockWithPassword,
 }: {
-  lockInfo: VaultLockInfo
-  onUnlockWithHello: () => Promise<{ success: boolean; message: string }>
-  onUnlockWithPassword: (password: string) => Promise<{ success: boolean; message: string }>
+  lockInfo: VaultLockInfo;
+  onUnlockWithHello: () => Promise<{ success: boolean; message: string }>;
+  onUnlockWithPassword: (
+    password: string,
+  ) => Promise<{ success: boolean; message: string }>;
 }) {
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
-  const [helloLoading, setHelloLoading] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [helloLoading, setHelloLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (password.length > 0) {
-      setError('')
+      setError("");
     }
-  }, [password])
+  }, [password]);
 
-  const canUseHello = lockInfo.primaryMethods.includes('windowsHello')
-  const needsPassword = lockInfo.primaryMethods.includes('masterPassword')
+  const canUseHello = lockInfo.primaryMethods.includes("windowsHello");
+  const needsPassword = lockInfo.primaryMethods.includes("masterPassword");
 
   const handleHello = async () => {
-    if (helloLoading) return
-    setHelloLoading(true)
+    if (helloLoading) return;
+    setHelloLoading(true);
     if (!needsPassword) {
-      setError('')
+      setError("");
     }
-    const result = await onUnlockWithHello()
+    const result = await onUnlockWithHello();
     if (!result.success) {
-      setError(result.message || 'Windows Hello verification failed.')
+      setError(result.message || "Windows Hello verification failed.");
     }
-    setHelloLoading(false)
-  }
+    setHelloLoading(false);
+  };
+
+  useEffect(() => {
+    if (!canUseHello) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      const active = document.activeElement;
+      if (active === inputRef.current) {
+        return;
+      }
+      e.preventDefault();
+      void handleHello();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canUseHello, helloLoading]);
 
   const handlePassword = async () => {
     if (!password.trim()) {
-      setError('Enter your master password.')
-      return
+      setError("Enter your master password.");
+      return;
     }
-    const result = await onUnlockWithPassword(password)
+    const result = await onUnlockWithPassword(password);
     if (!result.success) {
-      setError(result.message || 'Unlock failed.')
-      return
+      setError(result.message || "Unlock failed.");
+      return;
     }
-    setPassword('')
-    setError('')
-  }
+    setPassword("");
+    setError("");
+  };
 
   return (
     <div className="flex h-full min-h-full flex-col items-center justify-center gap-6 px-8 py-6 text-white">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/8">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="text-white/60">
+        <svg
+          width="28"
+          height="28"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-white/60"
+        >
           <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
           <path d="M7 11V7a5 5 0 0 1 10 0v4" />
         </svg>
@@ -70,12 +100,12 @@ export function VaultLockScreen({
         <div className="text-[18px] font-medium text-white">Vault locked</div>
         <div className="max-w-[280px] text-[14px] text-white/50">
           {helloLoading
-            ? 'Verifying with Windows Hello...'
+            ? "Verifying with Windows Hello..."
             : needsPassword
-              ? 'Enter your master password to unlock.'
+              ? "Enter your master password to unlock."
               : canUseHello
-                ? 'Unlock the vault to continue.'
-                : 'Set up a master password to protect your vault.'}
+                ? "Press Enter to unlock with Windows Hello."
+                : "Set up a master password to protect your vault."}
         </div>
       </div>
 
@@ -89,8 +119,8 @@ export function VaultLockScreen({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    void handlePassword()
+                  if (e.key === "Enter") {
+                    void handlePassword();
                   }
                 }}
                 placeholder="Master password"
@@ -113,11 +143,15 @@ export function VaultLockScreen({
               disabled={helloLoading}
               className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-white/10 text-[14px] font-medium text-white transition hover:bg-white/14 disabled:opacity-60"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              {helloLoading ? 'Verifying...' : 'Unlock with Windows Hello'}
+              <FingerprintIcon width={16} height={16} />
+              <span>
+                {helloLoading ? "Verifying..." : "Unlock with Windows Hello"}
+              </span>
+              {!helloLoading && (
+                <kbd className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-white/15 px-1 text-[16px] font-medium text-white/70">
+                  ↵
+                </kbd>
+              )}
             </button>
           )}
         </div>
@@ -125,75 +159,80 @@ export function VaultLockScreen({
 
       {error && <div className="text-[13px] text-red-300/80">{error}</div>}
     </div>
-  )
+  );
 }
 
 export function PasscodeScreen({
   onVerifyPasscode,
   passcodeLength = 4,
 }: {
-  onVerifyPasscode: (passcode: string) => Promise<{ success: boolean; message: string }>
-  passcodeLength?: number
+  onVerifyPasscode: (
+    passcode: string,
+  ) => Promise<{ success: boolean; message: string }>;
+  passcodeLength?: number;
 }) {
-  const length = Math.min(6, Math.max(4, passcodeLength))
-  const [passcode, setPasscode] = useState('')
-  const [error, setError] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([])
+  const length = Math.min(6, Math.max(4, passcodeLength));
+  const [passcode, setPasscode] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
-    inputRefs.current[0]?.focus()
-  }, [])
+    inputRefs.current[0]?.focus();
+  }, []);
 
   const handleChange = (index: number, value: string) => {
-    const digit = value.replace(/\D/g, '').slice(-1)
-    const chars = passcode.padEnd(length, ' ').split('')
-    chars[index] = digit || ' '
-    const next = chars.join('').replace(/\s+/g, '')
-    setPasscode(next)
-    setError('')
+    const digit = value.replace(/\D/g, "").slice(-1);
+    const chars = passcode.padEnd(length, " ").split("");
+    chars[index] = digit || " ";
+    const next = chars.join("").replace(/\s+/g, "");
+    setPasscode(next);
+    setError("");
 
     if (digit && index < length - 1) {
-      inputRefs.current[index + 1]?.focus()
+      inputRefs.current[index + 1]?.focus();
     }
-  }
+  };
 
-  const handleKeyDown = (index: number, event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Backspace') {
+  const handleKeyDown = (
+    index: number,
+    event: ReactKeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (event.key === "Backspace") {
       if (!passcode[index] && index > 0) {
-        inputRefs.current[index - 1]?.focus()
+        inputRefs.current[index - 1]?.focus();
       }
-      return
+      return;
     }
 
-    if (event.key === 'ArrowLeft' && index > 0) {
-      event.preventDefault()
-      inputRefs.current[index - 1]?.focus()
-      return
+    if (event.key === "ArrowLeft" && index > 0) {
+      event.preventDefault();
+      inputRefs.current[index - 1]?.focus();
+      return;
     }
 
-    if (event.key === 'ArrowRight' && index < length - 1) {
-      event.preventDefault()
-      inputRefs.current[index + 1]?.focus()
+    if (event.key === "ArrowRight" && index < length - 1) {
+      event.preventDefault();
+      inputRefs.current[index + 1]?.focus();
     }
-  }
+  };
 
   useEffect(() => {
     if (isSubmitting || passcode.length !== length) {
-      return
+      return;
     }
 
-    setIsSubmitting(true)
+    setIsSubmitting(true);
     void (async () => {
-      const result = await onVerifyPasscode(passcode)
+      const result = await onVerifyPasscode(passcode);
       if (!result.success) {
-        setError(result.message || 'Incorrect passcode.')
-        setPasscode('')
-        inputRefs.current[0]?.focus()
+        setError(result.message || "Incorrect passcode.");
+        setPasscode("");
+        inputRefs.current[0]?.focus();
       }
-      setIsSubmitting(false)
-    })()
-  }, [isSubmitting, length, onVerifyPasscode, passcode])
+      setIsSubmitting(false);
+    })();
+  }, [isSubmitting, length, onVerifyPasscode, passcode]);
 
   return (
     <div className="flex h-full min-h-full flex-col items-center justify-center px-8 py-6 text-white">
@@ -202,25 +241,27 @@ export function PasscodeScreen({
           <input
             key={`passcode-${index}`}
             ref={(element) => {
-              inputRefs.current[index] = element
+              inputRefs.current[index] = element;
             }}
             type="password"
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={1}
-            value={passcode[index] ?? ''}
+            value={passcode[index] ?? ""}
             onChange={(event) => handleChange(index, event.target.value)}
             onKeyDown={(event) => handleKeyDown(index, event)}
             className={clsx(
-              'h-12 w-12 rounded-[10px] border bg-white/6 text-center text-[20px] font-semibold text-white outline-none transition',
-              'border-white/12 focus:border-white/28 focus:ring-2 focus:ring-white/20',
-              isSubmitting ? 'opacity-70' : '',
+              "h-12 w-12 rounded-[10px] border bg-white/6 text-center text-[20px] font-semibold text-white outline-none transition",
+              "border-white/12 focus:border-white/28 focus:ring-2 focus:ring-white/20",
+              isSubmitting ? "opacity-70" : "",
             )}
             disabled={isSubmitting}
           />
         ))}
       </div>
-      {error ? <div className="mt-4 text-[13px] text-red-300/80">{error}</div> : null}
+      {error ? (
+        <div className="mt-4 text-[13px] text-red-300/80">{error}</div>
+      ) : null}
     </div>
-  )
+  );
 }

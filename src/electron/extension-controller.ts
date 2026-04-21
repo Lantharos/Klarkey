@@ -78,7 +78,7 @@ export class BrowserExtensionController {
 
   private promptDesktopUnlock() {
     const now = Date.now()
-    if (now - this.lastUnlockPromptAt < 2500) {
+    if (now - this.lastUnlockPromptAt < 10000) {
       return
     }
     this.lastUnlockPromptAt = now
@@ -187,7 +187,10 @@ export class BrowserExtensionController {
   async handle(request: BrowserExtensionRequest): Promise<BrowserExtensionResponse> {
     const requiresVault = request.type !== 'ping' && request.type !== 'get-settings'
     if (requiresVault && !this.ensureVaultReady()) {
-      this.promptDesktopUnlock()
+      const isPassiveRequest = ['list-logins', 'list-field-suggestions', 'passkeys-status', 'passkey-create-plan', 'passkey-get-plan'].includes(request.type)
+      if (!isPassiveRequest) {
+        this.promptDesktopUnlock()
+      }
       return {
         id: request.id,
         ok: true,

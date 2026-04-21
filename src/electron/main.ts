@@ -330,8 +330,14 @@ const bindIpc = () => {
   })
   ipcMain.handle(IPC_CHANNELS.vaultUnlockWithHello, async (event) => {
     validateIpcSender(event)
-    const result = await controllerRef?.unlockWithWindowsHello()
-    return result ?? { success: false, message: 'Controller not available.' }
+    const wasAlwaysOnTop = windowRef?.isAlwaysOnTop() ?? true
+    windowRef?.setAlwaysOnTop(false)
+    try {
+      const result = await controllerRef?.unlockWithWindowsHello()
+      return result ?? { success: false, message: 'Controller not available.' }
+    } finally {
+      windowRef?.setAlwaysOnTop(wasAlwaysOnTop)
+    }
   })
   ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, (event, password: string) => {
     validateIpcSender(event)
