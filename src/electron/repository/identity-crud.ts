@@ -23,9 +23,10 @@ import { parseStoredTotp, parseTotpInput } from '@/shared/totp'
 export function insertIdentity(db: Database.Database, key: Buffer, input: CreateItemInput): ActionExecutionResult {
   const itemType = input.itemType
   const itemName = input.itemName.trim()
+  const isSso = Boolean(input.ssoProvider?.trim())
   const username =
     itemType === 'login'
-      ? input.username?.trim() || `${slug(itemName)}_${randomBytes(2).toString('hex')}`
+      ? input.username?.trim() || (isSso ? '' : `${slug(itemName)}_${randomBytes(2).toString('hex')}`)
       : itemType === 'identity'
         ? input.username?.trim() || ''
         : ''
@@ -74,7 +75,7 @@ export function insertIdentity(db: Database.Database, key: Buffer, input: Create
     itemType,
     itemName,
     username,
-    input.email?.trim() || (itemType === 'login' ? `${username}@klarkey.local` : null),
+    input.email?.trim() || (itemType === 'login' && !isSso ? `${username}@klarkey.local` : null),
     JSON.stringify(input.websites ?? []),
     input.notes ?? null,
     JSON.stringify(input.customFields ?? []),

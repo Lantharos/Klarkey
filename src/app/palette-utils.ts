@@ -74,6 +74,7 @@ export function createFormValues(
     notes: seed?.notes ?? '',
     websites: seed?.websites?.length ? seed.websites : [''],
     customFields: seed?.customFields?.length ? seed.customFields : [newCustomField()],
+    ssoProvider: seed?.ssoProvider ?? '',
   }
 }
 

@@ -22,6 +22,7 @@ import {
   restorePendingSavePrompt,
   maybePromptToSave,
 } from './vault.js'
+import { scanForSsoButtons, maybePromptSsoSave, highlightSavedSsoButtons } from './sso/index.js'
 import { fieldKindFor, suggestionFlowFor, shouldAutoOpenFieldMenu } from './field-meta.js'
 import { renderInlineMenu, renderInlineTriggerOnly } from './ui/menu.js'
 import { handlePagePasskeyCreate, handlePagePasskeyGet } from './passkey/handlers.js'
@@ -174,6 +175,18 @@ document.addEventListener('submit', () => {
     void maybePromptToSave(inputs.password || inputs.username, true)
   }, 180)
 }, true)
+
+// Scan for SSO buttons periodically and on interactions
+window.setInterval(() => {
+  scanForSsoButtons()
+  highlightSavedSsoButtons(pageState.matches)
+  void maybePromptSsoSave()
+}, 2000)
+
+// Check for returning from OAuth redirect
+window.setTimeout(() => {
+  void maybePromptSsoSave()
+}, 800)
 
 document.addEventListener(
   'blur',

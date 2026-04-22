@@ -80,6 +80,8 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
         hasPassword: Boolean(item.passwordPayload),
         hasOtp: Boolean(item.otpPayload),
         hasPasskey: Boolean(item.hasPasskey),
+        hasRecoveryCodes: Boolean(itemData.recoveryCodes && itemData.recoveryCodes.length > 0),
+        ssoProvider: itemData.ssoProvider,
         passwordPreview: item.passwordPayload ? '**********' : undefined,
         lastUsedAt: item.lastUsedAt,
       }

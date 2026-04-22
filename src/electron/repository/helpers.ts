@@ -165,6 +165,8 @@ export type ItemDataPayload = {
   sshComment?: string
   sshPrivateKeyPayload?: string
   content?: string
+  recoveryCodes?: string[]
+  ssoProvider?: string
 }
 
 export type PasskeyRow = {
@@ -237,12 +239,14 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
       ...itemData,
       fullName: joinIdentityFullName(itemData),
       address: joinIdentityAddress(itemData),
+      recoveryCodes: input.recoveryCodes?.filter(Boolean),
     } satisfies ItemDataPayload
   }
 
   if (itemType === 'note') {
     return {
       content: input.content?.trim() || undefined,
+      recoveryCodes: input.recoveryCodes?.filter(Boolean),
     } satisfies ItemDataPayload
   }
 
@@ -262,6 +266,7 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
     return {
       ...itemData,
       cardExpiry: joinCardExpiry(itemData),
+      recoveryCodes: input.recoveryCodes?.filter(Boolean),
     } satisfies ItemDataPayload
   }
 
@@ -274,5 +279,8 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
     } satisfies ItemDataPayload
   }
 
-  return {} satisfies ItemDataPayload
+  return {
+    ...(input.recoveryCodes !== undefined ? { recoveryCodes: input.recoveryCodes.filter(Boolean) } : {}),
+    ...(input.ssoProvider !== undefined ? { ssoProvider: input.ssoProvider.trim() || undefined } : {}),
+  } satisfies ItemDataPayload
 }

@@ -9,6 +9,7 @@ export function useDetailPaletteKeyboard({
   setSelectedIndex,
   executeAction,
   openEditForm,
+  openRecoveryCodesPage,
   deleteCurrentItem,
   goBackOrClose,
   hotkeyRecording,
@@ -18,13 +19,14 @@ export function useDetailPaletteKeyboard({
   setPendingDeleteConfirm,
   deleteConfirmActive,
 }: {
-  page: 'home' | 'settings' | 'detail' | 'form' | 'dev' | 'locked' | 'passcode' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal' | 'export' | 'import' | 'import-loading'
+  page: 'home' | 'settings' | 'detail' | 'form' | 'dev' | 'locked' | 'passcode' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal' | 'export' | 'import' | 'import-loading' | 'recovery-codes'
   detailActions: DetailAction[]
   selectedDetailAction: DetailAction | undefined
   selectedIndex: number
   setSelectedIndex: (index: number) => void
   executeAction: (actionId: string, modifier: ModifierKey) => Promise<unknown>
   openEditForm: () => void
+  openRecoveryCodesPage: (mode?: 'add' | 'view') => void
   deleteCurrentItem: () => Promise<unknown>
   goBackOrClose: () => Promise<void>
   hotkeyRecording: boolean
@@ -91,6 +93,11 @@ export function useDetailPaletteKeyboard({
         return
       }
 
+      if (selectedDetailAction.id === 'add-recovery-codes' || selectedDetailAction.id === 'view-recovery-codes') {
+        openRecoveryCodesPage(selectedDetailAction.id === 'view-recovery-codes' ? 'view' : 'add')
+        return
+      }
+
       if (selectedDetailAction.id === 'delete-item') {
         if (!pendingDeleteConfirm) {
           setPendingDeleteConfirm(true)
@@ -117,6 +124,7 @@ export function useDetailPaletteKeyboard({
     goBackOrClose,
     hotkeyRecording,
     openEditForm,
+    openRecoveryCodesPage,
     page,
     pendingDeleteConfirm,
     resetSettingsChrome,

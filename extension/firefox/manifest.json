@@ -3,7 +3,7 @@
   "name": "Klarkey",
   "version": "0.1.0",
   "description": "Desktop-only autofill bridge for Klarkey.",
-  "permissions": ["activeTab", "tabs", "nativeMessaging", "<all_urls>"],
+  "permissions": ["activeTab", "tabs", "nativeMessaging", "storage", "<all_urls>"],
   "browser_action": {
     "default_title": "Klarkey",
     "default_popup": "popup.html"

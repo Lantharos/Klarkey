@@ -14,6 +14,7 @@ export function buildBrowserFillLogin(item: ItemDetails | undefined, hasPasskey:
     otp: item.otp ? getTotpCode(item.otp).value : undefined,
     websites: item.websites,
     hasPasskey,
+    ssoProvider: item.ssoProvider,
   } satisfies BrowserFillLogin
 }
 

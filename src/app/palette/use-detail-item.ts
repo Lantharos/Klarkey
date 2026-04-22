@@ -16,7 +16,8 @@ export function useDetailItem(
     | 'confirm-passcode-removal'
     | 'export'
     | 'import'
-    | 'import-loading',
+    | 'import-loading'
+    | 'recovery-codes',
   executionItemId: string | undefined,
 ) {
   const [detailItem, setDetailItem] = useState<ItemDetails>()

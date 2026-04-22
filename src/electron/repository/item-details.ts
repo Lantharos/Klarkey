@@ -104,6 +104,8 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
     notes: row.notes ?? undefined,
     websites: parseJson<string[]>(row.websites, []),
     customFields: parseJson<Array<{ id: string; label: string; value: string }>>(row.customFields, []),
+    recoveryCodes: itemData.recoveryCodes ?? [],
+    ssoProvider: itemData.ssoProvider,
     passkeys,
   }
 }

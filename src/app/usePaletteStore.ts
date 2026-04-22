@@ -97,7 +97,7 @@ interface PaletteState {
   resolveKey: number
   bootError?: string
   execution?: ActionExecutionResult
-  page: 'home' | 'settings' | 'detail' | 'form' | 'locked' | 'passcode' | 'dev' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal' | 'export' | 'import' | 'import-loading'
+  page: 'home' | 'settings' | 'detail' | 'form' | 'locked' | 'passcode' | 'dev' | 'set-passcode' | 'set-master-password' | 'confirm-passcode-removal' | 'export' | 'import' | 'import-loading' | 'recovery-codes'
   query: CommandQuery
   actions: ResolvedAction[]
   hasMoreResults: boolean
@@ -105,6 +105,7 @@ interface PaletteState {
   selectedIndex: number
   detailAction?: ResolvedAction
   formMode?: 'create' | 'edit'
+  recoveryCodesMode?: 'add' | 'view'
   settings?: UserSettings
   lockInfo?: VaultLockInfo
   boot: () => Promise<void>
@@ -140,6 +141,9 @@ interface PaletteState {
   confirmPasscodeRemoval: (passcode: string) => Promise<{ success: boolean; message: string }>
   openExportPage: () => void
   openImportPage: () => void
+  openRecoveryCodesPage: (mode?: 'add' | 'view') => void
+  submitRecoveryCodes: (codes: string[]) => Promise<ActionExecutionResult | undefined>
+  updateRecoveryCodesInPlace: (codes: string[]) => Promise<ActionExecutionResult | undefined>
   focusInput: () => void
   updateSettings: (update: SettingsUpdate) => Promise<void>
   loadMoreActions: () => Promise<void>
@@ -167,7 +171,8 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   hasMoreResults: false,
   nextOffset: 0,
   selectedIndex: 0,
-detailAction: undefined,
+  detailAction: undefined,
+  recoveryCodesMode: undefined,
   lockInfo: undefined,
   settings: DEFAULT_SETTINGS,
   async boot() {
@@ -176,14 +181,15 @@ detailAction: undefined,
       const settings = await api.settings.get()
       const lockInfo = await api.vault.lockState()
       const startPage = lockInfo.state === 'locked' ? 'locked' as const : lockInfo.state === 'passcode' ? 'passcode' as const : 'home' as const
-      set({
-        resolveKey,
-        settings,
-        lockInfo,
-        page: startPage,
-        detailAction: undefined,
-        formMode: undefined,
-        execution: undefined,
+        set({
+          resolveKey,
+          settings,
+          lockInfo,
+          page: startPage,
+          detailAction: undefined,
+          formMode: undefined,
+          recoveryCodesMode: undefined,
+          execution: undefined,
         query: defaultQuery,
         actions: [],
         hasMoreResults: false,
@@ -434,8 +440,8 @@ detailAction: undefined,
       return
     }
 
-    if (page === 'detail') {
-      set({ page: 'home', detailAction: undefined, selectedIndex: 0, formMode: undefined, execution: undefined })
+      if (page === 'detail') {
+      set({ page: 'home', detailAction: undefined, selectedIndex: 0, formMode: undefined, recoveryCodesMode: undefined, execution: undefined })
       return
     }
 
@@ -444,7 +450,11 @@ detailAction: undefined,
       return
     }
 
-    if (page === 'export' || page === 'import') {
+    if (page === 'export' || page === 'import' || page === 'recovery-codes') {
+      if (page === 'recovery-codes') {
+        set({ page: 'detail', selectedIndex: 0, formMode: undefined, recoveryCodesMode: undefined, execution: undefined })
+        return
+      }
       set({ page: 'settings', selectedIndex: page === 'export' ? 10 : 11, formMode: undefined, execution: undefined })
       return
     }
@@ -533,6 +543,23 @@ detailAction: undefined,
   },
   openImportPage() {
     set({ page: 'import', selectedIndex: 0, execution: undefined })
+  },
+  openRecoveryCodesPage(mode = 'add') {
+    set({ page: 'recovery-codes', recoveryCodesMode: mode, selectedIndex: 0, execution: undefined })
+  },
+  async submitRecoveryCodes(codes) {
+    const itemId = get().detailAction?.itemId
+    if (!itemId) return undefined
+    const result = await api.item.update({ itemId, recoveryCodes: codes })
+    set({ execution: result, page: 'detail', recoveryCodesMode: undefined, selectedIndex: 0 })
+    return result
+  },
+  async updateRecoveryCodesInPlace(codes) {
+    const itemId = get().detailAction?.itemId
+    if (!itemId) return undefined
+    const result = await api.item.update({ itemId, recoveryCodes: codes })
+    set({ execution: result, page: 'recovery-codes', selectedIndex: 0 })
+    return result
   },
   async submitSetPasscode(passcode: string, confirmPasscode: string) {
     if (passcode !== confirmPasscode) {

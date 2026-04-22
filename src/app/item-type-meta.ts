@@ -1,7 +1,7 @@
 import { getItemTypeDefinition, type CreatableItemType, type ItemType } from '@/shared/item-types'
 import type { DetailAction } from '@/app/palette-types'
 import type { ExternalWindowContext, ItemDetails } from '@/shared/types'
-import { ContactRound, CreditCard, FileText, Fingerprint, KeyRound, Mail, MapPinned, Pencil, Phone, Settings, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
+import { ContactRound, CreditCard, FileText, Fingerprint, KeyRound, Mail, MapPinned, Pencil, Phone, RefreshCw, Settings, ShieldCheck, TimerReset, Trash2, User } from 'lucide-react'
 
 export function getItemTypeIcon(itemType: ItemType) {
   if (itemType === 'identity') {
@@ -74,6 +74,7 @@ export function buildDetailActions(item?: ItemDetails, target?: ExternalWindowCo
     const hasUsername = hasValue(item.username)
     const hasPassword = hasValue(item.password)
     const hasOtp = Boolean(item.otp)
+    const hasRecoveryCodes = item.recoveryCodes && item.recoveryCodes.length > 0
 
     return [
       ...(hasUsername ? [{ id: 'paste-username', title: getPasteTitle('username', target), icon: User, iconUrl: getPasteIconUrl(target), actionId: `paste:${item.itemId}:username` }] : []),
@@ -84,6 +85,9 @@ export function buildDetailActions(item?: ItemDetails, target?: ExternalWindowCo
       ...(hasOtp ? [{ id: 'copy-otp', title: 'Copy one-time code', icon: TimerReset, actionId: `copy:${item.itemId}:otp`, otp: item.otp }] : []),
       ...(hasPassword ? [{ id: 'show-password', title: 'Show password', icon: ShieldCheck, actionId: `show:${item.itemId}:password` }] : []),
       ...(hasOtp ? [{ id: 'show-otp', title: 'Show one-time code', icon: TimerReset, actionId: `show:${item.itemId}:otp` }] : []),
+      ...(hasRecoveryCodes
+        ? [{ id: 'view-recovery-codes', title: 'View recovery codes', icon: RefreshCw }]
+        : [{ id: 'add-recovery-codes', title: 'Add recovery codes', icon: RefreshCw, tone: 'success' as const }]),
       { id: 'edit-item', title: 'Edit item', icon: Pencil, tone: 'success' },
       { id: 'delete-item', title: 'Delete item', icon: Trash2, tone: 'danger' },
     ]

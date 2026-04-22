@@ -160,6 +160,22 @@ const appendFieldMenuButton = ({ container, title, secondary, onClick }) => {
 }
 
 const applyLoginFill = (input, login) => {
+  // SSO login: no credentials to fill, just navigate to the site's login
+  if (login.ssoProvider) {
+    suppressInlineMenu(input)
+    removeInlineUi()
+    // Look for any link/button mentioning the provider
+    const allButtons = document.querySelectorAll('a, button, [role="button"]')
+    for (const el of allButtons) {
+      const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase()
+      if (text.includes('sign in with') && text.includes(login.ssoProvider.toLowerCase())) {
+        el.click()
+        return
+      }
+    }
+    return
+  }
+
   const inputs = getInputs(input)
   suppressInlineMenu(input)
   writeValue(inputs.username, login.username)
@@ -320,7 +336,10 @@ const renderFieldMenu = (input, options = {}) => {
     }
 
     if (!showedGenerator && authFlow !== 'register') {
-      for (const match of pageState.matches.filter((candidate) => candidate.hasPassword).slice(0, 4)) {
+      const passwordMatches = pageState.matches.filter((candidate) => candidate.hasPassword).slice(0, 4)
+      const ssoMatches = pageState.matches.filter((candidate) => candidate.ssoProvider && !candidate.hasPassword).slice(0, 2)
+
+      for (const match of passwordMatches) {
         appendFieldMenuButton({
           container: list,
           title: match.username || match.itemName,
@@ -340,6 +359,26 @@ const renderFieldMenu = (input, options = {}) => {
           },
         })
       }
+
+      for (const match of ssoMatches) {
+        appendFieldMenuButton({
+          container: list,
+          title: `Sign in with ${match.ssoProvider}`,
+          secondary: match.itemName,
+          onClick: () => {
+            suppressInlineMenu(input)
+            removeInlineUi()
+            const allButtons = document.querySelectorAll('a, button, [role="button"]')
+            for (const el of allButtons) {
+              const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase()
+              if (text.includes('sign in with') && text.includes(match.ssoProvider.toLowerCase())) {
+                el.click()
+                return
+              }
+            }
+          },
+        })
+      }
     }
 
     if (authFlow === 'register' && !showedGenerator) {
@@ -347,7 +386,7 @@ const renderFieldMenu = (input, options = {}) => {
       empty.className = 'klarkey-inline-empty'
       empty.textContent = 'Password already set.'
       list.appendChild(empty)
-    } else if (!showedGenerator && !pageState.matches.some((match) => match.hasPassword)) {
+    } else if (!showedGenerator && !pageState.matches.some((match) => match.hasPassword || match.ssoProvider)) {
       const empty = document.createElement('div')
       empty.className = 'klarkey-inline-empty'
       empty.textContent = 'No items found.'

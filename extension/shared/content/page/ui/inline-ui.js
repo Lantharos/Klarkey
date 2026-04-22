@@ -6,7 +6,9 @@ import { clearBrowserAutofillSuppression } from '../autofill/autofill.js'
 const removeInlineUi = () => {
   stopInlineLayoutTracking()
   clearBrowserAutofillSuppression()
-  overlayRoot.innerHTML = ''
+  overlayRoot
+    .querySelectorAll('.klarkey-inline-trigger, .klarkey-inline-menu, .klarkey-save-banner')
+    .forEach((element) => element.remove())
   pageState.activeMenuButtons = []
   pageState.activeMenuIndex = -1
   pageState.activeSaveBannerKey = ''

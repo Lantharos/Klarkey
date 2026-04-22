@@ -51,4 +51,5 @@ export type ItemFormValues = {
   notes: string
   websites: string[]
   customFields: Array<{ id: string; label: string; value: string }>
+  ssoProvider: string
 }

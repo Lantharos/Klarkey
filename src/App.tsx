@@ -26,6 +26,7 @@ import { MasterPasswordSetupScreen, PasscodeConfirmScreen, PasscodeSetupScreen }
 import { DevPanel } from '@/app/dev-panel'
 import { FormatPickerPage } from '@/app/format-picker-page'
 import { ImportLoadingPage } from '@/app/import-loading-page'
+import { RecoveryCodesPage } from '@/app/recovery-codes-page'
 import { DEFAULT_SETTINGS, type UpdateItemInput } from '@/shared/types'
 
 function App() {
@@ -70,6 +71,10 @@ function App() {
   const lockInfo = usePaletteStore((state) => state.lockInfo)
   const exportVault = usePaletteStore((state) => state.exportVault)
   const importVault = usePaletteStore((state) => state.importVault)
+  const openRecoveryCodesPage = usePaletteStore((state) => state.openRecoveryCodesPage)
+  const submitRecoveryCodes = usePaletteStore((state) => state.submitRecoveryCodes)
+  const updateRecoveryCodesInPlace = usePaletteStore((state) => state.updateRecoveryCodesInPlace)
+  const recoveryCodesMode = usePaletteStore((state) => state.recoveryCodesMode)
 
   const targetWindow = useTargetWindow()
   const [detailItem, setDetailItem] = useDetailItem(detailAction?.itemId, page, execution?.itemId)
@@ -152,6 +157,7 @@ function App() {
     setSelectedIndex,
     executeAction,
     openEditForm,
+    openRecoveryCodesPage,
     deleteCurrentItem,
     goBackOrClose,
     hotkeyRecording,
@@ -360,6 +366,19 @@ function App() {
           onCancel={() => void goBackOrClose()}
         />
       </div>
+    )
+  }
+
+  if (page === 'recovery-codes') {
+    return (
+      <RecoveryCodesPage
+        mode={recoveryCodesMode ?? 'view'}
+        itemName={activeDetailItem?.itemName ?? ''}
+        codes={activeDetailItem?.recoveryCodes ?? []}
+        onSave={(codes) => void submitRecoveryCodes(codes)}
+        onUpdate={(codes) => void updateRecoveryCodesInPlace(codes)}
+        onBack={() => void goBackOrClose()}
+      />
     )
   }
 

@@ -75,5 +75,6 @@ export function cleanFormValue(value: ItemFormValues): CreateItemInput {
             }))
             .filter((field) => field.label || field.value)
         : [],
+    ssoProvider: value.itemType === 'login' ? value.ssoProvider.trim() || undefined : undefined,
   }
 }

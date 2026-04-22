@@ -8,7 +8,7 @@ const getPendingSavePrompt = () => {
     }
 
     const parsed = JSON.parse(raw)
-    if (!parsed?.password || !parsed?.createdAt || Date.now() - parsed.createdAt > 30_000) {
+    if ((!parsed?.password && !parsed?.ssoProvider) || !parsed?.createdAt || Date.now() - parsed.createdAt > 30_000) {
       window.sessionStorage.removeItem(pendingSaveStorageKey)
       return undefined
     }
@@ -41,7 +41,7 @@ const clearPendingSavePrompt = () => {
   }
 }
 
-const savePromptKeyFor = ({ username, password }) => `${window.location.hostname}|${username || ''}|${password || ''}`
+const savePromptKeyFor = ({ username, password, ssoProvider }) => `${window.location.hostname}|${username || ''}|${password || ''}|${ssoProvider || ''}`
 const passkeyPromptKeyFor = (...parts) => `${window.location.hostname}|${parts.filter(Boolean).join('|')}`
 
 export { getPendingSavePrompt, setPendingSavePrompt, clearPendingSavePrompt, savePromptKeyFor, passkeyPromptKeyFor }

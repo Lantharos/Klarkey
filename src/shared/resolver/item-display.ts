@@ -3,7 +3,9 @@ import type { ItemProfile } from '@/shared/types'
 
 export function itemSubtitle(item: ItemProfile) {
   return item.itemType === 'login'
-    ? item.username || item.itemName
+    ? item.ssoProvider
+      ? [item.username, `Sign in with ${item.ssoProvider}`].filter(Boolean).join(' · ')
+      : item.username || item.itemName
     : item.itemType === 'identity'
       ? item.fullName || item.email || item.username || item.itemName
       : item.itemType === 'card'

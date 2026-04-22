@@ -5,12 +5,12 @@ import { removeInlineUi } from './inline-ui.js'
 import { savePromptKeyFor, clearPendingSavePrompt, passkeyPromptKeyFor } from '../pending-save.js'
 import { setPendingUsername } from '../forms/forms.js'
 
-const showSaveBanner = ({ username, password, reason }) => {
+const showSaveBanner = ({ username, password, ssoProvider, reason }) => {
   if (!browserSettings.browserSavePrompts) {
     return
   }
 
-  const promptKey = savePromptKeyFor({ username, password })
+  const promptKey = savePromptKeyFor({ username, password, ssoProvider })
   if (pageState.activeSaveBannerKey === promptKey) {
     return
   }
@@ -23,8 +23,8 @@ const showSaveBanner = ({ username, password, reason }) => {
     <div class="klarkey-save-title">${reason === 'update' ? 'Update login in Klarkey?' : 'Save login in Klarkey?'}</div>
     <p class="klarkey-save-copy">${
       reason === 'update'
-        ? `${username || 'This account'} looks updated on ${window.location.hostname}.`
-        : `${username || 'This account'} was used on ${window.location.hostname}.`
+        ? `${username || ssoProvider || 'This account'} looks updated on ${window.location.hostname}.`
+        : `${username || ssoProvider || 'This account'} was used on ${window.location.hostname}.`
     }</p>
     <div class="klarkey-save-actions">
       <button class="klarkey-save-button primary" data-action="save">${reason === 'update' ? 'Update' : 'Save'}</button>
@@ -52,6 +52,7 @@ const showSaveBanner = ({ username, password, reason }) => {
         title: document.title,
         username,
         password,
+        ssoProvider,
       },
     }).catch((error) => ({
       ok: false,

@@ -250,11 +250,48 @@ function getSsoInfo(sections: OnePuxSection[] | undefined): string | undefined {
   return undefined
 }
 
+function getSsoProvider(sections: OnePuxSection[] | undefined): string | undefined {
+  for (const section of sections ?? []) {
+    for (const field of section.fields ?? []) {
+      if (field.value?.ssoLogin?.provider) {
+        return field.value.ssoLogin.provider
+      }
+    }
+  }
+  return undefined
+}
+
+function getRecoveryCodes(sections: OnePuxSection[] | undefined): string[] | undefined {
+  for (const section of sections ?? []) {
+    for (const field of section.fields ?? []) {
+      const title = field.title?.toLowerCase().trim() || ''
+      if (
+        (title.includes('recovery') || title.includes('backup') || title.includes('restore') || title.includes('2fa')) &&
+        field.value?.string
+      ) {
+        // Parse multiline recovery codes. Strip bullets, stars, dashes, spaces.
+        const raw = field.value.string
+        const codes = raw
+          .split(/\r?\n/)
+          .map((line) =>
+            line
+              .replace(/^[\s\-*•◦‣⁃–—]+/g, '') // leading bullets/dashes
+              .replace(/\s+/g, ' ')
+              .trim(),
+          )
+          .filter((line) => line.length > 0 && !line.toLowerCase().includes('recovery'))
+        return codes.length > 0 ? codes : undefined
+      }
+    }
+  }
+  return undefined
+}
+
 function parseCardExpiry(expiry: string | undefined): { month?: string; year?: string } {
   if (!expiry) return {}
   const cleaned = expiry.trim()
   if (!cleaned) return {}
-  const parts = cleaned.split(/[\/\-]/)
+  const parts = cleaned.split(/[/-]/)
   if (parts.length >= 2) {
     return { month: parts[0]?.trim(), year: parts[1]?.trim() }
   }
@@ -369,12 +406,26 @@ function convert1PasswordItem(item: OnePuxItem): CreateItemInput | null {
   // --- Login / Password ---
 
   // Extract username: try designation first, then fieldType E (email), then T (text)
-  const username =
+  let username =
     getLoginField(loginFields, (f) => f.designation === 'username') ||
     getLoginField(loginFields, (f) => f.fieldType === 'E') ||
     getLoginField(loginFields, (f) => f.fieldType === 'T' && f.name?.toLowerCase() === 'username') ||
-    item.overview?.subtitle ||
     ''
+
+  // 1Password shows "—" for empty usernames; skip it.
+  // Also skip if the subtitle is just an SSO hint like "Signs in with GitHub".
+  if (username === '—' || username === '-' || username === '–' || username === '—') {
+    username = ''
+  }
+  // If there's no real username field but there's an SSO login, don't use subtitle as username
+  const ssoInfo = getSsoInfo(sections)
+  if (!username && ssoInfo && item.overview?.subtitle?.toLowerCase().includes('signs in with')) {
+    username = ''
+  }
+  // Only use subtitle as username fallback if it's not an SSO descriptor
+  if (!username && item.overview?.subtitle && !item.overview.subtitle.toLowerCase().includes('signs in with')) {
+    username = item.overview.subtitle
+  }
 
   // Extract password
   const password =
@@ -394,8 +445,11 @@ function convert1PasswordItem(item: OnePuxItem): CreateItemInput | null {
   }
 
   // Handle SSO-only items (no username/password, just "Sign in with X")
-  const ssoInfo = getSsoInfo(sections)
-  const finalNotes = ssoInfo ? [ssoInfo, notes].filter(Boolean).join('\n\n') : notes
+  const ssoProvider = getSsoProvider(sections)
+  const finalNotes = ssoInfo && !ssoProvider ? [ssoInfo, notes].filter(Boolean).join('\n\n') : notes
+
+  // Recovery codes
+  const recoveryCodes = getRecoveryCodes(sections)
 
   // Custom fields from sections
   const customFields = getCustomFields(sections)
@@ -409,5 +463,7 @@ function convert1PasswordItem(item: OnePuxItem): CreateItemInput | null {
     notes: finalNotes,
     websites: getWebsites(item),
     customFields,
+    recoveryCodes,
+    ssoProvider,
   }
 }

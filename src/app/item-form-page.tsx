@@ -314,12 +314,22 @@ export function ItemFormPage({
 
         {value.itemType === 'login' ? (
           <>
-            <FieldShell label="Username">
+            {value.ssoProvider ? (
+              <FieldShell label="Sign in with">
+                <TextField
+                  value={value.ssoProvider}
+                  onChange={(ssoProvider) => updateValue((current) => ({ ...current, ssoProvider }))}
+                  onKeyDown={onFieldKeyDown}
+                  placeholder="Google, GitHub, Apple..."
+                />
+              </FieldShell>
+            ) : null}
+            <FieldShell label={value.ssoProvider ? 'Account' : 'Username'}>
               <TextField
                 value={value.username}
                 onChange={(username) => updateValue((current) => ({ ...current, username }))}
                 onKeyDown={onFieldKeyDown}
-                placeholder="me@example.com"
+                placeholder={value.ssoProvider ? 'me@example.com' : 'me@example.com'}
               />
             </FieldShell>
             <FieldShell label="Password">

@@ -88,6 +88,8 @@ export interface ItemProfile {
   hasPassword: boolean
   hasOtp: boolean
   hasPasskey: boolean
+  hasRecoveryCodes: boolean
+  ssoProvider?: string
   passwordPreview?: string
   lastUsedAt?: string
 }
@@ -163,6 +165,7 @@ export interface BrowserSiteMatch {
   hasPassword: boolean
   hasOtp: boolean
   hasPasskey: boolean
+  ssoProvider?: string
   lastUsedAt?: string
 }
 
@@ -213,6 +216,7 @@ export interface BrowserFillLogin {
   otp?: string
   websites: string[]
   hasPasskey: boolean
+  ssoProvider?: string
 }
 
 export interface BrowserFillIdentity {
@@ -286,6 +290,7 @@ export interface BrowserSaveLoginInput {
   title?: string
   username?: string
   password?: string
+  ssoProvider?: string
 }
 
 export interface RecentAction {
@@ -427,6 +432,8 @@ export interface CreateItemInput {
   notes?: string
   websites?: string[]
   customFields?: Array<{ id: string; label: string; value: string }>
+  recoveryCodes?: string[]
+  ssoProvider?: string
 }
 
 export interface UpdateItemInput {
@@ -469,6 +476,8 @@ export interface UpdateItemInput {
   notes?: string
   websites?: string[]
   customFields?: Array<{ id: string; label: string; value: string }>
+  recoveryCodes?: string[]
+  ssoProvider?: string
 }
 
 export interface ItemDetails {
@@ -512,6 +521,8 @@ export interface ItemDetails {
   notes?: string
   websites: string[]
   customFields: Array<{ id: string; label: string; value: string }>
+  recoveryCodes: string[]
+  ssoProvider?: string
   passkeys: ItemPasskey[]
 }
 

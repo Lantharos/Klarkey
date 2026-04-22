@@ -34,6 +34,7 @@ export interface KlarkeyExportItem {
   websites?: string[]
   notes?: string
   customFields?: Array<{ id: string; label: string; value: string }>
+  recoveryCodes?: string[]
   password?: string
   otpUri?: string
   fullName?: string
@@ -62,6 +63,7 @@ export interface KlarkeyExportItem {
   sshPublicKey?: string
   sshPrivateKey?: string
   sshComment?: string
+  ssoProvider?: string
   content?: string
   createdAt: string
   updatedAt: string

@@ -281,6 +281,57 @@ export default `
     background: #b5e4ff;
   }
 
+  .klarkey-sso-highlight {
+    position: fixed;
+    border: 2px solid #E07878;
+    padding: 6px;
+    pointer-events: none;
+    z-index: 2147483645;
+    box-sizing: border-box;
+    transition: top 60ms ease, left 60ms ease, width 60ms ease, height 60ms ease;
+  }
+
+  .klarkey-sso-badge {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 20px;
+    height: 20px;
+    pointer-events: none;
+  }
+
+  .klarkey-sso-badge img {
+    width: 20px;
+    height: 20px;
+    display: block;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.28));
+  }
+
+  .klarkey-sso-label {
+    position: absolute;
+    left: 8px;
+    top: -11px;
+    max-width: min(220px, calc(100% - 40px));
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(26, 28, 31, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+  }
+
+  .klarkey-sso-badge img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    border-radius: 50%;
+  }
+
   @keyframes klarkey-slide-in {
     from {
       opacity: 0;

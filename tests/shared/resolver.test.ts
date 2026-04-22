@@ -18,6 +18,7 @@ const snapshot: VaultSnapshot = {
       hasPassword: true,
       hasOtp: true,
       hasPasskey: false,
+      hasRecoveryCodes: false,
     },
     {
       id: 'item_personal',
@@ -27,6 +28,7 @@ const snapshot: VaultSnapshot = {
       hasPassword: true,
       hasOtp: false,
       hasPasskey: false,
+      hasRecoveryCodes: false,
     },
     {
       id: 'item_identity',
@@ -37,6 +39,7 @@ const snapshot: VaultSnapshot = {
       hasPassword: false,
       hasOtp: false,
       hasPasskey: false,
+      hasRecoveryCodes: false,
     },
   ],
   recents: [
@@ -99,6 +102,7 @@ describe('resolveActions', () => {
           hasPassword: true,
           hasOtp: false,
           hasPasskey: false,
+          hasRecoveryCodes: false,
         },
         {
           id: 'matches_tab',
@@ -109,6 +113,7 @@ describe('resolveActions', () => {
           hasPassword: true,
           hasOtp: false,
           hasPasskey: false,
+          hasRecoveryCodes: false,
         },
       ],
       recents: [

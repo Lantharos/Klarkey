@@ -18,7 +18,8 @@ export function useSettingsChrome(
     | 'confirm-passcode-removal'
     | 'export'
     | 'import'
-    | 'import-loading',
+    | 'import-loading'
+    | 'recovery-codes',
   settings: UserSettings | undefined,
   lockInfo: VaultLockInfo | undefined,
   selectedIndex: number,

@@ -1,5 +1,6 @@
 const runtimeApi = globalThis.browser ?? globalThis.chrome
 export const runtime = runtimeApi?.runtime
+export const extensionApi = runtimeApi
 
 export const sendMessage = (message) =>
   !runtime

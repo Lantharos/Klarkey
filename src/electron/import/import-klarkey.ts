@@ -30,6 +30,7 @@ export async function importKlarkeyJson(repository: VaultRepository, filePath: s
       websites: item.websites,
       notes: item.notes,
       customFields: item.customFields,
+      recoveryCodes: item.recoveryCodes,
       fullName: item.fullName,
       firstName: item.firstName,
       middleName: item.middleName,
@@ -55,6 +56,7 @@ export async function importKlarkeyJson(repository: VaultRepository, filePath: s
       sshFingerprint: item.sshFingerprint,
       sshPublicKey: item.sshPublicKey,
       sshComment: item.sshComment,
+      ssoProvider: item.ssoProvider,
       content: item.content,
     }
     return input

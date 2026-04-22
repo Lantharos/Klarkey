@@ -8,6 +8,7 @@ import {
   getPendingSavePrompt,
 } from './pending-save.js'
 import { showSaveBanner } from './ui/banners.js'
+import { highlightSavedSsoButtons } from './sso/index.js'
 
 const refreshMatches = async () => {
   const href = window.location.href
@@ -28,6 +29,7 @@ const refreshMatches = async () => {
   }))
 
   pageState.matches = response.ok ? response.matches || [] : []
+  highlightSavedSsoButtons(pageState.matches)
   return pageState.matches
 }
 
@@ -135,6 +137,7 @@ const restorePendingSavePrompt = () => {
     showSaveBanner({
       username: pending.username,
       password: pending.password,
+      ssoProvider: pending.ssoProvider,
       reason: pending.reason,
     })
   }, 240)

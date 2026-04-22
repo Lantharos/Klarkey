@@ -53,6 +53,7 @@ export function buildBrowserSiteMatches(snapshot: VaultSnapshot, url: string, ti
     hasPassword: item.hasPassword,
     hasOtp: item.hasOtp,
     hasPasskey: item.hasPasskey,
+    ssoProvider: item.ssoProvider,
     lastUsedAt: item.lastUsedAt,
   })) satisfies BrowserSiteMatch[]
 }
