@@ -4,6 +4,7 @@ import { app } from 'electron'
 import koffi from 'koffi'
 import { createDatabase } from '@/electron/database'
 import { KeyManager } from '@/electron/crypto'
+import { markRuntimeBusy, noteSshActivity, readRuntimeState } from '@/electron/runtime-state'
 import { VaultRepository } from '@/electron/repository'
 import {
   parseSshPublicKey,
@@ -223,6 +224,13 @@ class SshAgentController {
   async handlePacket(packet: Buffer, context: { processId?: number; processPath?: string }) {
     const messageType = packet[0]
     const payload = packet.subarray(1)
+
+    noteSshActivity()
+    markRuntimeBusy('ssh', 30_000)
+
+    if (readRuntimeState().update.availability === 'updating') {
+      return writeFailure()
+    }
 
     if (messageType === SSH_AGENTC_REQUEST_IDENTITIES) {
       const identities = this.listIdentities()

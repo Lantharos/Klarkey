@@ -50,8 +50,9 @@ for (const browser of browsers) {
 }
 
 const nativeHostRoot = join(distRoot, 'native-host')
-safeRemove(nativeHostRoot)
-mkdirSync(nativeHostRoot, { recursive: true })
+const nativeHostStagingRoot = join(distRoot, 'native-host-build')
+safeRemove(nativeHostStagingRoot)
+mkdirSync(nativeHostStagingRoot, { recursive: true })
 
 execFileSync(
   'dotnet',
@@ -61,7 +62,7 @@ execFileSync(
     '-c',
     'Release',
     '-o',
-    nativeHostRoot,
+    nativeHostStagingRoot,
   ],
   {
     cwd: root,
@@ -70,7 +71,7 @@ execFileSync(
 )
 
 writeFileSync(
-  join(nativeHostRoot, 'klarkey-native-host.cmd'),
+  join(nativeHostStagingRoot, 'klarkey-native-host.cmd'),
   `@echo off
 setlocal
 "%~dp0\\Klarkey.NativeHostLauncher.exe"
@@ -78,14 +79,27 @@ setlocal
 )
 
 writeFileSync(
-  join(nativeHostRoot, 'klarkey-native-host.sh'),
+  join(nativeHostStagingRoot, 'klarkey-native-host.sh'),
   `#!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 "$ROOT/node_modules/.bin/electron" "$ROOT" --native-messaging-host
 `,
 )
-chmodSync(join(nativeHostRoot, 'klarkey-native-host.sh'), 0o755)
+chmodSync(join(nativeHostStagingRoot, 'klarkey-native-host.sh'), 0o755)
+
+safeRemove(nativeHostRoot)
+try {
+  cpSync(nativeHostStagingRoot, nativeHostRoot, { recursive: true, force: true })
+} catch (error) {
+  if (error && typeof error === 'object' && 'code' in error && (error.code === 'EPERM' || error.code === 'EPIPE')) {
+    console.warn(`[build:extension] Skipping native-host overwrite for locked path: ${nativeHostRoot}`)
+  } else {
+    throw error
+  }
+}
+
+safeRemove(nativeHostStagingRoot)
 
 if (!existsSync(join(root, '.gitignore'))) {
   throw new Error('Expected .gitignore to exist.')

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { KeyManager } from '@/electron/crypto'
 import { readCreateUserVerification, readGetUserVerification } from '@/electron/passkey-user-verification'
 import { createDatabase } from '@/electron/database'
+import { markRuntimeBusy, noteExtensionActivity, readRuntimeState } from '@/electron/runtime-state'
 import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
 import { VaultRepository } from '@/electron/repository'
 import { app } from 'electron'
@@ -74,6 +75,16 @@ export class BrowserExtensionController {
       title: 'Vault locked',
       message: 'Unlock Klarkey to use browser autofill.',
     } as const
+  }
+
+  private isPassiveRequest(type: BrowserExtensionRequest['type']) {
+    return type === 'ping' || type === 'get-settings'
+  }
+
+  private buildUpdatingMessage(targetVersion?: string) {
+    return targetVersion
+      ? `Klarkey is updating to ${targetVersion}. Try again in about a minute.`
+      : 'Klarkey is updating. Try again in about a minute.'
   }
 
   private promptDesktopUnlock() {
@@ -185,7 +196,63 @@ export class BrowserExtensionController {
   }
 
   async handle(request: BrowserExtensionRequest): Promise<BrowserExtensionResponse> {
-    const requiresVault = request.type !== 'ping' && request.type !== 'get-settings'
+    const runtimeState = readRuntimeState()
+    const updateState = runtimeState.update
+    const passiveRequest = this.isPassiveRequest(request.type)
+
+    if (!passiveRequest) {
+      noteExtensionActivity()
+      markRuntimeBusy('extension', 30_000)
+    }
+
+    if (request.type === 'ping') {
+      if (updateState.availability === 'updating') {
+        return {
+          id: request.id,
+          ok: true,
+          result: {
+            protocolVersion: KLARKEY_EXTENSION_PROTOCOL_VERSION,
+            desktopRequired: true,
+            passkeyProviderReady: false,
+            nativeUserVerificationReady: false,
+            vaultUnlocked: false,
+            availability: 'updating',
+            retryAfterSeconds: updateState.retryAfterSeconds,
+            targetVersion: updateState.targetVersion,
+          },
+        }
+      }
+
+      const availability = await getWindowsHelloAvailability()
+      const vaultUnlocked = this.readDesktopLockState() === 'unlocked' && this.ensureVaultReady()
+      return {
+        id: request.id,
+        ok: true,
+        result: {
+          protocolVersion: KLARKEY_EXTENSION_PROTOCOL_VERSION,
+          desktopRequired: true,
+          passkeyProviderReady: false,
+          nativeUserVerificationReady: availability.available,
+          vaultUnlocked,
+          availability: 'online',
+          retryAfterSeconds: undefined,
+          targetVersion: updateState.targetVersion,
+        },
+      }
+    }
+
+    if (updateState.availability === 'updating') {
+      return {
+        id: request.id,
+        ok: false,
+        error: {
+          code: 'desktop_updating',
+          message: this.buildUpdatingMessage(updateState.targetVersion),
+        },
+      }
+    }
+
+    const requiresVault = request.type !== 'get-settings'
     if (requiresVault && !this.ensureVaultReady()) {
       const isPassiveRequest = ['list-logins', 'list-field-suggestions', 'passkeys-status', 'passkey-create-plan', 'passkey-get-plan'].includes(request.type)
       if (!isPassiveRequest) {
@@ -199,22 +266,6 @@ export class BrowserExtensionController {
     }
 
     switch (request.type) {
-      case 'ping': {
-        const availability = await getWindowsHelloAvailability()
-        const vaultUnlocked = this.readDesktopLockState() === 'unlocked' && this.ensureVaultReady()
-        return {
-          id: request.id,
-          ok: true,
-          result: {
-            protocolVersion: KLARKEY_EXTENSION_PROTOCOL_VERSION,
-            desktopRequired: true,
-            passkeyProviderReady: false,
-            nativeUserVerificationReady: availability.available,
-            vaultUnlocked,
-          },
-        }
-      }
-
       case 'list-logins':
         return {
           id: request.id,

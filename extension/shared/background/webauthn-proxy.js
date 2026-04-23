@@ -23,7 +23,7 @@ export async function syncProxyAttachment() {
 
   proxySyncPromise = (async () => {
     const capabilities = await readDesktopCapabilities().catch(() => undefined)
-    const connected = Boolean(capabilities)
+    const connected = Boolean(capabilities && capabilities.availability !== 'updating')
     const passkeyProviderReady = Boolean(capabilities?.passkeyProviderReady)
 
     if (connected && passkeyProviderReady && !proxyAttached) {
@@ -273,7 +273,7 @@ if (isChromium) {
       const capabilities = await readDesktopCapabilities().catch(() => undefined)
       await globalThis.chrome.webAuthenticationProxy.completeIsUvpaaRequest({
         requestId: requestInfo.requestId,
-        isUvpaa: Boolean(capabilities?.nativeUserVerificationReady),
+        isUvpaa: Boolean(capabilities?.availability !== 'updating' && capabilities?.nativeUserVerificationReady),
       })
     })()
   })

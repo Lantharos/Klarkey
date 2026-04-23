@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/build-browser-extension.mjs",
+    "build:desktop": "bun run build && electron-builder --win nsis",
     "build:extension": "node scripts/build-browser-extension.mjs",
     "bundle:extension": "bun build extension/shared/background/index.js --outfile=extension/shared/background.js --target=browser ; bun build extension/shared/content/index.js --outfile=extension/shared/content.js --target=browser",
     "lint": "eslint .",
@@ -20,6 +21,7 @@
   "dependencies": {
     "better-sqlite3": "^12.9.0",
     "clsx": "^2.1.1",
+    "electron-updater": "^6.6.2",
     "jsqr": "^1.4.0",
     "koffi": "^2.16.1",
     "lucide-react": "^1.8.0",
@@ -43,6 +45,7 @@
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
     "electron": "^41.2.1",
+    "electron-builder": "^26.0.12",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -59,6 +62,46 @@
     "wait-on": "^9.0.5"
   },
   "main": "dist-electron/main.js",
+  "build": {
+    "appId": "com.lantharos.klarkey",
+    "productName": "Klarkey",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": false,
+      "runAfterFinish": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Lantharos",
+        "repo": "Klarkey"
+      }
+    ]
+  },
   "overrides": {
     "follow-redirects": "^1.15.12"
   },

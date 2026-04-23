@@ -127,6 +127,9 @@ export type BrowserExtensionResponse =
             passkeyProviderReady: boolean;
             nativeUserVerificationReady: boolean;
             vaultUnlocked: boolean;
+            availability: "online" | "updating";
+            retryAfterSeconds?: number;
+            targetVersion?: string;
           }
         | {
             matches: BrowserSiteMatch[];

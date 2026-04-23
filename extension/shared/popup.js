@@ -42,20 +42,30 @@ async function loadPopup() {
   try {
     const state = await sendMessage({ type: 'popup-state' })
     elements.siteHost.textContent = getHostLabel(state.url)
-    elements.title.textContent = state.connected ? 'Ready for this browser.' : 'Desktop app required.'
-    elements.statusMessage.textContent = state.connected
+    elements.title.textContent = state.updating
+      ? 'Klarkey is updating.'
+      : state.connected
+        ? 'Ready for this browser.'
+        : 'Desktop app required.'
+    elements.statusMessage.textContent = state.updating
+      ? state.error || 'Klarkey is updating and will reconnect automatically.'
+      : state.connected
       ? 'Autofill, save flows, and browser bridge features are available through Klarkey desktop.'
       : state.error || 'Open Klarkey desktop to connect the browser bridge.'
 
     if (!state.passkeys?.supported) {
-      elements.passkeyTitle.textContent = state.connected
-        ? state.browser === 'chromium'
-          ? 'Save to Klarkey is not available yet.'
-          : 'Passkey interception is browser-limited.'
+      elements.passkeyTitle.textContent = state.updating
+        ? 'Passkey features are paused.'
+        : state.connected
+          ? state.browser === 'chromium'
+            ? 'Save to Klarkey is not available yet.'
+            : 'Passkey interception is browser-limited.'
         : 'Passkey status unavailable.'
       elements.passkeyMessage.textContent =
         state.passkeys?.reason ||
-        (!state.connected
+        (state.updating
+          ? 'Klarkey is updating and will reconnect automatically when it finishes.'
+          : !state.connected
           ? 'Open Klarkey desktop to load passkey state for this browser.'
           : state.browser === 'chromium'
           ? 'Klarkey does not have a real browser passkey provider on this system yet.'

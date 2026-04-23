@@ -18,9 +18,35 @@ export async function loadPopupState() {
   }))
   const connection = await readDesktopConnectionState()
 
+  if (connection.updating) {
+    return {
+      connected: false,
+      updating: true,
+      desktopRequired: true,
+      browser: browserKind,
+      url: pageContext.url,
+      title: pageContext.title,
+      form: pageContext.form,
+      passkeys: {
+        supported: false,
+        browser: browserKind,
+        mode: isChromium ? 'desktop-proxy' : 'browser-limited',
+        conditionalUi: false,
+        availablePasskeyCount: 0,
+        exactMatchCount: 0,
+        linkedMatchCount: 0,
+        reason: connection.error || 'Klarkey is updating.',
+      },
+      chromiumProxyReady: false,
+      error: connection.error || 'Klarkey is updating.',
+      targetVersion: connection.targetVersion,
+    }
+  }
+
   if (!connection.connected) {
     return {
       connected: false,
+      updating: false,
       desktopRequired: true,
       browser: browserKind,
       url: pageContext.url,
@@ -38,6 +64,7 @@ export async function loadPopupState() {
       },
       chromiumProxyReady: false,
       error: connection.error || 'Klarkey desktop is not connected.',
+      targetVersion: connection.targetVersion,
     }
   }
 
@@ -77,6 +104,7 @@ export async function loadPopupState() {
   ) {
     return {
       connected: true,
+      updating: false,
       desktopRequired: true,
       browser: browserKind,
       url: pageContext.url,
@@ -94,11 +122,13 @@ export async function loadPopupState() {
       },
       chromiumProxyReady,
       error: undefined,
+      targetVersion: connection.targetVersion,
     }
   }
 
   return {
     connected: true,
+    updating: false,
     desktopRequired: true,
     browser: browserKind,
     url: pageContext.url,
@@ -112,6 +142,7 @@ export async function loadPopupState() {
         },
     chromiumProxyReady,
     error: undefined,
+    targetVersion: connection.targetVersion,
   }
 }
 

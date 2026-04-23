@@ -22,7 +22,9 @@ import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native-host'
 import { readPasskeyProviderMessageSync, runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
+import { markRuntimeBusy, noteDesktopActivity, notePaletteOpen, resetRuntimeStateForAppStart } from '@/electron/runtime-state'
 import { runSshAgentHost } from '@/electron/ssh-agent-host'
+import { KlarkeyUpdater } from '@/electron/updater'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 
 const ALLOWED_SENDER_PROTOCOLS = [PASSKEY_SCHEME, 'http', 'https']
@@ -43,6 +45,7 @@ protocol.registerSchemesAsPrivileged([
 let windowRef: BrowserWindow | null = null
 let controllerRef: KlarkeyController | null = null
 let sshAgentHostProcess: ChildProcess | null = null
+let updaterRef: KlarkeyUpdater | null = null
 let isQuitting = false
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
@@ -80,6 +83,15 @@ const stopSshAgentHost = () => {
 
   sshAgentHostProcess.kill()
   sshAgentHostProcess = null
+}
+
+const noteDesktopOperation = (busyMs = 30_000) => {
+  noteDesktopActivity()
+  markRuntimeBusy('desktop', busyMs)
+}
+
+const nudgeInstallCheck = () => {
+  updaterRef?.nudgeInstallCheck()
 }
 
 const syncSshAgentHost = () => {
@@ -180,13 +192,19 @@ const createWindow = async () => {
     if (!isQuitting) {
       event.preventDefault()
       window.hide()
+      nudgeInstallCheck()
     }
   })
 
   window.on('blur', () => {
     if (!isQuitting && window.isVisible() && !shouldKeepPaletteVisibleOnBlur()) {
       window.hide()
+      nudgeInstallCheck()
     }
+  })
+
+  window.on('hide', () => {
+    nudgeInstallCheck()
   })
 
   window.webContents.on('did-finish-load', () => {
@@ -224,6 +242,8 @@ const openPalette = () => {
   if (!windowRef || !controllerRef) {
     return
   }
+
+  notePaletteOpen()
 
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const bounds = windowRef.getBounds()
@@ -300,6 +320,21 @@ const bindIpc = () => {
     }
   }
 
+  const withDesktopInteraction = <TArgs extends unknown[], TResult>(
+    busyMs: number,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => TResult | Promise<TResult>,
+  ) => {
+    return async (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => {
+      validateIpcSender(event)
+      noteDesktopOperation(busyMs)
+      try {
+        return await handler(event, ...args)
+      } finally {
+        nudgeInstallCheck()
+      }
+    }
+  }
+
   ipcMain.handle(IPC_CHANNELS.paletteOpen, async (event) => {
     validateIpcSender(event)
     openPalette()
@@ -316,21 +351,29 @@ const bindIpc = () => {
     validateIpcSender(event)
     return controllerRef?.resolve(event, query)
   })
-  ipcMain.handle(IPC_CHANNELS.actionExecute, withVaultUnlocked(vaultLockedResult, (event, actionId, modifier) => controllerRef?.execute(event, actionId, modifier) ?? vaultLockedResult))
+  ipcMain.handle(
+    IPC_CHANNELS.actionExecute,
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (event, actionId, modifier) => controllerRef?.execute(event, actionId, modifier) ?? vaultLockedResult)),
+  )
   ipcMain.handle(IPC_CHANNELS.itemGet, withVaultUnlocked(undefined, (_event, itemId) => controllerRef?.getItem(itemId)))
-  ipcMain.handle(IPC_CHANNELS.itemCreate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createItem(input) ?? vaultLockedResult))
-  ipcMain.handle(IPC_CHANNELS.itemUpdate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.updateItem(input) ?? vaultLockedResult))
-  ipcMain.handle(IPC_CHANNELS.itemDelete, withVaultUnlocked(vaultLockedResult, (_event, itemId) => controllerRef?.deleteItem(itemId) ?? vaultLockedResult))
-  ipcMain.handle(IPC_CHANNELS.vaultUnlock, (event) => {
-    validateIpcSender(event)
-    return controllerRef?.unlock()
-  })
+  ipcMain.handle(
+    IPC_CHANNELS.itemCreate,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createItem(input) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.itemUpdate,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.updateItem(input) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.itemDelete,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, itemId) => controllerRef?.deleteItem(itemId) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(IPC_CHANNELS.vaultUnlock, withDesktopInteraction(30_000, () => controllerRef?.unlock()))
   ipcMain.handle(IPC_CHANNELS.vaultLockState, (event) => {
     validateIpcSender(event)
     return controllerRef?.getLockInfo()
   })
-  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithHello, async (event) => {
-    validateIpcSender(event)
+  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithHello, withDesktopInteraction(60_000, async () => {
     const wasAlwaysOnTop = windowRef?.isAlwaysOnTop() ?? true
     windowRef?.setAlwaysOnTop(false)
     try {
@@ -339,43 +382,21 @@ const bindIpc = () => {
     } finally {
       windowRef?.setAlwaysOnTop(wasAlwaysOnTop)
     }
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, (event, password: string) => {
-    validateIpcSender(event)
-    return controllerRef?.unlockWithPassword(password)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultLock, (event) => {
-    validateIpcSender(event)
+  }))
+  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, withDesktopInteraction(30_000, (_event, password: string) => controllerRef?.unlockWithPassword(password)))
+  ipcMain.handle(IPC_CHANNELS.vaultLock, withDesktopInteraction(15_000, () => {
     controllerRef?.lock()
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultSetupMasterPassword, (event, password: string) => {
-    validateIpcSender(event)
-    return controllerRef?.setupMasterPassword(password)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultChangeMasterPassword, (event, currentPassword: string, newPassword: string) => {
-    validateIpcSender(event)
-    return controllerRef?.changeMasterPassword(currentPassword, newPassword)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultRemoveMasterPassword, (event, currentPassword: string) => {
-    validateIpcSender(event)
-    return controllerRef?.removeMasterPassword(currentPassword)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultSetPasscode, (event, passcode: string) => {
-    validateIpcSender(event)
-    return controllerRef?.setPasscode(passcode)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultRemovePasscode, (event) => {
-    validateIpcSender(event)
-    return controllerRef?.removePasscode()
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultConfirmPasscode, (event, passcode: string) => {
-    validateIpcSender(event)
-    return controllerRef?.confirmPasscode(passcode)
-  })
-  ipcMain.handle(IPC_CHANNELS.vaultVerifyPasscode, (event, passcode: string) => {
-    validateIpcSender(event)
-    return controllerRef?.verifyPasscode(passcode)
-  })
+  }))
+  ipcMain.handle(IPC_CHANNELS.vaultSetupMasterPassword, withDesktopInteraction(60_000, (_event, password: string) => controllerRef?.setupMasterPassword(password)))
+  ipcMain.handle(
+    IPC_CHANNELS.vaultChangeMasterPassword,
+    withDesktopInteraction(60_000, (_event, currentPassword: string, newPassword: string) => controllerRef?.changeMasterPassword(currentPassword, newPassword)),
+  )
+  ipcMain.handle(IPC_CHANNELS.vaultRemoveMasterPassword, withDesktopInteraction(60_000, (_event, currentPassword: string) => controllerRef?.removeMasterPassword(currentPassword)))
+  ipcMain.handle(IPC_CHANNELS.vaultSetPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.setPasscode(passcode)))
+  ipcMain.handle(IPC_CHANNELS.vaultRemovePasscode, withDesktopInteraction(45_000, () => controllerRef?.removePasscode()))
+  ipcMain.handle(IPC_CHANNELS.vaultConfirmPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.confirmPasscode(passcode)))
+  ipcMain.handle(IPC_CHANNELS.vaultVerifyPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.verifyPasscode(passcode)))
   ipcMain.handle(IPC_CHANNELS.settingsGet, (event) => {
     validateIpcSender(event)
     return controllerRef?.getSettings()
@@ -384,8 +405,7 @@ const bindIpc = () => {
     validateIpcSender(event)
     return controllerRef?.getExternalWindowContext()
   })
-  ipcMain.handle(IPC_CHANNELS.settingsSet, (event, update) => {
-    validateIpcSender(event)
+  ipcMain.handle(IPC_CHANNELS.settingsSet, withDesktopInteraction(15_000, (_event, update) => {
     const previous = controllerRef?.getSettings()
     if (!previous) {
       return undefined
@@ -405,31 +425,38 @@ const bindIpc = () => {
     const nextSettings = controllerRef?.updateSettings(update)
     syncSshAgentHost()
     return nextSettings
-  })
+  }))
   ipcMain.handle(IPC_CHANNELS.passkeySupport, (event) => {
     validateIpcSender(event)
     return controllerRef?.getPasskeySupport()
   })
   ipcMain.handle(IPC_CHANNELS.passkeyList, withVaultUnlocked([], () => controllerRef?.listVaultPasskeys() ?? []))
-  ipcMain.handle(IPC_CHANNELS.passkeyCreate, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(input) ?? vaultLockedResult))
-  ipcMain.handle(IPC_CHANNELS.passkeyAuthenticate, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(credentialId) ?? vaultLockedResult))
-  ipcMain.handle(IPC_CHANNELS.passkeyDelete, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId) ?? vaultLockedResult))
+  ipcMain.handle(
+    IPC_CHANNELS.passkeyCreate,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(input) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.passkeyAuthenticate,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(credentialId) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.passkeyDelete,
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId) ?? vaultLockedResult)),
+  )
   const exportLockedResult = { success: false, exportedCount: 0, message: 'Vault locked' } as const
   const importLockedResult = { success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Vault locked' } as const
-  ipcMain.handle(IPC_CHANNELS.exportVault, async (event, options) => {
-    validateIpcSender(event)
+  ipcMain.handle(IPC_CHANNELS.exportVault, withDesktopInteraction(300_000, async (_event, options) => {
     if (controllerRef?.getLockInfo().state !== 'unlocked') {
       return exportLockedResult
     }
     return controllerRef?.exportVault(options) ?? exportLockedResult
-  })
-  ipcMain.handle(IPC_CHANNELS.importVault, async (event, options) => {
-    validateIpcSender(event)
+  }))
+  ipcMain.handle(IPC_CHANNELS.importVault, withDesktopInteraction(300_000, async (_event, options) => {
     if (controllerRef?.getLockInfo().state !== 'unlocked') {
       return importLockedResult
     }
     return controllerRef?.importVault(options) ?? importLockedResult
-  })
+  }))
   ipcMain.handle(IPC_CHANNELS.pickImportFile, async (event, format: string) => {
     validateIpcSender(event)
     const filters: Electron.FileFilter[] = []
@@ -573,6 +600,7 @@ app.whenReady()
       { useSystemPicker: true },
     )
 
+    resetRuntimeStateForAppStart()
     bindIpc()
     registerAppProtocol()
     try {
@@ -585,6 +613,10 @@ app.whenReady()
     registerHotkey()
     app.setLoginItemSettings({ openAtLogin: controllerRef?.getSettings().launchOnStartup ?? false })
     syncSshAgentHost()
+    updaterRef = new KlarkeyUpdater({
+      isPaletteVisible: () => windowRef?.isVisible() ?? false,
+    })
+    updaterRef.start()
   })
   .catch((error) => {
     console.error('Failed to initialize Klarkey', error)
@@ -605,6 +637,8 @@ app.on('before-quit', () => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopSshAgentHost()
+  updaterRef?.dispose()
+  updaterRef = null
   controllerRef?.dispose()
   controllerRef = null
 })

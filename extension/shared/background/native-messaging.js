@@ -8,10 +8,16 @@ let nativePortPromise
 let nativePortGeneration = 0
 const nativePortRequests = new Map()
 let lastKnownUnlockedAt = 0
+let heartbeatTimer
+let reconnectTimer
+let heartbeatInFlight = false
 
 let desktopState = {
   connected: false,
+  availability: 'offline',
   lastError: 'Klarkey desktop is not connected.',
+  targetVersion: undefined,
+  retryAfterSeconds: undefined,
   updatedAt: 0,
 }
 
@@ -20,6 +26,8 @@ export const HOST_TIMEOUT_MS = 15000
 export const UNLOCK_RETRY_WAIT_MS = 15000
 export const UNLOCK_POLL_INTERVAL_MS = 350
 export const UNLOCK_GRACE_MS = 20000
+const DESKTOP_HEARTBEAT_MS = 5000
+const DESKTOP_RECONNECT_MS = 10000
 const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
   'list-logins',
   'list-field-suggestions',
@@ -77,12 +85,117 @@ export const rejectPendingNativeRequests = (message) => {
   nativePortRequests.clear()
 }
 
-const updateDesktopState = (connected, lastError) => {
+const buildUpdatingMessage = (targetVersion) =>
+  targetVersion
+    ? `Klarkey is updating to ${targetVersion}. Try again in about a minute.`
+    : 'Klarkey is updating. Try again in about a minute.'
+
+const updateDesktopState = (nextState) => {
   desktopState = {
-    connected,
-    lastError,
+    ...desktopState,
+    ...nextState,
     updatedAt: Date.now(),
   }
+}
+
+const applyPingState = (result) => {
+  const availability = result?.availability === 'updating' ? 'updating' : 'online'
+  const targetVersion = typeof result?.targetVersion === 'string' && result.targetVersion ? result.targetVersion : undefined
+  const retryAfterSeconds =
+    typeof result?.retryAfterSeconds === 'number' && Number.isFinite(result.retryAfterSeconds) && result.retryAfterSeconds > 0
+      ? Math.round(result.retryAfterSeconds)
+      : undefined
+
+  updateDesktopState({
+    connected: availability === 'online',
+    availability,
+    targetVersion,
+    retryAfterSeconds,
+    lastError: availability === 'updating' ? buildUpdatingMessage(targetVersion) : undefined,
+  })
+
+  return availability
+}
+
+const clearHeartbeat = () => {
+  if (heartbeatTimer) {
+    globalThis.clearInterval(heartbeatTimer)
+    heartbeatTimer = undefined
+  }
+}
+
+const clearReconnectProbe = () => {
+  if (reconnectTimer) {
+    globalThis.clearTimeout(reconnectTimer)
+    reconnectTimer = undefined
+  }
+}
+
+const disconnectNativePortForUpdate = () => {
+  if (!nativePort) {
+    return
+  }
+
+  const port = nativePort
+  nativePort = undefined
+  try {
+    port.disconnect()
+  } catch {
+    // ignore disconnect failures while stepping aside for desktop updates
+  }
+}
+
+const probeDesktopAvailability = async () => {
+  try {
+    const ping = await sendHostRequest({ type: 'ping' })
+    if (!ping?.ok) {
+      return undefined
+    }
+
+    applyPingState(ping.result)
+    return ping.result
+  } catch {
+    return undefined
+  }
+}
+
+const scheduleReconnectProbe = () => {
+  if (reconnectTimer || desktopState.availability !== 'updating') {
+    return
+  }
+
+  reconnectTimer = globalThis.setTimeout(() => {
+    reconnectTimer = undefined
+    void probeDesktopAvailability().then((result) => {
+      if (result?.availability === 'updating' || desktopState.availability === 'updating') {
+        scheduleReconnectProbe()
+      }
+    })
+  }, DESKTOP_RECONNECT_MS)
+}
+
+const startHeartbeat = () => {
+  if (heartbeatTimer) {
+    return
+  }
+
+  heartbeatTimer = globalThis.setInterval(() => {
+    if (!nativePort || heartbeatInFlight) {
+      return
+    }
+
+    heartbeatInFlight = true
+    void probeDesktopAvailability()
+      .then((result) => {
+        if (result?.availability === 'updating') {
+          disconnectNativePortForUpdate()
+          scheduleReconnectProbe()
+        }
+      })
+      .finally(() => {
+        heartbeatInFlight = false
+      })
+  }, DESKTOP_HEARTBEAT_MS)
 }
 
 const attachNativePortListeners = (port, generation) => {
@@ -98,7 +211,11 @@ const attachNativePortListeners = (port, generation) => {
 
     nativePortRequests.delete(response.id)
     globalThis.clearTimeout(pending.timeoutId)
-    updateDesktopState(true, undefined)
+    if (pending.payloadType === 'ping' && response?.ok) {
+      applyPingState(response.result)
+    } else if (desktopState.availability !== 'updating') {
+      updateDesktopState({ connected: true, availability: 'online', lastError: undefined })
+    }
     pending.resolve(response)
   })
 
@@ -108,9 +225,18 @@ const attachNativePortListeners = (port, generation) => {
     }
 
     const message = runtimeApi.runtime.lastError?.message || 'Klarkey desktop is not connected.'
+    const pendingMessage = desktopState.availability === 'updating'
+      ? desktopState.lastError || buildUpdatingMessage(desktopState.targetVersion)
+      : message
     nativePort = undefined
-    updateDesktopState(false, message)
-    rejectPendingNativeRequests(message)
+    clearHeartbeat()
+    if (desktopState.availability === 'updating') {
+      updateDesktopState({ connected: false, lastError: desktopState.lastError || buildUpdatingMessage(desktopState.targetVersion) })
+      scheduleReconnectProbe()
+    } else {
+      updateDesktopState({ connected: false, availability: 'offline', lastError: message, retryAfterSeconds: undefined })
+    }
+    rejectPendingNativeRequests(pendingMessage)
   })
 }
 
@@ -129,12 +255,14 @@ export const ensureNativePort = async () => {
       nativePortGeneration += 1
       nativePort = port
       attachNativePortListeners(port, nativePortGeneration)
-      updateDesktopState(true, undefined)
+      clearReconnectProbe()
+      updateDesktopState({ connected: true, availability: 'online', lastError: undefined })
+      startHeartbeat()
       return port
     })
     .catch((error) => {
       const message = error instanceof Error ? error.message : 'Klarkey desktop is not connected.'
-      updateDesktopState(false, message)
+      updateDesktopState({ connected: false, availability: 'offline', lastError: message, retryAfterSeconds: undefined })
       throw new Error(message)
     })
     .finally(() => {
@@ -186,6 +314,7 @@ async function sendHostRequest(payload) {
       nativePortRequests.set(id, {
         resolve,
         reject,
+        payloadType: payload?.type,
         timeoutId,
       })
 
@@ -210,6 +339,9 @@ async function waitForDesktopUnlock(timeoutMs = UNLOCK_RETRY_WAIT_MS) {
 
   while (Date.now() < deadline) {
     const ping = await sendHostRequest({ type: 'ping' }).catch(() => undefined)
+    if (ping?.ok && ping?.result?.availability === 'updating') {
+      return false
+    }
     if (ping?.ok && ping?.result?.vaultUnlocked) {
       lastKnownUnlockedAt = Date.now()
       return true
@@ -221,7 +353,19 @@ async function waitForDesktopUnlock(timeoutMs = UNLOCK_RETRY_WAIT_MS) {
   return false
 }
 
+const buildUpdatingResponse = () => ({
+  ok: false,
+  error: {
+    code: 'desktop_updating',
+    message: desktopState.lastError || buildUpdatingMessage(desktopState.targetVersion),
+  },
+})
+
 export async function requestHost(payload) {
+  if (payload?.type !== 'ping' && desktopState.availability === 'updating') {
+    return buildUpdatingResponse()
+  }
+
   const inUnlockGraceWindow = Date.now() - lastKnownUnlockedAt <= UNLOCK_GRACE_MS
   if (inUnlockGraceWindow && RETRYABLE_AFTER_UNLOCK_TYPES.has(payload?.type)) {
     const optimistic = await sendHostRequest(payload)
@@ -251,7 +395,7 @@ export async function requestHost(payload) {
 
 export async function ensureDesktopConnected() {
   const ping = await requestHost({ type: 'ping' })
-  return Boolean(ping?.ok)
+  return Boolean(ping?.ok && ping?.result?.availability !== 'updating')
 }
 
 export async function readDesktopCapabilities() {
@@ -264,19 +408,34 @@ export async function readDesktopCapabilities() {
 }
 
 export async function readDesktopConnectionState() {
+  if (desktopState.availability === 'updating') {
+    return {
+      connected: false,
+      updating: true,
+      error: desktopState.lastError || buildUpdatingMessage(desktopState.targetVersion),
+      targetVersion: desktopState.targetVersion,
+    }
+  }
+
   if (desktopState.connected) {
-    return { connected: true }
+    return { connected: true, updating: false, targetVersion: desktopState.targetVersion }
   }
 
   const connected = await ensureDesktopConnected().catch((error) => {
-    updateDesktopState(false, error instanceof Error ? error.message : 'Klarkey desktop is not connected.')
+    updateDesktopState({
+      connected: false,
+      availability: 'offline',
+      lastError: error instanceof Error ? error.message : 'Klarkey desktop is not connected.',
+    })
     return false
   })
 
   return connected
-    ? { connected: true }
+    ? { connected: true, updating: false, targetVersion: desktopState.targetVersion }
     : {
         connected: false,
+        updating: false,
         error: desktopState.lastError || 'Klarkey desktop is not connected.',
+        targetVersion: desktopState.targetVersion,
       }
 }
