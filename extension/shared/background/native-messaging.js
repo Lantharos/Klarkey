@@ -37,6 +37,8 @@ const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
   'passkeys-status',
   'passkey-create-plan',
   'passkey-get-plan',
+  'passkey-create-credential',
+  'passkey-get-credential',
 ])
 
 export const createRequestId = () =>

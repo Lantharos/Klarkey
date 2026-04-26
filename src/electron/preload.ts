@@ -236,7 +236,7 @@ const api: KlarkeyApi = {
     pickExportFile: (format) => ipcRenderer.invoke(IPC_CHANNELS.pickExportFile, format),
   },
   onPrepareOpen: (callback) => {
-    const listener = () => callback()
+    const listener = (_event: Electron.IpcRendererEvent, options?: { externalUnlock?: boolean }) => callback(options)
     ipcRenderer.on(IPC_CHANNELS.palettePrepare, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.palettePrepare, listener)
   },

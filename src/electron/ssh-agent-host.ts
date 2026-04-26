@@ -24,6 +24,8 @@ const ERROR_BROKEN_PIPE = 109
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 const BUFFER_SIZE = 64 * 1024
 const MAX_PACKET_LENGTH = 1024 * 1024
+const UNLOCK_WAIT_TIMEOUT_MS = 120_000
+const UNLOCK_WAIT_INTERVAL_MS = 350
 
 const SSH_AGENT_FAILURE = 5
 const SSH_AGENTC_REQUEST_IDENTITIES = 11
@@ -129,8 +131,8 @@ class SshAgentController {
 
     const appPath = app.getAppPath()
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette']
-      : ['--open-palette']
+      ? [appPath, '--open-palette', '--external-unlock']
+      : ['--open-palette', '--external-unlock']
 
     try {
       const child = spawn(process.execPath, args, {
@@ -163,6 +165,20 @@ class SshAgentController {
 
   private isVaultReady() {
     return this.ensureVaultReady()
+  }
+
+  private async waitForVaultReady() {
+    const deadline = Date.now() + UNLOCK_WAIT_TIMEOUT_MS
+
+    while (Date.now() < deadline) {
+      if (this.isVaultReady()) {
+        return true
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, UNLOCK_WAIT_INTERVAL_MS))
+    }
+
+    return false
   }
 
   private ensureVaultReady() {
@@ -244,9 +260,13 @@ class SshAgentController {
     }
 
     if (messageType === SSH_AGENTC_SIGN_REQUEST) {
-      if (!this.isVaultReady()) {
+      const needsUnlock = !this.isVaultReady()
+      if (needsUnlock) {
         this.promptDesktopUnlock()
-        return writeFailure()
+        const unlocked = await this.waitForVaultReady()
+        if (!unlocked) {
+          return writeFailure()
+        }
       }
 
       const keyBlob = readString(payload, 0)
@@ -258,7 +278,7 @@ class SshAgentController {
         return writeFailure()
       }
 
-      const authorized = await this.authorize(identity, context.processPath, context.processId)
+      const authorized = needsUnlock || await this.authorize(identity, context.processPath, context.processId)
       if (!authorized) {
         return writeFailure()
       }

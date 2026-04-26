@@ -110,6 +110,7 @@ function App() {
 
   const [pointerActive, setPointerActive] = useState(false);
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false);
+  const [externalUnlockRequested, setExternalUnlockRequested] = useState(false);
 
   const {
     hotkeyRecording,
@@ -240,6 +241,7 @@ function App() {
       }
 
       if (info.state === "locked") {
+        setExternalUnlockRequested(false);
         usePaletteStore.setState({
           page: "locked",
           actions: [],
@@ -253,6 +255,7 @@ function App() {
       } else if (info.state === "passcode") {
         usePaletteStore.setState({ page: "passcode" });
       } else if (info.state === "unlocked") {
+        setExternalUnlockRequested(false);
         usePaletteStore.setState({ page: "home" });
         void usePaletteStore.getState().resetToHome();
       }
@@ -264,8 +267,9 @@ function App() {
       return undefined;
     }
 
-    return window.klarkey.onPrepareOpen(() => {
+    return window.klarkey.onPrepareOpen((options) => {
       const { lockInfo: currentLockInfo } = usePaletteStore.getState();
+      setExternalUnlockRequested(Boolean(options?.externalUnlock));
       if (currentLockInfo?.state === "locked") {
         usePaletteStore.setState({
           page: "locked",
@@ -397,6 +401,7 @@ function App() {
           lockInfo={lockInfo}
           onUnlockWithHello={unlockWithHello}
           onUnlockWithPassword={unlockWithPassword}
+          autoUnlockWithHello={externalUnlockRequested}
         />
       </div>
     );
@@ -430,6 +435,7 @@ function App() {
           }
           onUnlockWithHello={unlockWithHello}
           onUnlockWithPassword={unlockWithPassword}
+          autoUnlockWithHello={externalUnlockRequested}
         />
       </div>
     );

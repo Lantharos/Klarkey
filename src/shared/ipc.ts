@@ -73,7 +73,7 @@ export interface KlarkeyApi {
     pickImportFile: (format: ImportFormat) => Promise<string | undefined>
     pickExportFile: (format: ExportFormat) => Promise<string | undefined>
   }
-  onPrepareOpen: (callback: () => void) => () => void
+  onPrepareOpen: (callback: (options?: { externalUnlock?: boolean }) => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
   onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
   onLockStateChanged: (callback: (info: VaultLockInfo) => void) => () => void

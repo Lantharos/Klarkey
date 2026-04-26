@@ -50,6 +50,7 @@ let isQuitting = false
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
 const shouldOpenPaletteOnStart = process.argv.includes('--open-palette')
+const shouldAutoUnlockOnStart = process.argv.includes('--external-unlock')
 const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
 const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
 const isSshAgentHostMode = process.argv.includes('--ssh-agent-host')
@@ -233,12 +234,14 @@ const createWindow = async () => {
 
   window.once('ready-to-show', () => {
     if (isDevMode || shouldOpenPaletteOnStart) {
-      openPalette()
+      openPalette({ externalUnlock: shouldAutoUnlockOnStart })
     }
   })
 }
 
-const openPalette = () => {
+const shouldAutoUnlockFromArgs = (argv: string[]) => argv.includes('--external-unlock')
+
+const openPalette = (options?: { externalUnlock?: boolean }) => {
   if (!windowRef || !controllerRef) {
     return
   }
@@ -253,7 +256,7 @@ const openPalette = () => {
   windowRef.setPosition(x, y, false)
   windowRef.moveTop()
   controllerRef?.rememberExternalWindow()
-  windowRef.webContents.send(IPC_CHANNELS.palettePrepare)
+  windowRef.webContents.send(IPC_CHANNELS.palettePrepare, options?.externalUnlock ? { externalUnlock: true } : undefined)
 
   setTimeout(() => {
     windowRef?.showInactive()
@@ -267,6 +270,10 @@ const closePalette = () => {
   windowRef?.hide()
 }
 
+const openPaletteFromUser = () => {
+  openPalette()
+}
+
 const shouldKeepPaletteVisibleOnBlur = () => {
   const state = controllerRef?.getLockInfo().state
   return state === 'locked' || state === 'passcode'
@@ -275,7 +282,7 @@ const shouldKeepPaletteVisibleOnBlur = () => {
 const registerHotkey = () => {
   const hotkey = controllerRef?.getSettings().hotkey ?? 'Alt+S'
   globalShortcut.unregisterAll()
-  globalShortcut.register(hotkey, openPalette)
+  globalShortcut.register(hotkey, openPaletteFromUser)
 }
 
 const createTray = () => {
@@ -284,7 +291,7 @@ const createTray = () => {
   tray.setToolTip('Klarkey')
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: 'Open Klarkey', click: openPalette },
+      { label: 'Open Klarkey', click: openPaletteFromUser },
       { label: 'Lock Vault', click: () => controllerRef?.lock() },
       { type: 'separator' },
       {
@@ -296,7 +303,7 @@ const createTray = () => {
       },
     ]),
   )
-  tray.on('click', openPalette)
+  tray.on('click', openPaletteFromUser)
 }
 
 const bindIpc = () => {
@@ -413,9 +420,9 @@ const bindIpc = () => {
 
     if (update?.hotkey !== undefined) {
       globalShortcut.unregisterAll()
-      const ok = globalShortcut.register(update.hotkey, openPalette)
+      const ok = globalShortcut.register(update.hotkey, openPaletteFromUser)
       if (!ok) {
-        globalShortcut.register(previous.hotkey, openPalette)
+        globalShortcut.register(previous.hotkey, openPaletteFromUser)
         throw new Error('Could not register shortcut')
       }
     } else {
@@ -622,8 +629,8 @@ app.whenReady()
     console.error('Failed to initialize Klarkey', error)
   })
 
-app.on('second-instance', () => {
-  openPalette()
+app.on('second-instance', (_event, argv) => {
+  openPalette({ externalUnlock: shouldAutoUnlockFromArgs(argv) })
 })
 
 app.on('activate', () => {

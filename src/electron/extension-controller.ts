@@ -96,8 +96,8 @@ export class BrowserExtensionController {
 
     const appPath = app.getAppPath()
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette']
-      : ['--open-palette']
+      ? [appPath, '--open-palette', '--external-unlock']
+      : ['--open-palette', '--external-unlock']
 
     try {
       const child = spawn(process.execPath, args, {

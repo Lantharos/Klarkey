@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { VaultLockInfo } from "@/shared/types";
 import { FingerprintIcon } from "lucide-react";
@@ -8,32 +8,29 @@ export function VaultLockScreen({
   lockInfo,
   onUnlockWithHello,
   onUnlockWithPassword,
+  autoUnlockWithHello = false,
 }: {
   lockInfo: VaultLockInfo;
   onUnlockWithHello: () => Promise<{ success: boolean; message: string }>;
   onUnlockWithPassword: (
     password: string,
   ) => Promise<{ success: boolean; message: string }>;
+  autoUnlockWithHello?: boolean;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [helloLoading, setHelloLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const autoUnlockStartedRef = useRef(false);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    if (password.length > 0) {
-      setError("");
-    }
-  }, [password]);
-
   const canUseHello = lockInfo.primaryMethods.includes("windowsHello");
   const needsPassword = lockInfo.primaryMethods.includes("masterPassword");
 
-  const handleHello = async () => {
+  const handleHello = useCallback(async () => {
     if (helloLoading) return;
     setHelloLoading(true);
     if (!needsPassword) {
@@ -44,7 +41,21 @@ export function VaultLockScreen({
       setError(result.message || "Windows Hello verification failed.");
     }
     setHelloLoading(false);
-  };
+  }, [helloLoading, needsPassword, onUnlockWithHello]);
+
+  useEffect(() => {
+    if (!autoUnlockWithHello) {
+      autoUnlockStartedRef.current = false;
+      return;
+    }
+
+    if (!canUseHello || autoUnlockStartedRef.current) {
+      return;
+    }
+
+    autoUnlockStartedRef.current = true;
+    void handleHello();
+  }, [autoUnlockWithHello, canUseHello, handleHello]);
 
   useEffect(() => {
     if (!canUseHello) return;
@@ -61,7 +72,7 @@ export function VaultLockScreen({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canUseHello, helloLoading]);
+  }, [canUseHello, handleHello]);
 
   const handlePassword = async () => {
     if (!password.trim()) {
@@ -117,7 +128,12 @@ export function VaultLockScreen({
                 ref={inputRef}
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (e.target.value.length > 0) {
+                    setError("");
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     void handlePassword();
@@ -222,8 +238,8 @@ export function PasscodeScreen({
       return;
     }
 
-    setIsSubmitting(true);
     void (async () => {
+      setIsSubmitting(true);
       const result = await onVerifyPasscode(passcode);
       if (!result.success) {
         setError(result.message || "Incorrect passcode.");
