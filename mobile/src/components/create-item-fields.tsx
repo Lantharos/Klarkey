@@ -1,5 +1,5 @@
 import { StyleSheet } from "react-native";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import type { NewItemInput } from "@/lib/vault";
 import { Text, TextInput, View } from "@/tw";
@@ -14,19 +14,19 @@ export function LoginFields({ draft, update, updateWebsites }: SheetFieldsProps)
   return (
     <>
       <FieldGroup>
-        <SheetField label="username" value={draft.username ?? ""} onChangeText={(value) => update("username", value)} placeholder="name@example.com" keyboardType="email-address" />
+        <SheetField label="Username" value={draft.username ?? ""} onChangeText={(value) => update("username", value)} placeholder="name@example.com" keyboardType="email-address" />
         <FieldDivider />
-        <SheetField label="password" value={draft.password ?? ""} onChangeText={(value) => update("password", value)} placeholder="Password" secureTextEntry />
+        <SheetField label="Password" value={draft.password ?? ""} onChangeText={(value) => update("password", value)} placeholder="Password" secureTextEntry />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="website" value={draft.websites?.[0] ?? ""} onChangeText={(value) => updateWebsites?.([value])} placeholder="https://example.com" keyboardType="url" />
+        <SheetField label="Website" value={draft.websites?.[0] ?? ""} onChangeText={(value) => updateWebsites?.([value])} placeholder="example.com" keyboardType="url" />
         <FieldDivider />
-        <SheetField label="one-time code" value={draft.otp ?? ""} onChangeText={(value) => update("otp", value)} placeholder="Secret or code" keyboardType="number-pad" />
+        <SheetField label="One-time code" value={draft.otp ?? ""} onChangeText={(value) => update("otp", value)} placeholder="Secret or code" keyboardType="number-pad" />
         <FieldDivider />
-        <SheetField label="sign in with" value={draft.ssoProvider ?? ""} onChangeText={(value) => update("ssoProvider", value)} placeholder="Google, Apple, SSO" />
+        <SheetField label="Sign in with" value={draft.ssoProvider ?? ""} onChangeText={(value) => update("ssoProvider", value)} placeholder="Google, Apple, SSO" />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add any notes about this item" multiline />
+        <SheetField label="Notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add notes" multiline />
       </FieldGroup>
     </>
   );
@@ -36,36 +36,36 @@ export function IdentityFields({ draft, update }: SheetFieldsProps) {
   return (
     <>
       <FieldGroup>
-        <SheetField label="full name" value={draft.fullName ?? ""} onChangeText={(value) => update("fullName", value)} placeholder="Full name" />
+        <SheetField label="Full name" value={draft.fullName ?? ""} onChangeText={(value) => update("fullName", value)} placeholder="Full name" />
         <FieldDivider />
-        <SheetField label="username" value={draft.username ?? ""} onChangeText={(value) => update("username", value)} placeholder="Username" />
+        <SheetField label="Username" value={draft.username ?? ""} onChangeText={(value) => update("username", value)} placeholder="Username" />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="email" value={draft.email ?? ""} onChangeText={(value) => update("email", value)} placeholder="Email" keyboardType="email-address" />
+        <SheetField label="Email" value={draft.email ?? ""} onChangeText={(value) => update("email", value)} placeholder="Email" keyboardType="email-address" />
         <FieldDivider />
-        <SheetField label="phone" value={draft.phone ?? ""} onChangeText={(value) => update("phone", value)} placeholder="Phone" keyboardType="phone-pad" />
+        <SheetField label="Phone" value={draft.phone ?? ""} onChangeText={(value) => update("phone", value)} placeholder="Phone" keyboardType="phone-pad" />
         <FieldDivider />
-        <SheetField label="company" value={draft.company ?? ""} onChangeText={(value) => update("company", value)} placeholder="Company" />
+        <SheetField label="Company" value={draft.company ?? ""} onChangeText={(value) => update("company", value)} placeholder="Company" />
         <FieldDivider />
-        <SheetField label="job title" value={draft.jobTitle ?? ""} onChangeText={(value) => update("jobTitle", value)} placeholder="Job title" />
+        <SheetField label="Job title" value={draft.jobTitle ?? ""} onChangeText={(value) => update("jobTitle", value)} placeholder="Job title" />
         <FieldDivider />
-        <SheetField label="birth date" value={draft.birthDate ?? ""} onChangeText={(value) => update("birthDate", value)} placeholder="Birth date" />
+        <SheetField label="Birth date" value={draft.birthDate ?? ""} onChangeText={(value) => update("birthDate", value)} placeholder="Birth date" />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="address" value={draft.addressLine1 ?? ""} onChangeText={(value) => update("addressLine1", value)} placeholder="Address line 1" />
+        <SheetField label="Address" value={draft.addressLine1 ?? ""} onChangeText={(value) => update("addressLine1", value)} placeholder="Address line 1" />
         <FieldDivider />
-        <SheetField label="address 2" value={draft.addressLine2 ?? ""} onChangeText={(value) => update("addressLine2", value)} placeholder="Address line 2" />
+        <SheetField label="Address 2" value={draft.addressLine2 ?? ""} onChangeText={(value) => update("addressLine2", value)} placeholder="Address line 2" />
         <FieldDivider />
-        <SheetField label="city" value={draft.city ?? ""} onChangeText={(value) => update("city", value)} placeholder="City" />
+        <SheetField label="City" value={draft.city ?? ""} onChangeText={(value) => update("city", value)} placeholder="City" />
         <FieldDivider />
-        <SheetField label="state" value={draft.state ?? ""} onChangeText={(value) => update("state", value)} placeholder="State" />
+        <SheetField label="State" value={draft.state ?? ""} onChangeText={(value) => update("state", value)} placeholder="State" />
         <FieldDivider />
-        <SheetField label="postal code" value={draft.postalCode ?? ""} onChangeText={(value) => update("postalCode", value)} placeholder="Postal code" />
+        <SheetField label="Postal code" value={draft.postalCode ?? ""} onChangeText={(value) => update("postalCode", value)} placeholder="Postal code" />
         <FieldDivider />
-        <SheetField label="country" value={draft.country ?? ""} onChangeText={(value) => update("country", value)} placeholder="Country" />
+        <SheetField label="Country" value={draft.country ?? ""} onChangeText={(value) => update("country", value)} placeholder="Country" />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add any notes about this identity" multiline />
+        <SheetField label="Notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add notes" multiline />
       </FieldGroup>
     </>
   );
@@ -75,20 +75,20 @@ export function CardFields({ draft, update }: SheetFieldsProps) {
   return (
     <>
       <FieldGroup>
-        <SheetField label="name on card" value={draft.cardholderName ?? ""} onChangeText={(value) => update("cardholderName", value)} placeholder="Name on card" />
+        <SheetField label="Name on card" value={draft.cardholderName ?? ""} onChangeText={(value) => update("cardholderName", value)} placeholder="Name on card" />
         <FieldDivider />
-        <SheetField label="number" value={draft.cardNumber ?? ""} onChangeText={(value) => update("cardNumber", value)} placeholder="Card number" keyboardType="number-pad" />
+        <SheetField label="Number" value={draft.cardNumber ?? ""} onChangeText={(value) => update("cardNumber", value)} placeholder="Card number" keyboardType="number-pad" />
         <FieldDivider />
-        <SheetField label="expiry" value={draft.cardExpiry ?? ""} onChangeText={(value) => update("cardExpiry", value)} placeholder="MM/YY" />
+        <SheetField label="Expiry" value={draft.cardExpiry ?? ""} onChangeText={(value) => update("cardExpiry", value)} placeholder="MM/YY" />
         <FieldDivider />
-        <SheetField label="security code" value={draft.cardCvc ?? ""} onChangeText={(value) => update("cardCvc", value)} placeholder="CVC" keyboardType="number-pad" secureTextEntry />
+        <SheetField label="Security code" value={draft.cardCvc ?? ""} onChangeText={(value) => update("cardCvc", value)} placeholder="CVC" keyboardType="number-pad" secureTextEntry />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="network" value={draft.cardBrand ?? ""} onChangeText={(value) => update("cardBrand", value)} placeholder="Visa, Mastercard, Amex" />
+        <SheetField label="Network" value={draft.cardBrand ?? ""} onChangeText={(value) => update("cardBrand", value)} placeholder="Visa, Mastercard, Amex" />
         <FieldDivider />
-        <SheetField label="billing ZIP" value={draft.billingPostalCode ?? ""} onChangeText={(value) => update("billingPostalCode", value)} placeholder="Billing postal code" />
+        <SheetField label="Billing postal code" value={draft.billingPostalCode ?? ""} onChangeText={(value) => update("billingPostalCode", value)} placeholder="Billing postal code" />
         <FieldDivider />
-        <SheetField label="notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add any notes about this card" multiline />
+        <SheetField label="Notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add notes" multiline />
       </FieldGroup>
     </>
   );
@@ -97,7 +97,7 @@ export function CardFields({ draft, update }: SheetFieldsProps) {
 export function NoteFields({ draft, update }: SheetFieldsProps) {
   return (
     <FieldGroup>
-      <SheetField label="note" value={draft.content ?? ""} onChangeText={(value) => update("content", value)} placeholder="Write a secure note" multiline large />
+      <SheetField label="Note" value={draft.content ?? ""} onChangeText={(value) => update("content", value)} placeholder="Write a secure note" multiline large />
     </FieldGroup>
   );
 }
@@ -106,12 +106,12 @@ export function SshKeyFields({ draft, update }: SheetFieldsProps) {
   return (
     <>
       <FieldGroup>
-        <SheetField label="comment" value={draft.sshComment ?? ""} onChangeText={(value) => update("sshComment", value)} placeholder="Key comment" />
+        <SheetField label="Comment" value={draft.sshComment ?? ""} onChangeText={(value) => update("sshComment", value)} placeholder="Key comment" />
         <FieldDivider />
-        <SheetField label="private key" value={draft.sshPrivateKey ?? ""} onChangeText={(value) => update("sshPrivateKey", value)} placeholder="Paste private key" multiline large secureTextEntry />
+        <SheetField label="Private key" value={draft.sshPrivateKey ?? ""} onChangeText={(value) => update("sshPrivateKey", value)} placeholder="Paste private key" multiline large secureTextEntry />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add any notes about this key" multiline />
+        <SheetField label="Notes" value={draft.notes ?? ""} onChangeText={(value) => update("notes", value)} placeholder="Add notes" multiline />
       </FieldGroup>
     </>
   );
@@ -122,7 +122,7 @@ function FieldGroup({ children }: { children: ReactNode }) {
 }
 
 function FieldDivider() {
-  return <View style={styles.fieldDivider} />;
+  return null;
 }
 
 function SheetField({
@@ -144,8 +144,10 @@ function SheetField({
   multiline?: boolean;
   large?: boolean;
 }) {
+  const [focused, setFocused] = useState(false);
+
   return (
-    <View style={[styles.fieldRow, large ? styles.largeRow : multiline ? styles.multilineRow : undefined]}>
+    <View style={[styles.fieldRow, focused ? styles.focusedRow : undefined, large ? styles.largeRow : multiline ? styles.multilineRow : undefined]}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
         value={value}
@@ -157,6 +159,10 @@ function SheetField({
         secureTextEntry={secureTextEntry}
         keyboardType={keyboardType}
         multiline={multiline}
+        selectionColor="#E07878"
+        cursorColor="#E07878"
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         textAlignVertical={multiline ? "top" : "center"}
         style={[styles.fieldInput, multiline ? styles.multilineInput : undefined]}
       />
@@ -166,16 +172,19 @@ function SheetField({
 
 const styles = StyleSheet.create({
   fieldGroup: {
-    overflow: "hidden",
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.06)",
+    gap: 8,
   },
   fieldRow: {
-    minHeight: 68,
+    minHeight: 66,
     justifyContent: "center",
     gap: 4,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.052)",
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+  },
+  focusedRow: {
+    backgroundColor: "rgba(255,255,255,0.082)",
   },
   multilineRow: {
     minHeight: 118,
@@ -186,23 +195,19 @@ const styles = StyleSheet.create({
     justifyContent: "flex-start",
   },
   fieldLabel: {
-    color: "rgba(224,120,120,0.9)",
+    color: "rgba(255,255,255,0.46)",
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "400",
   },
   fieldInput: {
     minHeight: 30,
     color: "#ffffff",
-    fontSize: 18,
+    fontSize: 17,
+    fontWeight: "400",
     padding: 0,
   },
   multilineInput: {
     flex: 1,
     paddingTop: 6,
-  },
-  fieldDivider: {
-    height: 1,
-    marginLeft: 16,
-    backgroundColor: "rgba(255,255,255,0.06)",
   },
 });

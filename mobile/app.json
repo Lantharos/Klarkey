@@ -31,7 +31,7 @@
     "android": {
       "package": "com.lantharos.klarkey",
       "allowBackup": false,
-      "softwareKeyboardLayoutMode": "pan",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E07878",
         "foregroundImage": "./assets/klarkey_adaptive.png"

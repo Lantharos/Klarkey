@@ -63,7 +63,7 @@ bun run build
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
-- The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with search-first unlock, a floating add sheet for logins, identities, cards, notes, and SSH keys, local secure storage, biometric unlock, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped provider passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and Keychain-backed passkey source.
+- The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped provider passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and Keychain-backed passkey source.
 
 ## Mobile app
 

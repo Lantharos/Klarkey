@@ -46,6 +46,10 @@ const sourceFiles = [
 
 check("Expo app is Klarkey mobile", () => app.name === "Klarkey" && app.slug === "klarkey-mobile");
 check("Android package stays com.lantharos.klarkey", () => app.android.package === "com.lantharos.klarkey");
+check("Android keyboard resizes instead of panning the vault", () =>
+  app.android.softwareKeyboardLayoutMode === "resize" &&
+  includes("android/app/src/main/AndroidManifest.xml", 'android:windowSoftInputMode="adjustResize"'),
+);
 check("iOS bundle stays com.lantharos.klarkey", () => app.ios.bundleIdentifier === "com.lantharos.klarkey");
 check("Associated domain is klarkey.com", () =>
   app.ios.associatedDomains.includes("webcredentials:klarkey.com") &&
@@ -324,21 +328,48 @@ check("Klarkey mobile UI and vault screens exist", () =>
     "src/components/klarkey-ui.tsx",
     "src/components/create-item-sheet.tsx",
     "src/components/create-item-flow.tsx",
+    "src/components/create-item-fields.tsx",
+    "src/components/vault-home-surface.tsx",
     "src/components/item-detail-panel.tsx",
+    "src/lib/keyboard-viewport.ts",
   ].every((file) => fs.existsSync(path.join(root, file))),
 );
 check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () =>
-  includes("src/app/index.tsx", "FloatingCreateButton") &&
+  includes("src/app/index.tsx", "VaultHomeSurface") &&
   includes("src/app/index.tsx", "CreateItemSheet") &&
-  includes("src/app/index.tsx", "autoFocus") &&
+  includes("src/app/index.tsx", "ItemDetailSheet") &&
+  includes("src/components/vault-home-surface.tsx", "BottomSearchDock") &&
+  includes("src/components/vault-home-surface.tsx", "autoFocus") &&
+  includes("src/components/vault-home-surface.tsx", "Search in Klarkey") &&
+  includes("src/components/vault-home-surface.tsx", 'selectionColor="#E07878"') &&
+  includes("src/components/vault-home-surface.tsx", "useKeyboardViewport") &&
+  includes("src/lib/keyboard-viewport.ts", "Keyboard.addListener") &&
+  includes("src/lib/keyboard-viewport.ts", "Keyboard.scheduleLayoutAnimation") &&
+  includes("src/lib/keyboard-viewport.ts", "useWindowDimensions") &&
+  includes("src/lib/keyboard-viewport.ts", "androidNeedsViewportFallback") &&
+  includes("src/lib/keyboard-viewport.ts", "largestWindowHeight - keyboardHeight") &&
+  includes("src/components/vault-home-surface.tsx", 'fontWeight: "400"') &&
+  !includes("src/components/vault-home-surface.tsx", 'router.push("/settings")') &&
+  includes("src/app/index.tsx", 'router.push("/settings")') &&
+  includes("src/components/app-tabs.tsx", "Stack") &&
+  !includes("src/components/app-tabs.tsx", "NativeTabs") &&
   includes("src/components/create-item-flow.tsx", "chooseType") &&
   includes("src/components/create-item-flow.tsx", "ItemTypePicker") &&
   includes("src/components/create-item-flow.tsx", "Save") &&
+  includes("src/components/create-item-flow.tsx", "useKeyboardViewport") &&
+  includes("src/components/create-item-flow.tsx", "contentBottomPadding") &&
+  includes("src/components/create-item-fields.tsx", "LoginFields") &&
+  includes("src/components/create-item-fields.tsx", "focusedRow") &&
+  includes("src/components/create-item-fields.tsx", 'selectionColor="#E07878"') &&
   includes("src/components/create-item-flow.tsx", 'itemType: "login"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "identity"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "card"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "note"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "ssh-key"') &&
+  includes("src/components/item-detail-panel.tsx", "Modal") &&
+  includes("src/components/item-detail-panel.tsx", "useKeyboardViewport") &&
+  includes("src/components/item-detail-panel.tsx", "itemHero") &&
+  includes("src/components/item-detail-panel.tsx", "fieldList") &&
   includes("src/components/item-detail-panel.tsx", "Copy") &&
   includes("src/components/item-detail-panel.tsx", "Eye") &&
   includes("src/components/item-detail-panel.tsx", "Delete") &&

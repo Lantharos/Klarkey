@@ -1,9 +1,10 @@
 import { useMemo, useState, type ComponentType, type Dispatch, type SetStateAction } from "react";
-import { KeyboardAvoidingView, Modal, Platform, StyleSheet, useWindowDimensions } from "react-native";
+import { Modal, StyleSheet, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ArrowLeft, CreditCard, FileText, IdCard, Search, Shield, Terminal, X } from "lucide-react-native";
+import { ArrowLeft, ChevronRight, CreditCard, FileText, IdCard, Search, Shield, Terminal, X } from "lucide-react-native";
 
 import { CardFields, IdentityFields, LoginFields, NoteFields, SshKeyFields } from "@/components/create-item-fields";
+import { useKeyboardViewport } from "@/lib/keyboard-viewport";
 import { itemTypeOptions } from "@/lib/vault-item-meta";
 import type { MobileItemKind, NewItemInput } from "@/lib/vault";
 import { Pressable, ScrollView, Text, TextInput, View } from "@/tw";
@@ -49,10 +50,10 @@ const emptyDraft: NewItemInput = {
 };
 
 const itemTypeVisuals: Record<MobileItemKind, { icon: IconComponent; color: string; backgroundColor: string }> = {
-  login: { icon: Shield, color: "#8ee8dd", backgroundColor: "rgba(142,232,221,0.14)" },
-  note: { icon: FileText, color: "#f6c95c", backgroundColor: "rgba(246,201,92,0.14)" },
-  card: { icon: CreditCard, color: "#72c9ff", backgroundColor: "rgba(114,201,255,0.14)" },
-  identity: { icon: IdCard, color: "#77df9f", backgroundColor: "rgba(119,223,159,0.14)" },
+  login: { icon: Shield, color: "#E07878", backgroundColor: "rgba(224,120,120,0.14)" },
+  note: { icon: FileText, color: "#E07878", backgroundColor: "rgba(224,120,120,0.14)" },
+  card: { icon: CreditCard, color: "#E07878", backgroundColor: "rgba(224,120,120,0.14)" },
+  identity: { icon: IdCard, color: "#E07878", backgroundColor: "rgba(224,120,120,0.14)" },
   "ssh-key": { icon: Terminal, color: "#E07878", backgroundColor: "rgba(224,120,120,0.14)" },
 };
 
@@ -71,6 +72,9 @@ export function CreateItemSheet({
   const [step, setStep] = useState<Step>("picker");
   const [query, setQuery] = useState("");
   const insets = useSafeAreaInsets();
+  const keyboardLayout = useKeyboardViewport(insets.bottom, 360);
+  const sheetBottomPadding = keyboardLayout.keyboardVisible ? 12 : Math.max(insets.bottom, 12);
+  const contentBottomPadding = 42 + keyboardLayout.contentOffset + sheetBottomPadding;
 
   function resetAndClose() {
     setDraft(emptyDraft);
@@ -98,16 +102,16 @@ export function CreateItemSheet({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={resetAndClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.modalRoot}>
-        <View style={[styles.modalSurface, { paddingTop: insets.top + 14, paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <CreateHeader step={step} loading={loading} onBack={() => setStep("picker")} onClose={resetAndClose} onSave={() => void save()} />
+      <View style={styles.modalRoot}>
+        <View style={[styles.modalSurface, keyboardLayout.viewportStyle, { paddingTop: insets.top + 12, paddingBottom: sheetBottomPadding }]}>
+          <CreateHeader step={step} loading={loading} itemType={draft.itemType} onBack={() => setStep("picker")} onClose={resetAndClose} onSave={() => void save()} />
           {step === "picker" ? (
-            <ItemTypePicker query={query} onQueryChange={setQuery} onChoose={chooseType} />
+            <ItemTypePicker query={query} onQueryChange={setQuery} onChoose={chooseType} bottomPadding={contentBottomPadding} />
           ) : (
-            <ItemForm draft={draft} update={update} setDraft={setDraft} />
+            <ItemForm draft={draft} update={update} setDraft={setDraft} bottomPadding={contentBottomPadding} />
           )}
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -115,12 +119,14 @@ export function CreateItemSheet({
 function CreateHeader({
   step,
   loading,
+  itemType,
   onBack,
   onClose,
   onSave,
 }: {
   step: Step;
   loading: boolean;
+  itemType: MobileItemKind;
   onBack: () => void;
   onClose: () => void;
   onSave: () => void;
@@ -131,7 +137,9 @@ function CreateHeader({
       <Pressable accessibilityRole="button" accessibilityLabel={showSave ? "Back" : "Close"} onPress={showSave ? onBack : onClose} style={styles.headerButton}>
         {showSave ? <ArrowLeft size={27} color="rgba(255,255,255,0.82)" strokeWidth={2.2} /> : <X size={28} color="rgba(255,255,255,0.82)" strokeWidth={2.1} />}
       </Pressable>
-      <Text style={styles.headerTitle}>New item</Text>
+      <View style={styles.headerCopy}>
+        <Text style={styles.headerTitle}>{showSave ? itemTypeOptions.find((option) => option.itemType === itemType)?.label ?? "New item" : "New item"}</Text>
+      </View>
       {showSave ? (
         <Pressable accessibilityRole="button" disabled={loading} onPress={onSave} style={[styles.saveButton, loading ? styles.disabled : undefined]}>
           <Text style={styles.saveText}>Save</Text>
@@ -147,13 +155,15 @@ function ItemTypePicker({
   query,
   onQueryChange,
   onChoose,
+  bottomPadding,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
   onChoose: (itemType: MobileItemKind) => void;
+  bottomPadding: number;
 }) {
   const { width } = useWindowDimensions();
-  const tileWidth = Math.max(142, Math.floor((width - 52) / 2));
+  const listWidth = Math.max(0, width - 40);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) {
@@ -165,7 +175,7 @@ function ItemTypePicker({
   return (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={styles.pickerContent}
+      contentContainerStyle={[styles.pickerContent, { paddingBottom: bottomPadding }]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}>
       <View style={styles.searchBox}>
@@ -178,12 +188,14 @@ function ItemTypePicker({
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
+          selectionColor="#E07878"
+          cursorColor="#E07878"
           style={styles.searchInput}
         />
       </View>
-      <View style={styles.typeGrid}>
+      <View style={[styles.typeList, { width: listWidth }]}>
         {filtered.map((option) => (
-          <TypeCard key={option.itemType} itemType={option.itemType} label={option.label} detail={option.detail} width={tileWidth} onPress={() => onChoose(option.itemType)} />
+          <TypeCard key={option.itemType} itemType={option.itemType} label={option.label} detail={option.detail} onPress={() => onChoose(option.itemType)} />
         ))}
       </View>
     </ScrollView>
@@ -194,22 +206,21 @@ function TypeCard({
   itemType,
   label,
   detail,
-  width,
   onPress,
 }: {
   itemType: MobileItemKind;
   label: string;
   detail: string;
-  width: number;
   onPress: () => void;
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.typeCard, { width }, pressed ? styles.pressed : undefined]}>
+    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.typeCard, pressed ? styles.pressed : undefined]}>
       <TypeGlyph itemType={itemType} size={24} />
       <View style={styles.typeCopy}>
         <Text style={styles.typeLabel}>{label}</Text>
         <Text style={styles.typeDetail}>{detail}</Text>
       </View>
+      <ChevronRight size={20} color="rgba(255,255,255,0.34)" strokeWidth={2.2} />
     </Pressable>
   );
 }
@@ -218,15 +229,17 @@ function ItemForm({
   draft,
   update,
   setDraft,
+  bottomPadding,
 }: {
   draft: NewItemInput;
   update: (key: keyof NewItemInput, value: string) => void;
   setDraft: Dispatch<SetStateAction<NewItemInput>>;
+  bottomPadding: number;
 }) {
   return (
     <ScrollView
       className="flex-1"
-      contentContainerStyle={styles.formContent}
+      contentContainerStyle={[styles.formContent, { paddingBottom: bottomPadding }]}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}>
       <View style={styles.titleRow}>
@@ -239,6 +252,8 @@ function ItemForm({
           autoCapitalize="sentences"
           autoCorrect={false}
           autoFocus
+          selectionColor="#E07878"
+          cursorColor="#E07878"
           style={styles.nameInput}
         />
       </View>
@@ -271,37 +286,42 @@ const styles = StyleSheet.create({
   },
   modalSurface: {
     flex: 1,
+    overflow: "hidden",
     backgroundColor: "#1a1a1b",
   },
   header: {
-    minHeight: 72,
+    minHeight: 70,
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingHorizontal: 14,
+    gap: 12,
+    paddingHorizontal: 16,
   },
   headerButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.055)",
+  },
+  headerCopy: {
+    minWidth: 0,
+    flex: 1,
   },
   headerTitle: {
-    flex: 1,
     color: "#ffffff",
-    fontSize: 28,
-    fontWeight: "600",
+    fontSize: 21,
+    fontWeight: "500",
   },
   headerSpacer: {
     width: 44,
   },
   saveButton: {
-    minWidth: 84,
-    height: 48,
+    minWidth: 70,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    borderRadius: 22,
     backgroundColor: "#E07878",
   },
   disabled: {
@@ -310,86 +330,90 @@ const styles = StyleSheet.create({
   saveText: {
     color: "#111112",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   pickerContent: {
-    gap: 18,
+    gap: 16,
     paddingHorizontal: 20,
-    paddingBottom: 36,
+    paddingTop: 8,
   },
   searchBox: {
-    minHeight: 58,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
     gap: 13,
-    borderRadius: 16,
+    borderRadius: 28,
     backgroundColor: "rgba(255,255,255,0.07)",
     paddingHorizontal: 16,
   },
   searchInput: {
     flex: 1,
     color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "500",
+    fontSize: 17,
+    fontWeight: "400",
   },
-  typeGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 12,
+  typeList: {
+    gap: 8,
+    alignSelf: "center",
   },
   typeCard: {
-    minHeight: 150,
-    justifyContent: "space-between",
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.055)",
-    padding: 16,
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.052)",
+    paddingHorizontal: 15,
+    paddingVertical: 12,
   },
   pressed: {
-    opacity: 0.72,
+    transform: [{ scale: 0.988 }],
+    opacity: 0.82,
   },
   typeIcon: {
-    width: 48,
-    height: 48,
+    width: 46,
+    height: 46,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 14,
+    borderRadius: 23,
   },
   largeTypeIcon: {
-    width: 70,
-    height: 70,
-    borderRadius: 20,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
   },
   typeCopy: {
+    flex: 1,
     gap: 5,
   },
   typeLabel: {
     color: "#ffffff",
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "500",
   },
   typeDetail: {
     color: "rgba(255,255,255,0.42)",
     fontSize: 13,
   },
   formContent: {
-    gap: 14,
+    gap: 12,
     paddingHorizontal: 20,
-    paddingBottom: 42,
+    paddingTop: 8,
   },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
-    paddingVertical: 12,
+    gap: 12,
+    paddingVertical: 8,
   },
   nameInput: {
     flex: 1,
-    minHeight: 58,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    paddingHorizontal: 16,
+    minHeight: 54,
+    borderRadius: 27,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 18,
     color: "#ffffff",
-    fontSize: 24,
-    fontWeight: "600",
+    fontSize: 21,
+    fontWeight: "400",
   },
 });

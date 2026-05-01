@@ -61,10 +61,10 @@ EXPO_APPLE_TEAM_ID=YOUR_TEAM_ID ANDROID_SHA256_CERT_FINGERPRINTS=AA:BB:... bun r
 - The iOS target uses `ios.appleTeamId` from `EXPO_APPLE_TEAM_ID` or `APPLE_TEAM_ID`.
 - EAS profiles in `eas.json` cover development builds, an iOS Simulator build, internal preview builds, and production app-store builds. Store `EXPO_APPLE_TEAM_ID` in the EAS environment before running cloud iOS builds.
 - Android registers `KlarkeyCredentialProviderService` for Credential Manager and `KlarkeyAutofillService` for classic app-field autofill through `plugins/with-klarkey-credential-provider.js`, syncs unlocked vault entries into an encrypted native provider store, returns password picker results through `PendingIntentHandler`, saves classic username/password forms through `SaveInfo`, and can create ES256 provider passkeys for the website or app that requested them.
-- The vault starts empty, opens to search after unlock, lets users add logins, identities, cards, notes, and SSH keys from the floating add sheet, and supports copy/reveal/delete from the selected item.
+- The vault starts empty, opens to a bottom search/add dock after unlock, lets users add logins, identities, cards, notes, and SSH keys from the create flow, and supports copy/reveal/delete from the item detail sheet.
 - Android logins saved from website prompts are read back from the native provider store on unlock. Changes to this bridge require a new native Android install before the installed app can use it.
 - Provider-created passkeys are read back from the native provider store on unlock and linked to matching login items by website and username.
-- Chrome on Android has its own Autofill using another service setting. The mobile app links to Android password settings and Chrome autofill settings from the Autofill and Settings tabs.
+- Chrome on Android has its own Autofill using another service setting. The mobile app links to Android password settings and Chrome autofill settings from Settings.
 - The Klarkey app association domain is `klarkey.com`; website passkeys use the relying-party ID from the website or app that creates them.
 - Production builds need `/.well-known/apple-app-site-association` and `/.well-known/assetlinks.json` hosted for the shipping domain.
 - `bun run write:well-known -- --dry-run` previews both files without writing them.
