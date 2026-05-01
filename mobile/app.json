@@ -1,0 +1,128 @@
+{
+  "expo": {
+    "name": "Klarkey",
+    "slug": "klarkey-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/klarkey.png",
+    "scheme": "klarkey",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "icon": "./assets/klarkey.png",
+      "bundleIdentifier": "com.lantharos.klarkey",
+      "associatedDomains": [
+        "webcredentials:klarkey.com",
+        "applinks:klarkey.com"
+      ],
+      "entitlements": {
+        "com.apple.developer.authentication-services.autofill-credential-provider": true,
+        "com.apple.security.application-groups": [
+          "group.com.lantharos.klarkey"
+        ],
+        "com.apple.developer.associated-domains": [
+          "webcredentials:klarkey.com",
+          "applinks:klarkey.com"
+        ]
+      },
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Unlock Klarkey to fill credentials and approve passkey requests."
+      }
+    },
+    "android": {
+      "package": "com.lantharos.klarkey",
+      "allowBackup": false,
+      "softwareKeyboardLayoutMode": "pan",
+      "adaptiveIcon": {
+        "backgroundColor": "#E07878",
+        "foregroundImage": "./assets/klarkey_adaptive.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "klarkey.com"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/klarkey.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#1A1A1B",
+          "android": {
+            "image": "./assets/klarkey.png",
+            "imageWidth": 76
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock Klarkey to fill credentials and approve passkey requests."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0",
+            "minSdkVersion": 28
+          },
+          "ios": {
+            "deploymentTarget": "18.0"
+          }
+        }
+      ],
+      "@bacons/apple-targets",
+      "./plugins/with-klarkey-credential-provider"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "klarkey": {
+        "associatedDomain": "klarkey.com"
+      },
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "KlarkeyCredentialProvider",
+                  "bundleIdentifier": "com.lantharos.klarkey.CredentialProvider",
+                  "entitlements": {
+                    "com.apple.developer.authentication-services.autofill-credential-provider": true,
+                    "com.apple.security.application-groups": [
+                      "group.com.lantharos.klarkey"
+                    ],
+                    "com.apple.developer.associated-domains": [
+                      "webcredentials:klarkey.com",
+                      "applinks:klarkey.com"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -63,6 +63,26 @@ bun run build
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
+- The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with search-first unlock, a floating add sheet for logins, identities, cards, notes, and SSH keys, local secure storage, biometric unlock, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped provider passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and Keychain-backed passkey source.
+
+## Mobile app
+
+```bash
+cd mobile
+bun install
+bun run start
+```
+
+Native autofill and platform passkey flows need a development build rather than Expo Go:
+
+```bash
+cd mobile
+bun expo prebuild
+bun expo run:android
+bun expo run:ios
+```
+
+For iOS builds, set `EXPO_APPLE_TEAM_ID` or `APPLE_TEAM_ID` so the Credential Provider Extension can be signed. The current mobile native identity defaults to `com.lantharos.klarkey` and `klarkey.com`, with iOS 18+ as the mobile target for newer credential-manager fill surfaces. On macOS with Xcode, `bun run verify:ios-build` from `mobile` runs iOS prebuild validation and a Simulator compile. From Windows, use `bunx eas-cli build --platform ios --profile ios-simulator` or `bunx eas-cli build --platform ios --profile development` from `mobile` after storing `EXPO_APPLE_TEAM_ID` in the EAS environment. Before shipping, run `bun run write:well-known` from `mobile` with the Apple Team ID and Android release signing SHA-256 fingerprint, then host the generated files on `https://klarkey.com/.well-known/`.
 
 ## Browser extension
 

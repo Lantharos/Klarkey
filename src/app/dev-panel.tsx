@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { VaultLockInfo } from '@/shared/types'
 
 type LockInfo = VaultLockInfo & { keyInMemory?: boolean; keyFileExists?: boolean }
@@ -9,15 +9,18 @@ export function DevPanel() {
 
   const api = window.klarkey
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     if (!api?.dev) return
     const info = await api.dev.dumpLockInfo()
     setLockInfo(info)
-  }
+  }, [api?.dev])
 
   useEffect(() => {
-    void refresh()
-  }, [])
+    const timeout = window.setTimeout(() => {
+      void refresh()
+    }, 0)
+    return () => window.clearTimeout(timeout)
+  }, [refresh])
 
   if (!api?.dev) {
     return (

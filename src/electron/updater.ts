@@ -7,10 +7,6 @@ type ElectronUpdaterModule = typeof import('electron-updater')
 const require = createRequire(import.meta.url)
 const { autoUpdater } = require('electron-updater') as ElectronUpdaterModule
 
-type ProgressInfo = {
-  percent?: number
-}
-
 type UpdateInfo = {
   version?: string
 }
@@ -102,7 +98,7 @@ export class KlarkeyUpdater {
       })
     })
 
-    autoUpdater.on('download-progress', (_progress: ProgressInfo) => {
+    autoUpdater.on('download-progress', () => {
       mutateRuntimeState((state) => {
         if (state.update.phase !== 'installing') {
           state.update.phase = 'downloading'

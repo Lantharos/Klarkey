@@ -46,6 +46,7 @@ export function RecoveryCodesPage({
   onBack: () => void
 }) {
   const [codes, setCodes] = useState<string[]>(initialCodes)
+  const [lastInitialCodes, setLastInitialCodes] = useState(initialCodes)
   const [used, setUsed] = useState<Set<number>>(new Set())
   const [pasteValue, setPasteValue] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -54,9 +55,10 @@ export function RecoveryCodesPage({
   const rowRefs = useRef<Array<HTMLDivElement | null>>([])
   const statusTimeoutRef = useRef<number | undefined>(undefined)
 
-  useEffect(() => {
+  if (lastInitialCodes !== initialCodes) {
+    setLastInitialCodes(initialCodes)
     setCodes(initialCodes)
-  }, [initialCodes])
+  }
 
   useEffect(() => {
     return () => {
@@ -67,20 +69,18 @@ export function RecoveryCodesPage({
   }, [])
 
   useEffect(() => {
-    setSelectedIndex((current) => Math.max(0, Math.min(current, Math.max(0, codes.length - 1))))
-  }, [codes.length])
-
-  useEffect(() => {
     if (mode === 'add') {
       textareaRef.current?.focus()
     }
   }, [mode])
 
+  const effectiveSelectedIndex = Math.max(0, Math.min(selectedIndex, Math.max(0, codes.length - 1)))
+
   useEffect(() => {
     if (mode === 'view' && codes.length > 0) {
-      rowRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' })
+      rowRefs.current[effectiveSelectedIndex]?.scrollIntoView({ block: 'nearest' })
     }
-  }, [codes.length, mode, selectedIndex])
+  }, [codes.length, effectiveSelectedIndex, mode])
 
   const showStatus = useCallback((message: string) => {
     setStatusText(message)
@@ -180,25 +180,25 @@ export function RecoveryCodesPage({
 
       if (event.key === 'Enter') {
         event.preventDefault()
-        handleCopy(selectedIndex)
+        handleCopy(effectiveSelectedIndex)
         return
       }
 
       if (event.key === ' ' || event.key.toLowerCase() === 'u') {
         event.preventDefault()
-        toggleUsed(selectedIndex)
+        toggleUsed(effectiveSelectedIndex)
         return
       }
 
       if (event.key === 'Backspace' || event.key === 'Delete') {
         event.preventDefault()
-        handleRemove(selectedIndex)
+        handleRemove(effectiveSelectedIndex)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [codes.length, handleCopy, handleRemove, mode, onBack, selectedIndex, toggleUsed])
+  }, [codes.length, effectiveSelectedIndex, handleCopy, handleRemove, mode, onBack, toggleUsed])
 
   const handleEditorKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -246,7 +246,7 @@ export function RecoveryCodesPage({
           <div className="px-5 py-3">
             <div className="space-y-1.5">
               {codes.map((code, index) => {
-                const selected = index === selectedIndex
+                const selected = index === effectiveSelectedIndex
                 const codeUsed = used.has(index)
 
                 return (

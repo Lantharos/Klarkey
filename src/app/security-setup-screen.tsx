@@ -26,7 +26,8 @@ export function PasscodeSetupScreen({
   }
 
   useEffect(() => {
-    focusIndex(0)
+    const refs = stage === 'enter' ? enterRefs.current : confirmRefs.current
+    refs[0]?.focus()
   }, [stage])
 
   useEffect(() => {
@@ -60,12 +61,19 @@ export function PasscodeSetupScreen({
     return () => window.removeEventListener('keydown', handleEscape, true)
   }, [confirmPasscode.length, onCancel, passcode.length, stage])
 
-  const setActiveCode = (value: string) => {
-    if (stage === 'enter') {
-      setPasscode(value)
+  const submit = async (nextConfirmPasscode = confirmPasscode) => {
+    if (isSubmitting) {
       return
     }
-    setConfirmPasscode(value)
+    setIsSubmitting(true)
+    const result = await onSubmit(passcode, nextConfirmPasscode)
+    if (!result.success) {
+      setError(result.message)
+      setStage('enter')
+      setPasscode('')
+      setConfirmPasscode('')
+    }
+    setIsSubmitting(false)
   }
 
   const handleChange = (index: number, value: string) => {
@@ -73,8 +81,20 @@ export function PasscodeSetupScreen({
     const chars = activeCode.padEnd(codeLength, ' ').split('')
     chars[index] = digit || ' '
     const next = chars.join('').replace(/\s+/g, '')
-    setActiveCode(next)
     setError('')
+
+    if (stage === 'enter') {
+      setPasscode(next)
+      if (next.length === codeLength) {
+        setStage('confirm')
+        setConfirmPasscode('')
+      }
+    } else {
+      setConfirmPasscode(next)
+      if (next.length === codeLength) {
+        void submit(next)
+      }
+    }
 
     if (digit && index < codeLength - 1) {
       focusIndex(index + 1)
@@ -100,34 +120,6 @@ export function PasscodeSetupScreen({
       focusIndex(index + 1)
     }
   }
-
-  const submit = async () => {
-    if (isSubmitting) {
-      return
-    }
-    setIsSubmitting(true)
-    const result = await onSubmit(passcode, confirmPasscode)
-    if (!result.success) {
-      setError(result.message)
-      setStage('enter')
-      setPasscode('')
-      setConfirmPasscode('')
-    }
-    setIsSubmitting(false)
-  }
-
-  useEffect(() => {
-    if (stage === 'enter' && passcode.length === codeLength) {
-      setStage('confirm')
-      setConfirmPasscode('')
-    }
-  }, [passcode.length, stage])
-
-  useEffect(() => {
-    if (stage === 'confirm' && confirmPasscode.length === codeLength) {
-      void submit()
-    }
-  }, [confirmPasscode.length, stage])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col justify-center px-6 py-5">
@@ -316,6 +308,21 @@ export function PasscodeConfirmScreen({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [onCancel, passcode.length])
 
+  const submitPasscode = async (nextPasscode: string) => {
+    if (isSubmitting) {
+      return
+    }
+
+    setIsSubmitting(true)
+    const result = await onSubmit(nextPasscode)
+    if (!result.success) {
+      setError(result.message || 'Incorrect passcode.')
+      setPasscode('')
+      inputRefs.current[0]?.focus()
+    }
+    setIsSubmitting(false)
+  }
+
   const handleChange = (index: number, value: string) => {
     const digit = value.replace(/\D/g, '').slice(-1)
     const chars = passcode.padEnd(length, ' ').split('')
@@ -326,6 +333,11 @@ export function PasscodeConfirmScreen({
 
     if (digit && index < length - 1) {
       inputRefs.current[index + 1]?.focus()
+      return
+    }
+
+    if (next.length === length) {
+      void submitPasscode(next)
     }
   }
 
@@ -348,23 +360,6 @@ export function PasscodeConfirmScreen({
       inputRefs.current[index + 1]?.focus()
     }
   }
-
-  useEffect(() => {
-    if (isSubmitting || passcode.length !== length) {
-      return
-    }
-
-    setIsSubmitting(true)
-    void (async () => {
-      const result = await onSubmit(passcode)
-      if (!result.success) {
-        setError(result.message || 'Incorrect passcode.')
-        setPasscode('')
-        inputRefs.current[0]?.focus()
-      }
-      setIsSubmitting(false)
-    })()
-  }, [isSubmitting, length, onSubmit, passcode])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col justify-center px-6 py-5">
