@@ -122,13 +122,14 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
       is BeginGetPublicKeyCredentialOption -> {
         val rpId = KlarkeyPasskeys.rpIdFromRequestJson(option.requestJson) ?: return false
         passkeys.filter { item -> item.rpId == rpId }.forEach { item ->
+          val linkedCredential = entries.firstOrNull { credential -> credential.id == item.itemId }
           builder.addCredentialEntry(
             PublicKeyCredentialEntry(
               context = this,
               username = item.username,
               pendingIntent = providerIntent("fill-passkey", item.id, "passkey"),
               beginGetPublicKeyCredentialOption = option,
-              displayName = item.username,
+              displayName = linkedCredential?.title ?: item.username,
               lastUsedTime = item.lastUsedTime,
               icon = providerIcon(),
               isAutoSelectAllowed = false,

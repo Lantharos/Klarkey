@@ -27,7 +27,7 @@ function LoginIcon({ item, size }: { item: MobileVaultItem; size: number }) {
 
   return (
     <View style={[styles.shell, styles.loginShell, { width: size, height: size, borderRadius: Math.round(size * 0.28) }]}>
-      <FallbackInitial title={item.itemName} size={size} />
+      {source ? null : <FallbackInitial title={item.itemName} size={size} />}
       {source ? (
         <Image
           source={{ uri: source }}

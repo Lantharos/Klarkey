@@ -32,6 +32,7 @@ data class ProviderPasskey(
   val rpId: String,
   val username: String,
   val userHandle: String,
+  val itemId: String?,
   val signCount: Int,
   val lastUsedTime: Instant
 )
@@ -45,7 +46,7 @@ object KlarkeyCredentialStore {
   private const val transformation = "AES/GCM/NoPadding"
 
   fun replaceCredentials(context: Context, payload: String, unlockedUntil: Long) {
-    writeEncrypted(context, credentialsKey, payload)
+    writeEncrypted(context, credentialsKey, mergeProviderOwnedCredentials(context, payload))
     prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
   }
 
@@ -95,18 +96,30 @@ object KlarkeyCredentialStore {
   }
 
   fun savePasswordCredential(context: Context, username: String, password: String, domain: String?) {
+    val host = normalizeHost(domain)
     val items = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
     val next = JSONArray()
-    val id = "password:" + (domain ?: "app") + ":" + username
+    val fallbackId = "password:" + (host ?: "app") + ":" + username
     var replaced = false
 
     for (index in 0 until items.length()) {
       val item = items.optJSONObject(index) ?: continue
-      val domains = credentialDomains(item)
-      val isSameAccount = item.optString("id") == id ||
-        (item.optString("username") == username && domain != null && domains.contains(domain))
+      val isSameAccount = item.optString("id") == fallbackId || matchingCredential(item, username, host)
       if (isSameAccount) {
-        next.put(passwordJson(id, username, password, domain))
+        val domains = mergeDomain(credentialDomains(item), host)
+        next.put(
+          credentialJson(
+            id = item.optString("id").takeIf { value -> value.isNotBlank() } ?: fallbackId,
+            title = item.optString("title").takeIf { value -> value.isNotBlank() } ?: host ?: username,
+            username = username,
+            password = password,
+            domain = domains.firstOrNull(),
+            domains = domains,
+            hasPassword = true,
+            hasPasskey = item.optBoolean("hasPasskey", false),
+            lastUsedAt = System.currentTimeMillis()
+          )
+        )
         replaced = true
       } else {
         next.put(item)
@@ -114,7 +127,20 @@ object KlarkeyCredentialStore {
     }
 
     if (!replaced) {
-      next.put(passwordJson(id, username, password, domain))
+      val domains = mergeDomain(emptyList(), host)
+      next.put(
+        credentialJson(
+          id = fallbackId,
+          title = host ?: username,
+          username = username,
+          password = password,
+          domain = domains.firstOrNull(),
+          domains = domains,
+          hasPassword = true,
+          hasPasskey = false,
+          lastUsedAt = System.currentTimeMillis()
+        )
+      )
     }
 
     writeEncrypted(context, credentialsKey, next.toString())
@@ -143,6 +169,7 @@ object KlarkeyCredentialStore {
           rpId = rpId,
           username = username,
           userHandle = userHandle,
+          itemId = item.optString("itemId").takeIf { value -> value.isNotBlank() },
           signCount = item.optInt("signCount", 0),
           lastUsedTime = Instant.ofEpochMilli(item.optLong("lastUsedAt", System.currentTimeMillis()))
         )
@@ -174,6 +201,14 @@ object KlarkeyCredentialStore {
     writeEncrypted(context, passkeysKey, next.toString())
   }
 
+  fun savePasskeyCredential(context: Context, passkey: ProviderPasskey): ProviderPasskey {
+    val credential = upsertPasskeyCredential(context, passkey)
+    val itemId = credential.optString("id").takeIf { value -> value.isNotBlank() }
+    val linkedPasskey = passkey.copy(itemId = itemId)
+    savePasskey(context, linkedPasskey)
+    return linkedPasskey
+  }
+
   fun passkeyById(context: Context, id: String?): ProviderPasskey? {
     if (id.isNullOrBlank()) {
       return null
@@ -190,6 +225,7 @@ object KlarkeyCredentialStore {
           .put("id", passkey.id)
           .put("rpId", passkey.rpId)
           .put("username", passkey.username)
+          .put("itemId", passkey.itemId ?: "")
           .put("createdAt", passkey.lastUsedTime.toString().take(10))
           .put("lastUsedAt", "Provider")
           .put("providerBacked", true)
@@ -209,23 +245,87 @@ object KlarkeyCredentialStore {
           .put("domain", credential.domain ?: "")
           .put("domains", JSONArray(credential.domains))
           .put("password", credential.password ?: "")
+          .put("hasPassword", credential.hasPassword)
+          .put("hasPasskey", credential.hasPasskey)
           .put("lastUsedAt", "Saved from autofill")
       )
     }
     return items.toString()
   }
 
-  private fun passwordJson(id: String, username: String, password: String, domain: String?): JSONObject {
+  private fun upsertPasskeyCredential(context: Context, passkey: ProviderPasskey): JSONObject {
+    val host = normalizeHost(passkey.rpId) ?: passkey.rpId
+    val items = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val next = JSONArray()
+    var credential: JSONObject? = null
+
+    for (index in 0 until items.length()) {
+      val item = items.optJSONObject(index) ?: continue
+      val isSameAccount = (!passkey.itemId.isNullOrBlank() && item.optString("id") == passkey.itemId) ||
+        matchingCredential(item, passkey.username, host)
+
+      if (isSameAccount) {
+        val password = item.optString("password").takeIf { value -> value.isNotBlank() }
+        val domains = mergeDomain(credentialDomains(item), host)
+        val updated = credentialJson(
+          id = item.optString("id").takeIf { value -> value.isNotBlank() } ?: "passkey:" + host + ":" + passkey.username,
+          title = item.optString("title").takeIf { value -> value.isNotBlank() } ?: host,
+          username = passkey.username,
+          password = password,
+          domain = domains.firstOrNull(),
+          domains = domains,
+          hasPassword = item.optBoolean("hasPassword", false) && password != null,
+          hasPasskey = true,
+          lastUsedAt = System.currentTimeMillis()
+        )
+        credential = updated
+        next.put(updated)
+      } else {
+        next.put(item)
+      }
+    }
+
+    if (credential == null) {
+      val domains = listOf(host)
+      credential = credentialJson(
+        id = "passkey:" + host + ":" + passkey.username,
+        title = host,
+        username = passkey.username,
+        password = null,
+        domain = domains.firstOrNull(),
+        domains = domains,
+        hasPassword = false,
+        hasPasskey = true,
+        lastUsedAt = System.currentTimeMillis()
+      )
+      next.put(credential)
+    }
+
+    writeEncrypted(context, credentialsKey, next.toString())
+    return credential!!
+  }
+
+  private fun credentialJson(
+    id: String,
+    title: String,
+    username: String,
+    password: String?,
+    domain: String?,
+    domains: List<String>,
+    hasPassword: Boolean,
+    hasPasskey: Boolean,
+    lastUsedAt: Long
+  ): JSONObject {
     return JSONObject()
       .put("id", id)
-      .put("title", domain ?: username)
+      .put("title", title)
       .put("username", username)
       .put("domain", domain ?: "")
-      .put("domains", if (domain.isNullOrBlank()) JSONArray() else JSONArray().put(domain))
-      .put("password", password)
-      .put("hasPassword", true)
-      .put("hasPasskey", false)
-      .put("lastUsedAt", System.currentTimeMillis())
+      .put("domains", JSONArray(domains))
+      .put("password", password ?: "")
+      .put("hasPassword", hasPassword && !password.isNullOrBlank())
+      .put("hasPasskey", hasPasskey)
+      .put("lastUsedAt", lastUsedAt)
   }
 
   private fun credentialDomains(item: JSONObject): List<String> {
@@ -234,17 +334,71 @@ object KlarkeyCredentialStore {
 
     if (domainList != null) {
       for (index in 0 until domainList.length()) {
-        domainList.optString(index).takeIf { value -> value.isNotBlank() }?.let { domain ->
+        normalizeHost(domainList.optString(index))?.let { domain ->
           domains.add(domain)
         }
       }
     }
 
-    item.optString("domain").takeIf { value -> value.isNotBlank() }?.let { domain ->
+    normalizeHost(item.optString("domain"))?.let { domain ->
       domains.add(domain)
     }
 
     return domains.distinct()
+  }
+
+  private fun mergeProviderOwnedCredentials(context: Context, payload: String): String {
+    val incoming = JSONArray(payload)
+    val ids = mutableSetOf<String>()
+    for (index in 0 until incoming.length()) {
+      incoming.optJSONObject(index)?.optString("id")?.takeIf { id -> id.isNotBlank() }?.let { id -> ids.add(id) }
+    }
+
+    val merged = JSONArray(payload)
+    val existing = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    for (index in 0 until existing.length()) {
+      val item = existing.optJSONObject(index) ?: continue
+      val id = item.optString("id")
+      if (providerOwnedCredential(id) && !ids.contains(id)) {
+        merged.put(item)
+      }
+    }
+
+    return merged.toString()
+  }
+
+  private fun matchingCredential(item: JSONObject, username: String, domain: String?): Boolean {
+    if (item.optString("username") != username || domain.isNullOrBlank()) {
+      return false
+    }
+
+    return credentialDomains(item).any { candidate -> domainsMatch(candidate, domain) }
+  }
+
+  private fun mergeDomain(domains: List<String>, domain: String?): List<String> {
+    val values = domains.toMutableList()
+    domain?.takeIf { value -> value.isNotBlank() && values.none { existing -> domainsMatch(existing, value) } }?.let { value ->
+      values.add(value)
+    }
+    return values.distinct()
+  }
+
+  private fun providerOwnedCredential(id: String): Boolean {
+    return id.startsWith("password:") || id.startsWith("passkey:")
+  }
+
+  private fun domainsMatch(candidate: String?, target: String?): Boolean {
+    if (candidate.isNullOrBlank() || target.isNullOrBlank()) {
+      return false
+    }
+
+    return candidate == target || candidate.endsWith("." + target) || target.endsWith("." + candidate)
+  }
+
+  private fun normalizeHost(value: String?): String? {
+    val trimmed = value?.trim()?.lowercase()?.removePrefix("https://")?.removePrefix("http://") ?: return null
+    val host = trimmed.substringBefore("/").substringBefore(":").removePrefix("www.")
+    return host.takeIf { it.isNotBlank() }
   }
 
   private fun passkeyJson(passkey: ProviderPasskey): JSONObject {
@@ -254,6 +408,7 @@ object KlarkeyCredentialStore {
       .put("rpId", passkey.rpId)
       .put("username", passkey.username)
       .put("userHandle", passkey.userHandle)
+      .put("itemId", passkey.itemId ?: "")
       .put("signCount", passkey.signCount)
       .put("lastUsedAt", passkey.lastUsedTime.toEpochMilli())
   }

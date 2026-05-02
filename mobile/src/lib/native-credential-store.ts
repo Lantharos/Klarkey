@@ -17,6 +17,7 @@ interface ProviderSavedCredential {
   domain?: string;
   domains?: string[];
   password?: string;
+  hasPasskey?: boolean;
   lastUsedAt?: string;
 }
 
@@ -37,7 +38,15 @@ function credentialDomainsForItem(item: MobileVaultItem) {
 }
 
 export function isProviderBackedPasskeyForItem(passkey: MobilePasskey, item: MobileVaultItem) {
-  if (passkey.providerBacked !== true || !item.username || passkey.username !== item.username) {
+  if (passkey.providerBacked !== true) {
+    return false;
+  }
+
+  if (passkey.itemId && passkey.itemId === item.id) {
+    return true;
+  }
+
+  if (!item.username || passkey.username !== item.username) {
     return false;
   }
 

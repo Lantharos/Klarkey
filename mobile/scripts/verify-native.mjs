@@ -283,16 +283,27 @@ check("Generated Android provider can create provider-owned passkeys", () =>
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "PublicKeyCredential(") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "SHA256withECDSA") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AndroidKeyStore") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "savePasskey"),
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "savePasskey") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "savePasskeyCredential") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "privilegedAllowlist") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "getOrigin(privilegedAllowlist)") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "option.clientDataHash") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "providerRequest.callingAppInfo") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "Base64.NO_PADDING"),
 );
 check("Passkeys stay provider-backed and linked to matching website items", () =>
   includes("src/lib/vault.ts", "providerBacked?: boolean") &&
+  includes("src/lib/vault.ts", "itemId?: string") &&
   includes("src/lib/native-credential-store.ts", "export function isProviderBackedPasskeyForItem") &&
   includes("src/lib/native-credential-store.ts", "passkey.providerBacked !== true") &&
+  includes("src/lib/native-credential-store.ts", "passkey.itemId && passkey.itemId === item.id") &&
   includes("src/lib/native-credential-store.ts", "passkey.rpId === host") &&
   includes("src/lib/vault-context.tsx", "linkPasskeysToItems") &&
   includes("src/components/item-detail-panel.tsx", "Passkey saved for this login") &&
   includes("plugins/android-provider-sources/passkey-source.js", "val rpId = rp.optString") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "savePasskeyCredential") &&
+  includes("plugins/android-provider-sources/store-source.js", "val itemId: String?") &&
+  includes("plugins/android-provider-sources/store-source.js", "mergeProviderOwnedCredentials") &&
   includes("plugins/android-provider-sources/service-source.js", "val rpId = KlarkeyPasskeys.rpIdFromRequestJson"),
 );
 check("Expo vault syncs unlocked credentials to Android provider store", () =>
@@ -305,6 +316,9 @@ check("Expo vault syncs unlocked credentials to Android provider store", () =>
   includes("src/lib/native-credential-store.ts", "getProviderPasskeys") &&
   includes("src/lib/vault-context.tsx", "loadNativeProviderCredentials") &&
   includes("src/lib/vault-context.tsx", "loadNativeProviderPasskeys") &&
+  includes("src/lib/vault-context.tsx", "refreshProviderVault") &&
+  includes("src/lib/vault-context.tsx", "refreshLockedProviderVault") &&
+  includes("src/lib/vault-context.tsx", "setVault(redactVaultState(nextVault))") &&
   includes("src/lib/native-credential-store.ts", "lockNativeCredentialStore") &&
   includes("src/lib/vault-context.tsx", "syncNativeCredentialStore(nextVault)") &&
   includes("src/lib/vault-context.tsx", "lockNativeCredentialStore"),
@@ -455,6 +469,7 @@ check("Klarkey mobile uses cached desktop-style item icons", () =>
   app.plugins.includes("expo-image") &&
   includes("src/components/item-icon.tsx", 'import { Image } from "expo-image"') &&
   includes("src/components/item-icon.tsx", 'cachePolicy="memory-disk"') &&
+  includes("src/components/item-icon.tsx", "source ? null : <FallbackInitial") &&
   includes("src/components/item-icon.tsx", "recyclingKey") &&
   includes("src/components/item-icon.tsx", "markLogoMissing") &&
   includes("src/components/item-icon.tsx", "itemInitials") &&

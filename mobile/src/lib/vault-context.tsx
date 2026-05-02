@@ -202,6 +202,26 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
     void lockNativeCredentialStore();
   }, []);
 
+  const refreshProviderVault = useCallback(async () => {
+    const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
+    if (providerCredentials.length === 0 && providerPasskeys.length === 0) {
+      return;
+    }
+
+    setVault(nextVault);
+    await saveVaultState(nextVault);
+    await syncNativeCredentialStore(nextVault);
+  }, []);
+
+  const refreshLockedProviderVault = useCallback(async () => {
+    const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
+    if (providerCredentials.length === 0 && providerPasskeys.length === 0) {
+      return;
+    }
+
+    setVault(redactVaultState(nextVault));
+  }, []);
+
   useEffect(() => {
     if (locked) {
       return undefined;
@@ -214,6 +234,9 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
       if (locked) {
+        if (state === "active") {
+          void refreshLockedProviderVault();
+        }
         return;
       }
 
@@ -224,11 +247,15 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
 
       if (backgroundedAt.current && Date.now() - backgroundedAt.current >= settings.autoLockMinutes * 60 * 1000) {
         lock();
+        return;
       }
+
+      backgroundedAt.current = undefined;
+      void refreshProviderVault();
     });
 
     return () => subscription.remove();
-  }, [lock, locked, settings.autoLockMinutes]);
+  }, [lock, locked, refreshLockedProviderVault, refreshProviderVault, settings.autoLockMinutes]);
 
   const unlock = useCallback(async () => {
     setLoading(true);

@@ -8,6 +8,7 @@ export interface MobilePasskey {
   id: string;
   rpId: string;
   username: string;
+  itemId?: string;
   createdAt: string;
   lastUsedAt?: string;
   providerBacked?: boolean;
@@ -313,6 +314,7 @@ export function createProviderSavedLogin(input: {
   domain?: string;
   domains?: string[];
   password?: string;
+  hasPasskey?: boolean;
   lastUsedAt?: string;
 }): MobileVaultItem {
   const websites = input.domains?.length ? input.domains : input.domain ? [input.domain] : [];
@@ -329,7 +331,7 @@ export function createProviderSavedLogin(input: {
     websites,
     hasPassword: Boolean(input.password),
     hasOtp: false,
-    hasPasskey: false,
+    hasPasskey: Boolean(input.hasPasskey),
     customFields: [],
     lastUsedAt: input.lastUsedAt ?? "Saved from autofill",
   });

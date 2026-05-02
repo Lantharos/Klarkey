@@ -9,6 +9,7 @@ import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PublicKeyCredential
+import androidx.credentials.provider.CallingAppInfo
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
 import java.security.KeyPair
@@ -26,6 +27,7 @@ import org.json.JSONObject
 
 object KlarkeyPasskeys {
   private const val keyPrefix = "klarkey_passkey_"
+  private const val privilegedAllowlist = """{"apps":[{"type":"android","info":{"package_name":"com.android.chrome","signatures":[{"build":"release","cert_fingerprint_sha256":"F0:FD:6C:5B:41:0F:25:CB:25:C3:B5:33:46:C8:97:2F:AE:30:F8:EE:74:11:DF:91:04:80:AD:6B:2D:60:DB:83"}]}}]}"""
   private val random = SecureRandom()
 
   fun rpIdFromRequestJson(requestJson: String): String? {
@@ -40,8 +42,10 @@ object KlarkeyPasskeys {
 
   fun createRegistration(
     context: Context,
-    request: CreatePublicKeyCredentialRequest
+    request: CreatePublicKeyCredentialRequest,
+    callingAppInfo: CallingAppInfo?
   ): CreatePublicKeyCredentialResponse? {
+    return try {
     val options = JSONObject(request.requestJson)
     val rp = options.optJSONObject("rp") ?: return null
     val user = options.optJSONObject("user") ?: return null
@@ -57,7 +61,7 @@ object KlarkeyPasskeys {
     val publicKey = keyPair.public as ECPublicKey
     val coseKey = cosePublicKey(publicKey)
     val authData = registrationAuthData(rpId, base64UrlDecode(credentialId), coseKey)
-    val origin = originFor(request.origin, rpId)
+    val origin = originFor(request.origin, rpId, callingAppInfo) ?: return null
     val clientData = clientDataJson("webauthn.create", challenge, origin)
     val attestationObject = Cbor.writer()
       .map(3)
@@ -72,12 +76,13 @@ object KlarkeyPasskeys {
       rpId = rpId,
       username = username,
       userHandle = userHandle,
+      itemId = null,
       signCount = 0,
       lastUsedTime = Instant.now()
     )
-    KlarkeyCredentialStore.savePasskey(context, passkey)
+    KlarkeyCredentialStore.savePasskeyCredential(context, passkey)
 
-    return CreatePublicKeyCredentialResponse(
+    CreatePublicKeyCredentialResponse(
       JSONObject()
         .put("id", credentialId)
         .put("rawId", credentialId)
@@ -96,9 +101,13 @@ object KlarkeyPasskeys {
         )
         .toString()
     )
+    } catch (_: Exception) {
+      null
+    }
   }
 
-  fun getAssertion(option: GetPublicKeyCredentialOption, passkey: ProviderPasskey): PublicKeyCredential? {
+  fun getAssertion(option: GetPublicKeyCredentialOption, passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?): PublicKeyCredential? {
+    return try {
     val requestJson = option.requestJson
     if (!allowsCredential(requestJson, passkey.id)) {
       return null
@@ -108,11 +117,13 @@ object KlarkeyPasskeys {
       ?: return null
     val signCount = passkey.signCount + 1
     val authData = assertionAuthData(passkey.rpId, signCount)
-    val clientData = clientDataJson("webauthn.get", challenge, originFor(null, passkey.rpId))
-    val signedData = authData + sha256(clientData)
+    val origin = originFor(null, passkey.rpId, callingAppInfo) ?: return null
+    val clientData = clientDataJson("webauthn.get", challenge, origin)
+    val clientDataHash = credentialClientDataHash(option.clientDataHash, clientData)
+    val signedData = authData + clientDataHash
     val signature = sign(passkey.alias, signedData)
 
-    return PublicKeyCredential(
+    PublicKeyCredential(
       JSONObject()
         .put("id", passkey.id)
         .put("rawId", passkey.id)
@@ -129,6 +140,9 @@ object KlarkeyPasskeys {
         )
         .toString()
     )
+    } catch (_: Exception) {
+      null
+    }
   }
 
   private fun allowsCredential(requestJson: String, credentialId: String): Boolean {
@@ -216,8 +230,20 @@ object KlarkeyPasskeys {
       .toByteArray(Charsets.UTF_8)
   }
 
-  private fun originFor(origin: String?, rpId: String): String {
+  private fun originFor(origin: String?, rpId: String, callingAppInfo: CallingAppInfo?): String? {
+    if (callingAppInfo?.isOriginPopulated() == true) {
+      return try {
+        callingAppInfo.getOrigin(privilegedAllowlist)?.takeIf { value -> value.isNotBlank() }
+      } catch (_: Exception) {
+        null
+      }
+    }
+
     return origin?.takeIf { value -> value.isNotBlank() } ?: "https://" + rpId
+  }
+
+  private fun credentialClientDataHash(clientDataHash: ByteArray?, clientData: ByteArray): ByteArray {
+    return clientDataHash?.takeIf { value -> value.isNotEmpty() } ?: sha256(clientData)
   }
 
   private fun randomBytes(size: Int): ByteArray {
@@ -242,7 +268,7 @@ object KlarkeyPasskeys {
   }
 
   private fun base64UrlDecode(value: String): ByteArray {
-    return Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP)
+    return Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
   }
 }
 

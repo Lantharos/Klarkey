@@ -20,6 +20,7 @@ import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.GetPublicKeyCredentialOption
 import androidx.credentials.PasswordCredential
+import androidx.credentials.provider.CallingAppInfo
 import androidx.credentials.provider.PendingIntentHandler
 import ${packageName}.R
 
@@ -87,7 +88,7 @@ class KlarkeyCredentialProviderActivity : Activity() {
       return
     }
 
-    val credential = KlarkeyPasskeys.getAssertion(option, passkey)
+    val credential = KlarkeyPasskeys.getAssertion(option, passkey, providerRequest.callingAppInfo)
     if (credential == null) {
       setResult(RESULT_CANCELED)
       finish()
@@ -110,7 +111,7 @@ class KlarkeyCredentialProviderActivity : Activity() {
     val providerRequest = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
     when (val request = providerRequest?.callingRequest) {
       is CreatePasswordRequest -> finishCreatePassword(request)
-      is CreatePublicKeyCredentialRequest -> finishCreatePasskey(request)
+      is CreatePublicKeyCredentialRequest -> finishCreatePasskey(request, providerRequest.callingAppInfo)
       else -> {
         openKlarkey("save")
         setResult(RESULT_CANCELED)
@@ -259,8 +260,8 @@ class KlarkeyCredentialProviderActivity : Activity() {
     finish()
   }
 
-  private fun finishCreatePasskey(request: CreatePublicKeyCredentialRequest) {
-    val response = KlarkeyPasskeys.createRegistration(this, request)
+  private fun finishCreatePasskey(request: CreatePublicKeyCredentialRequest, callingAppInfo: CallingAppInfo?) {
+    val response = KlarkeyPasskeys.createRegistration(this, request, callingAppInfo)
     if (response == null) {
       setResult(RESULT_CANCELED)
       finish()
