@@ -36,13 +36,9 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
     val unlocked = KlarkeyCredentialStore.isUnlocked(this)
     val entries = KlarkeyCredentialStore.loadCredentials(this)
     val passkeys = KlarkeyCredentialStore.loadPasskeys(this)
-    val addedEntries = if (unlocked) {
-      request.beginGetCredentialOptions
-        .map { option -> addEntriesForOption(builder, option, entries, passkeys) }
-        .any { added -> added }
-    } else {
-      false
-    }
+    val addedEntries = request.beginGetCredentialOptions
+      .map { option -> addEntriesForOption(builder, option, entries, passkeys) }
+      .any { added -> added }
 
     if (!unlocked) {
       builder.addAuthenticationAction(AuthenticationAction.Builder("Unlock Klarkey", providerIntent("unlock")).build())
@@ -54,7 +50,7 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
         .build()
     )
 
-    if (unlocked && !addedEntries) {
+    if (!addedEntries) {
       builder.addAction(
         Action.Builder("Save in Klarkey", providerIntent("save"))
           .setSubtitle("Open Klarkey to save this credential")

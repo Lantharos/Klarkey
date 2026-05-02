@@ -28,6 +28,8 @@ interface NativeSupport {
   secureStore: boolean;
   biometricHardware: boolean;
   biometricEnrolled: boolean;
+  deviceCredentialEnrolled: boolean;
+  authAvailable: boolean;
 }
 
 interface MobileVaultContextValue {
@@ -50,6 +52,8 @@ const initialSupport: NativeSupport = {
   secureStore: false,
   biometricHardware: false,
   biometricEnrolled: false,
+  deviceCredentialEnrolled: false,
+  authAvailable: false,
 };
 
 function mergePasskeys(storedPasskeys: MobilePasskey[], providerPasskeys: MobilePasskey[]) {
@@ -71,6 +75,74 @@ function linkPasskeysToItems(items: MobileVaultItem[], passkeys: MobilePasskey[]
   }));
 }
 
+async function loadSyncedVaultState() {
+  const storedVault = await loadVaultState();
+  const providerCredentials = await loadNativeProviderCredentials();
+  const providerPasskeys = await loadNativeProviderPasskeys();
+  const passkeys = mergePasskeys(storedVault.passkeys, providerPasskeys);
+  const items = linkPasskeysToItems(mergeProviderCredentials(storedVault.items, providerCredentials), passkeys);
+
+  return {
+    vault: {
+      ...storedVault,
+      items,
+      passkeys,
+    },
+    providerCredentials,
+    providerPasskeys,
+  };
+}
+
+async function loadLockedVaultIndex() {
+  const { vault } = await loadSyncedVaultState();
+  return redactVaultState(vault);
+}
+
+function redactVaultState(state: MobileVaultState): MobileVaultState {
+  return {
+    items: state.items.map(redactVaultItem),
+    passkeys: state.passkeys.map((passkey) => ({
+      ...passkey,
+      username: passkey.username,
+    })),
+  };
+}
+
+function redactVaultItem(item: MobileVaultItem): MobileVaultItem {
+  return {
+    ...item,
+    password: undefined,
+    otp: undefined,
+    otpCode: undefined,
+    fullName: item.itemType === "identity" ? item.fullName : undefined,
+    firstName: undefined,
+    middleName: undefined,
+    lastName: undefined,
+    birthDate: undefined,
+    email: item.itemType === "login" ? item.email : undefined,
+    phone: undefined,
+    address: undefined,
+    addressLine1: undefined,
+    addressLine2: undefined,
+    city: undefined,
+    state: undefined,
+    postalCode: undefined,
+    country: undefined,
+    cardholderName: undefined,
+    cardNumber: undefined,
+    cardExpiry: undefined,
+    cardExpiryMonth: undefined,
+    cardExpiryYear: undefined,
+    cardCvc: undefined,
+    billingPostalCode: undefined,
+    sshPrivateKey: undefined,
+    sshComment: undefined,
+    content: undefined,
+    notes: undefined,
+    customFields: [],
+  };
+}
+
 export function MobileVaultProvider({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -89,12 +161,15 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
     let mounted = true;
 
     void (async () => {
-      const [secureStore, biometricHardware, biometricEnrolled] = await Promise.all([
+      const [secureStore, biometricHardware, biometricEnrolled, enrolledLevel] = await Promise.all([
         import("expo-secure-store").then((module) => module.isAvailableAsync()),
         LocalAuthentication.hasHardwareAsync(),
         LocalAuthentication.isEnrolledAsync(),
+        LocalAuthentication.getEnrolledLevelAsync(),
       ]);
-      const storedSettings = await loadVaultSettings();
+      const deviceCredentialEnrolled = enrolledLevel >= LocalAuthentication.SecurityLevel.SECRET;
+      const authAvailable = biometricEnrolled || deviceCredentialEnrolled;
+      const [storedSettings, lockedVault] = await Promise.all([loadVaultSettings(), secureStore ? loadLockedVaultIndex() : Promise.resolve({ items: [], passkeys: [] })]);
 
       if (!mounted) {
         return;
@@ -104,7 +179,10 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
         secureStore,
         biometricHardware,
         biometricEnrolled,
+        deviceCredentialEnrolled,
+        authAvailable,
       });
+      setVault(lockedVault);
       setSettings(storedSettings);
       setLoading(false);
     })();
@@ -116,7 +194,7 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
 
   const lock = useCallback(() => {
     setLocked(true);
-    setVault({ items: [], passkeys: [] });
+    setVault((current) => redactVaultState(current));
     setLastEvent(undefined);
     backgroundedAt.current = undefined;
     void lockNativeCredentialStore();
@@ -152,39 +230,39 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
 
   const unlock = useCallback(async () => {
     setLoading(true);
-    if (support.biometricHardware && support.biometricEnrolled) {
+    try {
+      if (!support.authAvailable) {
+        setLastEvent("Set a screen lock on this device before using Klarkey.");
+        return;
+      }
+
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: "Unlock Klarkey",
+        promptSubtitle: "Klarkey",
+        promptDescription: "Confirm it is you to open your vault.",
         cancelLabel: "Cancel",
-        biometricsSecurityLevel: "strong",
+        disableDeviceFallback: false,
+        ...(support.biometricEnrolled ? { biometricsSecurityLevel: "strong" as const } : {}),
       });
 
       if (!result.success) {
-        setLastEvent("Unlock canceled.");
-        setLoading(false);
+        setLastEvent(result.error === "not_enrolled" || result.error === "passcode_not_set" ? "Set a device passcode or password to unlock Klarkey." : "Unlock canceled.");
         return;
       }
-    }
 
-    const storedVault = await loadVaultState();
-    const providerCredentials = await loadNativeProviderCredentials();
-    const providerPasskeys = await loadNativeProviderPasskeys();
-    const passkeys = mergePasskeys(storedVault.passkeys, providerPasskeys);
-    const nextVault = {
-      ...storedVault,
-      items: linkPasskeysToItems(mergeProviderCredentials(storedVault.items, providerCredentials), passkeys),
-      passkeys,
-    };
-    await syncNativeCredentialStore(nextVault);
-    if (providerCredentials.length > 0 || providerPasskeys.length > 0) {
-      await saveVaultState(nextVault);
+      const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
+      await syncNativeCredentialStore(nextVault);
+      if (providerCredentials.length > 0 || providerPasskeys.length > 0) {
+        await saveVaultState(nextVault);
+      }
+      setVault(nextVault);
+      setLocked(false);
+      setLastEvent(undefined);
+      backgroundedAt.current = undefined;
+    } finally {
+      setLoading(false);
     }
-    setVault(nextVault);
-    setLocked(false);
-    setLastEvent(undefined);
-    backgroundedAt.current = undefined;
-    setLoading(false);
-  }, [support.biometricEnrolled, support.biometricHardware]);
+  }, [support.authAvailable, support.biometricEnrolled]);
 
   const createItem = useCallback(
     async (input: NewItemInput) => {

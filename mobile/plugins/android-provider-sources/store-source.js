@@ -19,6 +19,7 @@ data class ProviderCredential(
   val title: String,
   val username: String,
   val domain: String?,
+  val domains: List<String>,
   val password: String?,
   val hasPassword: Boolean,
   val hasPasskey: Boolean,
@@ -70,12 +71,14 @@ object KlarkeyCredentialStore {
       }
 
       val password = item.optString("password").takeIf { value -> value.isNotBlank() }
+      val domains = credentialDomains(item)
       credentials.add(
         ProviderCredential(
           id = id,
           title = item.optString("title", username),
           username = username,
-          domain = item.optString("domain").takeIf { value -> value.isNotBlank() },
+          domain = domains.firstOrNull(),
+          domains = domains,
           password = password,
           hasPassword = item.optBoolean("hasPassword", false) && password != null,
           hasPasskey = item.optBoolean("hasPasskey", false),
@@ -95,8 +98,9 @@ object KlarkeyCredentialStore {
 
     for (index in 0 until items.length()) {
       val item = items.optJSONObject(index) ?: continue
+      val domains = credentialDomains(item)
       val isSameAccount = item.optString("id") == id ||
-        (item.optString("username") == username && item.optString("domain") == domain)
+        (item.optString("username") == username && domain != null && domains.contains(domain))
       if (isSameAccount) {
         next.put(passwordJson(id, username, password, domain))
         replaced = true
@@ -199,6 +203,7 @@ object KlarkeyCredentialStore {
           .put("title", credential.title)
           .put("username", credential.username)
           .put("domain", credential.domain ?: "")
+          .put("domains", JSONArray(credential.domains))
           .put("password", credential.password ?: "")
           .put("lastUsedAt", "Saved from autofill")
       )
@@ -212,10 +217,30 @@ object KlarkeyCredentialStore {
       .put("title", domain ?: username)
       .put("username", username)
       .put("domain", domain ?: "")
+      .put("domains", if (domain.isNullOrBlank()) JSONArray() else JSONArray().put(domain))
       .put("password", password)
       .put("hasPassword", true)
       .put("hasPasskey", false)
       .put("lastUsedAt", System.currentTimeMillis())
+  }
+
+  private fun credentialDomains(item: JSONObject): List<String> {
+    val domains = mutableListOf<String>()
+    val domainList = item.optJSONArray("domains")
+
+    if (domainList != null) {
+      for (index in 0 until domainList.length()) {
+        domainList.optString(index).takeIf { value -> value.isNotBlank() }?.let { domain ->
+          domains.add(domain)
+        }
+      }
+    }
+
+    item.optString("domain").takeIf { value -> value.isNotBlank() }?.let { domain ->
+      domains.add(domain)
+    }
+
+    return domains.distinct()
   }
 
   private fun passkeyJson(passkey: ProviderPasskey): JSONObject {

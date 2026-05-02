@@ -1,12 +1,16 @@
-import { useRef, useState } from "react";
-import { Platform, Pressable as RNPressable, StyleSheet, TextInput as RNTextInput } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActivityIndicator, FlatList, Platform, Pressable as RNPressable, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { CreditCard, FileText, IdCard, KeyRound, Plus, Search, ShieldCheck, Terminal, X } from "lucide-react-native";
+import { KeyRound, Plus, Search, ShieldCheck, X } from "lucide-react-native";
 
+import { ItemIcon } from "@/components/item-icon";
 import { useKeyboardViewport } from "@/lib/keyboard-viewport";
 import type { MobileVaultItem } from "@/lib/vault";
 import { itemSubtitle } from "@/lib/vault-item-meta";
-import { ScrollView, Text, View } from "@/tw";
+import { Text, View } from "@/tw";
+
+const itemPageSize = 40;
+const itemRowHeight = 74;
 
 export function VaultHomeSurface({
   items,
@@ -25,6 +29,26 @@ export function VaultHomeSurface({
 }) {
   const insets = useSafeAreaInsets();
   const keyboardLayout = useKeyboardViewport(insets.bottom);
+  const [visibleCount, setVisibleCount] = useState(itemPageSize);
+  const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
+  const hasMoreItems = visibleItems.length < items.length;
+
+  useEffect(() => {
+    setVisibleCount(itemPageSize);
+  }, [items.length, query]);
+
+  const loadMoreItems = useCallback(() => {
+    if (!hasMoreItems) {
+      return;
+    }
+
+    setVisibleCount((current) => Math.min(current + itemPageSize, items.length));
+  }, [hasMoreItems, items.length]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: MobileVaultItem }) => <VaultItemButton item={item} onPress={onOpenItem} />,
+    [onOpenItem],
+  );
 
   return (
     <View style={[styles.root, keyboardLayout.viewportStyle]}>
@@ -32,25 +56,51 @@ export function VaultHomeSurface({
         <AvatarButton onPress={onOpenSettings} />
       </View>
 
-      <ScrollView
-        className="flex-1"
+      <FlatList
+        data={visibleItems}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        ItemSeparatorComponent={ItemSeparator}
+        ListEmptyComponent={<EmptyVault query={query} />}
+        ListFooterComponent={hasMoreItems ? <ListFooter /> : null}
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={{
           paddingTop: insets.top + 70,
           paddingHorizontal: 18,
           paddingBottom: insets.bottom + keyboardLayout.contentOffset + 114,
         }}
-        showsVerticalScrollIndicator={false}>
-        <View style={styles.list}>
-          {items.length === 0 ? (
-            <EmptyVault query={query} />
-          ) : (
-            items.map((item) => <VaultItemButton key={item.id} item={item} onPress={() => onOpenItem(item)} />)
-          )}
-        </View>
-      </ScrollView>
+        getItemLayout={getItemLayout}
+        initialNumToRender={16}
+        maxToRenderPerBatch={12}
+        onEndReached={loadMoreItems}
+        onEndReachedThreshold={0.7}
+        removeClippedSubviews={Platform.OS === "android"}
+        showsVerticalScrollIndicator={false}
+        updateCellsBatchingPeriod={32}
+        windowSize={7}
+      />
 
       <BottomSearchDock value={query} onChangeText={onQueryChange} onCreate={onCreate} bottomInset={insets.bottom} keyboardOffset={keyboardLayout.dockOffset} />
+    </View>
+  );
+}
+
+function keyExtractor(item: MobileVaultItem) {
+  return item.id;
+}
+
+function getItemLayout(_: ArrayLike<MobileVaultItem> | null | undefined, index: number) {
+  return { length: itemRowHeight, offset: itemRowHeight * index, index };
+}
+
+function ItemSeparator() {
+  return <View style={styles.itemSeparator} />;
+}
+
+function ListFooter() {
+  return (
+    <View style={styles.listFooter}>
+      <ActivityIndicator color="rgba(224,120,120,0.8)" />
     </View>
   );
 }
@@ -136,14 +186,14 @@ function BottomSearchDock({
   );
 }
 
-function VaultItemButton({ item, onPress }: { item: MobileVaultItem; onPress: () => void }) {
+function VaultItemButton({ item, onPress }: { item: MobileVaultItem; onPress: (item: MobileVaultItem) => void }) {
   return (
     <RNPressable
       accessibilityRole="button"
-      onPress={onPress}
+      onPress={() => onPress(item)}
       android_ripple={ripple("rgba(255,255,255,0.08)", false)}
       style={({ pressed }) => [styles.itemRow, pressed ? styles.itemPressed : undefined]}>
-      <ItemGlyph item={item} />
+      <ItemIcon item={item} />
       <View style={styles.itemText}>
         <Text numberOfLines={1} style={styles.itemTitle}>
           {item.itemName}
@@ -167,32 +217,6 @@ function EmptyVault({ query }: { query: string }) {
       <Text style={styles.emptyDetail}>{query ? "Try another search." : "Use the plus button to add your first item."}</Text>
     </View>
   );
-}
-
-function ItemGlyph({ item }: { item: MobileVaultItem }) {
-  const initial = item.itemName.slice(0, 1).toUpperCase();
-
-  return (
-    <View style={styles.itemGlyph}>
-      <GlyphContent item={item} initial={initial} />
-    </View>
-  );
-}
-
-function GlyphContent({ item, initial }: { item: MobileVaultItem; initial: string }) {
-  if (item.itemType === "identity") {
-    return <IdCard size={18} color="rgba(255,255,255,0.7)" strokeWidth={2.1} />;
-  }
-  if (item.itemType === "card") {
-    return <CreditCard size={18} color="rgba(255,255,255,0.7)" strokeWidth={2.1} />;
-  }
-  if (item.itemType === "note") {
-    return <FileText size={18} color="rgba(255,255,255,0.7)" strokeWidth={2.1} />;
-  }
-  if (item.itemType === "ssh-key") {
-    return <Terminal size={18} color="rgba(255,255,255,0.7)" strokeWidth={2.1} />;
-  }
-  return <Text style={styles.itemInitial}>{initial}</Text>;
 }
 
 function ripple(color: string, borderless: boolean) {
@@ -230,8 +254,13 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "700",
   },
-  list: {
-    gap: 2,
+  itemSeparator: {
+    height: 2,
+  },
+  listFooter: {
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
   },
   itemRow: {
     minHeight: 72,
@@ -245,19 +274,6 @@ const styles = StyleSheet.create({
   itemPressed: {
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  itemGlyph: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 13,
-    backgroundColor: "rgba(255,255,255,0.07)",
-  },
-  itemInitial: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
   itemText: {
     minWidth: 0,
     flex: 1,
@@ -266,7 +282,7 @@ const styles = StyleSheet.create({
   itemTitle: {
     color: "#ffffff",
     fontSize: 17,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   itemSubtitle: {
     color: "rgba(255,255,255,0.44)",
@@ -288,7 +304,7 @@ const styles = StyleSheet.create({
   emptyTitle: {
     color: "#ffffff",
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: "500",
   },
   emptyDetail: {
     color: "rgba(255,255,255,0.42)",

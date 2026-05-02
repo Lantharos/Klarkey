@@ -9,15 +9,23 @@ import {
   StatusRow,
   platformName,
 } from "@/components/klarkey-ui";
-import { openChromeAutofillSettings, openCredentialProviderSettings } from "@/lib/platform-settings";
+import { openChromeAutofillSettings, openCredentialProviderSettings, openSecuritySettings } from "@/lib/platform-settings";
 import { useMobileVault } from "@/lib/vault-context";
 import { Text, View } from "@/tw";
 
 export default function AutofillScreen() {
-  const { locked, loading, support, unlock } = useMobileVault();
+  const { locked, loading, support, lastEvent, unlock } = useMobileVault();
 
   if (locked) {
-    return <LockedVaultScreen loading={loading} onUnlock={() => void unlock()} />;
+    return (
+      <LockedVaultScreen
+        loading={loading}
+        canUnlock={support.authAvailable}
+        lastEvent={lastEvent}
+        onUnlock={() => void unlock()}
+        onOpenSecuritySettings={() => void openSecuritySettings()}
+      />
+    );
   }
 
   return (

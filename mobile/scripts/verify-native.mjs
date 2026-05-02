@@ -139,7 +139,6 @@ check("Template assets and unused styling packages are removed", () =>
     "tailwind-merge",
     "tailwindcss",
     "expo-glass-effect",
-    "expo-image",
     "expo-symbols",
     "expo-web-browser",
     "@react-navigation/bottom-tabs",
@@ -165,8 +164,12 @@ check("In-app Klarkey-domain passkey probe is removed", () =>
 );
 check("Android provider plugin emits CredentialProviderService", () =>
   includes("plugins/with-klarkey-credential-provider.js", "CredentialProviderService") &&
+  includes("plugins/with-klarkey-credential-provider.js", 'AUTOFILL_VERSION = "1.3.0"') &&
+  includes("plugins/with-klarkey-credential-provider.js", "androidx.autofill:autofill:") &&
   includes("plugins/with-klarkey-credential-provider.js", "BIND_CREDENTIAL_PROVIDER_SERVICE") &&
   includes("plugins/with-klarkey-credential-provider.js", "KlarkeyAutofillService") &&
+  includes("plugins/with-klarkey-credential-provider.js", "klarkey_autofill_suggestion.xml") &&
+  includes("plugins/with-klarkey-credential-provider.js", "klarkey_autofill_suggestion_background.xml") &&
   includes("plugins/with-klarkey-credential-provider.js", "BIND_AUTOFILL_SERVICE") &&
   includes("plugins/with-klarkey-credential-provider.js", "android.service.autofill.AutofillService") &&
   includes("plugins/with-klarkey-credential-provider.js", "KlarkeyCredentialProviderActivity") &&
@@ -179,8 +182,20 @@ check("Android provider plugin emits CredentialProviderService", () =>
   includes("plugins/android-provider-sources/autofill-source.js", "FillResponse.Builder") &&
   includes("plugins/android-provider-sources/autofill-source.js", "Dataset.Builder") &&
   includes("plugins/android-provider-sources/autofill-source.js", "Field.Builder") &&
-  includes("plugins/android-provider-sources/autofill-source.js", "Presentations.Builder") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "R.layout.klarkey_autofill_suggestion") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "R.id.klarkey_autofill_title") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "R.id.klarkey_autofill_icon") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "InlinePresentation") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "InlineSuggestionUi.newContentBuilder") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "inlineSuggestionsRequest") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "setAuthentication") &&
+    includes("plugins/android-provider-sources/autofill-source.js", "setLockedValue") &&
+    includes("plugins/android-provider-sources/autofill-source.js", "Presentations.Builder") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "credential.domains.mapNotNull") &&
   includes("plugins/android-provider-sources/store-source.js", "AndroidKeyStore") &&
+  includes("plugins/android-provider-sources/store-source.js", "val domains: List<String>") &&
+  includes("plugins/android-provider-sources/store-source.js", "credentialDomains(item)") &&
+  includes("plugins/android-provider-sources/store-source.js", "JSONArray(credential.domains)") &&
   includes("plugins/android-provider-sources/activity-source.js", "PendingIntentHandler.setGetCredentialResponse") &&
   includes("plugins/android-provider-sources/service-source.js", "PasswordCredentialEntry") &&
   includes("plugins/android-provider-sources/service-source.js", "PublicKeyCredentialEntry") &&
@@ -198,7 +213,20 @@ check("Generated Android manifest has credential provider and App Link", () =>
 );
 check("Generated Android autofill XML registers settings surface", () =>
   includes("android/app/src/main/res/xml/klarkey_autofill_service.xml", "autofill-service") &&
+  includes("android/app/src/main/res/xml/klarkey_autofill_service.xml", 'supportsInlineSuggestions="true"') &&
   includes("android/app/src/main/res/xml/klarkey_autofill_service.xml", "com.lantharos.klarkey.MainActivity"),
+);
+check("Generated Android autofill suggestion uses Klarkey styling", () =>
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", "@+id/klarkey_autofill_title") &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", "@+id/klarkey_autofill_icon") &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", 'android:paddingTop="7dp"') &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", 'android:paddingBottom="7dp"') &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", 'android:layout_width="30dp"') &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", "#FFFFFFFF") &&
+  includes("android/app/src/main/res/layout/klarkey_autofill_suggestion.xml", "@drawable/klarkey_autofill_suggestion_background") &&
+  includes("android/app/src/main/res/drawable/klarkey_autofill_suggestion_background.xml", "#202021") &&
+  !includes("android/app/src/main/res/drawable/klarkey_autofill_suggestion_background.xml", "corners") &&
+  !fs.existsSync(path.join(root, "android/app/src/main/res/drawable/klarkey_autofill_mark_background.xml")),
 );
 check("Generated Android capability XML supports passwords and passkeys", () =>
   includes("android/app/src/main/res/xml/klarkey_credential_provider.xml", "android.credentials.TYPE_PASSWORD_CREDENTIAL") &&
@@ -213,6 +241,17 @@ check("Generated Android AutofillService returns and saves password datasets", (
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "setSaveInfo") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Dataset.Builder") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Field.Builder") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "R.layout.klarkey_autofill_suggestion") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "R.id.klarkey_autofill_title") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "setImageViewResource") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "InlinePresentation") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "InlineSuggestionUi.newContentBuilder") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "inlineSuggestionsRequest") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "credentialMatchesTarget") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "credential.domains.mapNotNull") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "node.webDomain") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "setAuthentication") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "setLockedValue") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Presentations.Builder") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "AutofillValue.forText") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "KlarkeyCredentialStore.loadCredentials") &&
@@ -249,7 +288,9 @@ check("Passkeys stay provider-backed and linked to matching website items", () =
 );
 check("Expo vault syncs unlocked credentials to Android provider store", () =>
   includes("src/lib/native-credential-store.ts", "requireOptionalNativeModule") &&
-  includes("src/lib/native-credential-store.ts", "KlarkeyCredentialStore") &&
+    includes("src/lib/native-credential-store.ts", "KlarkeyCredentialStore") &&
+  includes("src/lib/native-credential-store.ts", "credentialDomainsForItem") &&
+  includes("src/lib/native-credential-store.ts", "domains,") &&
   includes("src/lib/native-credential-store.ts", "replaceCredentials") &&
   includes("src/lib/native-credential-store.ts", "getProviderCredentials") &&
   includes("src/lib/native-credential-store.ts", "getProviderPasskeys") &&
@@ -330,8 +371,10 @@ check("Klarkey mobile UI and vault screens exist", () =>
     "src/components/create-item-flow.tsx",
     "src/components/create-item-fields.tsx",
     "src/components/vault-home-surface.tsx",
+    "src/components/item-icon.tsx",
     "src/components/item-detail-panel.tsx",
     "src/lib/keyboard-viewport.ts",
+    "src/lib/login-logo.ts",
   ].every((file) => fs.existsSync(path.join(root, file))),
 );
 check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () =>
@@ -339,6 +382,10 @@ check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () 
   includes("src/app/index.tsx", "CreateItemSheet") &&
   includes("src/app/index.tsx", "ItemDetailSheet") &&
   includes("src/components/vault-home-surface.tsx", "BottomSearchDock") &&
+  includes("src/components/vault-home-surface.tsx", "FlatList") &&
+  includes("src/components/vault-home-surface.tsx", "onEndReached") &&
+  includes("src/components/vault-home-surface.tsx", "visibleItems") &&
+  includes("src/components/vault-home-surface.tsx", "itemPageSize") &&
   includes("src/components/vault-home-surface.tsx", "autoFocus") &&
   includes("src/components/vault-home-surface.tsx", "Search in Klarkey") &&
   includes("src/components/vault-home-surface.tsx", 'selectionColor="#E07878"') &&
@@ -367,6 +414,7 @@ check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () 
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "note"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "ssh-key"') &&
   includes("src/components/item-detail-panel.tsx", "Modal") &&
+  includes("src/components/item-detail-panel.tsx", "ItemIcon") &&
   includes("src/components/item-detail-panel.tsx", "useKeyboardViewport") &&
   includes("src/components/item-detail-panel.tsx", "itemHero") &&
   includes("src/components/item-detail-panel.tsx", "fieldList") &&
@@ -381,14 +429,46 @@ check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () 
   includes("src/lib/vault.ts", "items: []") &&
   includes("src/lib/vault.ts", "passkeys: []"),
 );
+check("Klarkey mobile uses cached desktop-style item icons", () =>
+  "expo-image" in pkg.dependencies &&
+  app.plugins.includes("expo-image") &&
+  includes("src/components/item-icon.tsx", 'import { Image } from "expo-image"') &&
+  includes("src/components/item-icon.tsx", 'cachePolicy="memory-disk"') &&
+  includes("src/components/item-icon.tsx", "recyclingKey") &&
+  includes("src/components/item-icon.tsx", "markLogoMissing") &&
+  includes("src/lib/login-logo.ts", "img.logo.dev") &&
+  includes("src/lib/login-logo.ts", "logoDevToken") &&
+  includes("src/lib/login-logo.ts", "normalizeLoginLogoDomain")
+);
 check("Klarkey mobile has lock screen, auto-lock, and Chrome setup paths", () =>
   includes("src/components/klarkey-ui.tsx", "Vault locked") &&
+  includes("src/components/klarkey-ui.tsx", "Set a device lock") &&
+  includes("src/components/klarkey-ui.tsx", "setTimeout(onUnlock") &&
+  !includes("src/components/klarkey-ui.tsx", "klarkeyIcon") &&
   includes("src/lib/vault.ts", "autoLockMinutes") &&
   includes("src/lib/vault-context.tsx", "AppState.addEventListener") &&
+  includes("src/lib/vault-context.tsx", "getEnrolledLevelAsync") &&
+  includes("src/lib/vault-context.tsx", "authAvailable") &&
+  includes("src/lib/vault-context.tsx", "disableDeviceFallback: false") &&
+  includes("src/lib/vault-context.tsx", "redactVaultState") &&
   includes("src/app/settings.tsx", "Auto-lock") &&
+  includes("src/lib/platform-settings.ts", "openSecuritySettings") &&
   includes("src/lib/platform-settings.ts", "openChromeAutofillSettings") &&
   includes("src/lib/platform-settings.ts", "com.android.chrome") &&
   includes("src/app/autofill.tsx", "Chrome autofill settings"),
+);
+check("Android fill surfaces can suggest locked items before unlock", () =>
+  includes("plugins/android-provider-sources/service-source.js", "val addedEntries = request.beginGetCredentialOptions") &&
+  !includes("plugins/android-provider-sources/service-source.js", "val addedEntries = if (unlocked)") &&
+  includes("plugins/android-provider-sources/service-source.js", 'AuthenticationAction.Builder("Unlock Klarkey"') &&
+  includes("plugins/android-provider-sources/autofill-source.js", "val isUnlocked = KlarkeyCredentialStore.isUnlocked(this)") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "credentialMatchesTarget") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "node.webDomain") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "setImageViewResource") &&
+  includes("plugins/android-provider-sources/autofill-source.js", 'dataset.setAuthentication(providerIntent("fill-password"') &&
+  includes("plugins/android-provider-sources/autofill-source.js", "setLockedValue(dataset") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderService.kt", "val addedEntries = request.beginGetCredentialOptions") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", 'dataset.setAuthentication(providerIntent("fill-password"')
 );
 check("Klarkey mobile source does not expose template or demo vault content", () =>
   [
@@ -402,7 +482,6 @@ check("Klarkey mobile source does not expose template or demo vault content", ()
     "expo-badge",
     "local-demo",
     "GitHub",
-    "Linear",
     "Visa ending",
     "Personal identity",
     "team@klarkey.com",

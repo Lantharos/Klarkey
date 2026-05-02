@@ -1,7 +1,7 @@
 import { Settings as SettingsIcon } from "lucide-react-native";
 
 import { ActionButton, LockedVaultScreen, Screen, ScreenHeader, SectionTitle, StatusRow } from "@/components/klarkey-ui";
-import { openChromeAutofillSettings, openCredentialProviderSettings } from "@/lib/platform-settings";
+import { openChromeAutofillSettings, openCredentialProviderSettings, openSecuritySettings } from "@/lib/platform-settings";
 import { useMobileVault } from "@/lib/vault-context";
 import type { AutoLockMinutes } from "@/lib/vault";
 import { Text, View } from "@/tw";
@@ -15,10 +15,18 @@ const lockIntervals: Array<{ value: AutoLockMinutes; label: string }> = [
 ];
 
 export default function SettingsScreen() {
-  const { locked, support, unlock, loading, settings, updateAutoLockMinutes } = useMobileVault();
+  const { locked, support, unlock, loading, lastEvent, settings, updateAutoLockMinutes } = useMobileVault();
 
   if (locked) {
-    return <LockedVaultScreen loading={loading} onUnlock={() => void unlock()} />;
+    return (
+      <LockedVaultScreen
+        loading={loading}
+        canUnlock={support.authAvailable}
+        lastEvent={lastEvent}
+        onUnlock={() => void unlock()}
+        onOpenSecuritySettings={() => void openSecuritySettings()}
+      />
+    );
   }
 
   return (
@@ -30,11 +38,11 @@ export default function SettingsScreen() {
         <StatusRow
           title="Unlock"
           detail={
-            support.biometricHardware && support.biometricEnrolled
+            support.authAvailable
               ? "Use your phone unlock when opening Klarkey."
               : "Set up face, fingerprint, PIN, or pattern in Android settings."
           }
-          state={support.biometricHardware && support.biometricEnrolled ? "ready" : "manual"}
+          state={support.authAvailable ? "ready" : "manual"}
         />
         <StatusRow
           title="Saved items"

@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const providerSources = require("./android-provider-sources");
 const CREDENTIALS_VERSION = "1.6.0";
+const AUTOFILL_VERSION = "1.3.0";
 
 function ensureService(application) {
   application.service = application.service ?? [];
@@ -109,7 +110,11 @@ function withKlarkeyCredentialProvider(config) {
   });
 
   config = withAppBuildGradle(config, (nextConfig) => {
-    const dependencies = [`implementation("androidx.credentials:credentials:${CREDENTIALS_VERSION}")`, `implementation("androidx.credentials:credentials-play-services-auth:${CREDENTIALS_VERSION}")`];
+    const dependencies = [
+      `implementation("androidx.autofill:autofill:${AUTOFILL_VERSION}")`,
+      `implementation("androidx.credentials:credentials:${CREDENTIALS_VERSION}")`,
+      `implementation("androidx.credentials:credentials-play-services-auth:${CREDENTIALS_VERSION}")`,
+    ];
 
     for (const dependency of dependencies) {
       if (!nextConfig.modResults.contents.includes(dependency)) {
@@ -130,6 +135,8 @@ function withKlarkeyCredentialProvider(config) {
       const androidRoot = nextConfig.modRequest.platformProjectRoot;
       const providerXml = path.join(androidRoot, "app", "src", "main", "res", "xml", "klarkey_credential_provider.xml");
       const autofillXml = path.join(androidRoot, "app", "src", "main", "res", "xml", "klarkey_autofill_service.xml");
+      const autofillLayout = path.join(androidRoot, "app", "src", "main", "res", "layout", "klarkey_autofill_suggestion.xml");
+      const autofillBackground = path.join(androidRoot, "app", "src", "main", "res", "drawable", "klarkey_autofill_suggestion_background.xml");
       const packageRoot = path.join(androidRoot, "app", "src", "main", "java", ...packageName.split("."), "credentialprovider");
       const mainApplicationPath = path.join(
         androidRoot,
@@ -155,7 +162,66 @@ function withKlarkeyCredentialProvider(config) {
       fs.writeFileSync(
         autofillXml,
         `<autofill-service xmlns:android="http://schemas.android.com/apk/res/android"
+  android:supportsInlineSuggestions="true"
   android:settingsActivity="${packageName}.MainActivity" />
+`,
+      );
+      fs.mkdirSync(path.dirname(autofillLayout), { recursive: true });
+      fs.mkdirSync(path.dirname(autofillBackground), { recursive: true });
+      fs.writeFileSync(
+        autofillLayout,
+        `<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/klarkey_autofill_root"
+  android:layout_width="match_parent"
+  android:layout_height="58dp"
+  android:orientation="horizontal"
+  android:gravity="center_vertical"
+  android:paddingStart="14dp"
+  android:paddingTop="7dp"
+  android:paddingEnd="14dp"
+  android:paddingBottom="7dp"
+  android:background="@drawable/klarkey_autofill_suggestion_background">
+
+  <ImageView
+    android:id="@+id/klarkey_autofill_icon"
+    android:layout_width="30dp"
+    android:layout_height="30dp"
+    android:scaleType="centerCrop"
+    android:contentDescription="@string/app_name" />
+
+  <LinearLayout
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:layout_marginStart="12dp"
+    android:orientation="vertical">
+
+    <TextView
+      android:id="@+id/klarkey_autofill_title"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="#FFFFFFFF"
+      android:textSize="15sp" />
+
+    <TextView
+      android:id="@+id/klarkey_autofill_subtitle"
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:ellipsize="end"
+      android:maxLines="1"
+      android:textColor="#80FFFFFF"
+      android:textSize="12sp" />
+  </LinearLayout>
+</LinearLayout>
+`,
+      );
+      fs.writeFileSync(
+        autofillBackground,
+        `<shape xmlns:android="http://schemas.android.com/apk/res/android">
+  <solid android:color="#202021" />
+</shape>
 `,
       );
 

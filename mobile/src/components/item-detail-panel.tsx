@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Modal, Platform, Pressable as RNPressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Copy, CreditCard, Eye, EyeOff, FileText, IdCard, KeyRound, Shield, Terminal, Trash2, X } from "lucide-react-native";
+import { Copy, Eye, EyeOff, KeyRound, Trash2, X } from "lucide-react-native";
 
+import { ItemIcon } from "@/components/item-icon";
 import { useKeyboardViewport } from "@/lib/keyboard-viewport";
 import { itemDisplayFields, itemTypeLabel } from "@/lib/vault-item-meta";
 import type { DisplayField } from "@/lib/vault-item-meta";
-import type { MobileItemKind, MobileVaultItem } from "@/lib/vault";
+import type { MobileVaultItem } from "@/lib/vault";
 import { ScrollView, Text, View } from "@/tw";
 
 export function ItemDetailSheet({
@@ -43,7 +44,7 @@ export function ItemDetailSheet({
           {item ? (
             <ScrollView className="flex-1" contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 22 }]} showsVerticalScrollIndicator={false}>
               <View style={styles.itemHero}>
-                <ItemGlyph itemType={item.itemType} />
+                <ItemIcon item={item} size={62} />
                 <View style={styles.heroText}>
                   <Text numberOfLines={2} style={styles.title}>
                     {item.itemName}
@@ -112,30 +113,6 @@ function DetailField({
       </Text>
     </View>
   );
-}
-
-function ItemGlyph({ itemType }: { itemType: MobileItemKind }) {
-  return (
-    <View style={styles.itemGlyph}>
-      <ItemGlyphContent itemType={itemType} />
-    </View>
-  );
-}
-
-function ItemGlyphContent({ itemType }: { itemType: MobileItemKind }) {
-  if (itemType === "identity") {
-    return <IdCard size={28} color="#E07878" strokeWidth={2.1} />;
-  }
-  if (itemType === "card") {
-    return <CreditCard size={28} color="#E07878" strokeWidth={2.1} />;
-  }
-  if (itemType === "note") {
-    return <FileText size={28} color="#E07878" strokeWidth={2.1} />;
-  }
-  if (itemType === "ssh-key") {
-    return <Terminal size={28} color="#E07878" strokeWidth={2.1} />;
-  }
-  return <Shield size={28} color="#E07878" strokeWidth={2.1} />;
 }
 
 function IconButton({
@@ -221,14 +198,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
     paddingVertical: 6,
-  },
-  itemGlyph: {
-    width: 62,
-    height: 62,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 31,
-    backgroundColor: "rgba(224,120,120,0.13)",
   },
   heroText: {
     minWidth: 0,

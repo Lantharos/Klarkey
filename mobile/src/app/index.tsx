@@ -5,6 +5,7 @@ import { LockedVaultScreen } from "@/components/klarkey-ui";
 import { CreateItemSheet } from "@/components/create-item-sheet";
 import { ItemDetailSheet } from "@/components/item-detail-panel";
 import { VaultHomeSurface } from "@/components/vault-home-surface";
+import { openSecuritySettings } from "@/lib/platform-settings";
 import { itemSearchText } from "@/lib/vault-item-meta";
 import { useMobileVault } from "@/lib/vault-context";
 import type { MobileVaultItem } from "@/lib/vault";
@@ -15,7 +16,7 @@ export default function HomeScreen() {
   const [query, setQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<MobileVaultItem>();
   const [createOpen, setCreateOpen] = useState(false);
-  const { locked, loading, vault, unlock, createItem, deleteItem, copyValue } = useMobileVault();
+  const { locked, loading, support, vault, lastEvent, unlock, createItem, deleteItem, copyValue } = useMobileVault();
 
   const filteredItems = useMemo(
     () => vault.items.filter((item) => itemSearchText(item).includes(query.toLowerCase())),
@@ -23,7 +24,15 @@ export default function HomeScreen() {
   );
 
   if (locked) {
-    return <LockedVaultScreen loading={loading} onUnlock={() => void unlock()} />;
+    return (
+      <LockedVaultScreen
+        loading={loading}
+        canUnlock={support.authAvailable}
+        lastEvent={lastEvent}
+        onUnlock={() => void unlock()}
+        onOpenSecuritySettings={() => void openSecuritySettings()}
+      />
+    );
   }
 
   return (

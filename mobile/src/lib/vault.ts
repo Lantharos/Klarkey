@@ -240,9 +240,12 @@ export function createProviderSavedLogin(input: {
   title: string;
   username: string;
   domain?: string;
+  domains?: string[];
   password?: string;
   lastUsedAt?: string;
 }): MobileVaultItem {
+  const websites = input.domains?.length ? input.domains : input.domain ? [input.domain] : [];
+
   return normalizeVaultItem({
     id: input.id,
     kind: "login",
@@ -251,8 +254,8 @@ export function createProviderSavedLogin(input: {
     title: input.title,
     username: input.username,
     password: input.password,
-    website: input.domain,
-    websites: input.domain ? [input.domain] : [],
+    website: websites[0],
+    websites,
     hasPassword: Boolean(input.password),
     hasOtp: false,
     hasPasskey: false,

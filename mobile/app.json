@@ -68,6 +68,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-image",
       [
         "expo-local-authentication",
         {

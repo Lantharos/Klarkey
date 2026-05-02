@@ -10,6 +10,7 @@ const spacing: Record<string, number> = {
   "4": 16,
   "5": 20,
   "6": 24,
+  "7": 28,
   "12": 48,
   "28": 112,
 };
@@ -22,10 +23,13 @@ const textColors: Record<string, string> = {
   "text-white/42": "rgba(255,255,255,0.42)",
   "text-white/46": "rgba(255,255,255,0.46)",
   "text-white/48": "rgba(255,255,255,0.48)",
+  "text-white/50": "rgba(255,255,255,0.5)",
   "text-white/58": "rgba(255,255,255,0.58)",
   "text-white/72": "rgba(255,255,255,0.72)",
   "text-white/76": "rgba(255,255,255,0.76)",
   "text-white/78": "rgba(255,255,255,0.78)",
+  "text-[#111112]": "#111112",
+  "text-[#E07878]": "#E07878",
   "text-red-100": "#fee2e2",
   "text-emerald-100": "#d1fae5",
 };
@@ -33,6 +37,9 @@ const textColors: Record<string, string> = {
 const backgroundColors: Record<string, string> = {
   "bg-[#1a1a1b]": "#1a1a1b",
   "bg-[#202021]": "#202021",
+  "bg-[#E07878]": "#E07878",
+  "bg-[#E07878]/16": "rgba(224,120,120,0.16)",
+  "bg-[#E07878]/20": "rgba(224,120,120,0.2)",
   "bg-transparent": "transparent",
   "bg-white/4": "rgba(255,255,255,0.04)",
   "bg-white/5": "rgba(255,255,255,0.05)",
@@ -91,6 +98,36 @@ function applyToken(style: Style, token: string) {
     return;
   }
 
+  const height = matchPixelToken(token, "h");
+  if (height !== undefined) {
+    style.height = height;
+    return;
+  }
+
+  const width = matchPixelToken(token, "w");
+  if (width !== undefined) {
+    style.width = width;
+    return;
+  }
+
+  const minHeight = matchPixelToken(token, "min-h");
+  if (minHeight !== undefined) {
+    style.minHeight = minHeight;
+    return;
+  }
+
+  const maxWidth = matchPixelToken(token, "max-w");
+  if (maxWidth !== undefined) {
+    style.maxWidth = maxWidth;
+    return;
+  }
+
+  const lineHeight = matchPixelToken(token, "leading");
+  if (lineHeight !== undefined) {
+    style.lineHeight = lineHeight;
+    return;
+  }
+
   switch (token) {
     case "absolute":
       style.position = "absolute";
@@ -110,6 +147,9 @@ function applyToken(style: Style, token: string) {
     case "items-start":
       style.alignItems = "flex-start";
       return;
+    case "items-end":
+      style.alignItems = "flex-end";
+      return;
     case "items-baseline":
       style.alignItems = "baseline";
       return;
@@ -124,6 +164,12 @@ function applyToken(style: Style, token: string) {
       return;
     case "w-full":
       style.width = "100%";
+      return;
+    case "overflow-hidden":
+      style.overflow = "hidden";
+      return;
+    case "rounded-full":
+      style.borderRadius = 9999;
       return;
     case "max-w-[760px]":
       style.maxWidth = 760;

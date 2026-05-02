@@ -15,6 +15,7 @@ interface ProviderSavedCredential {
   title: string;
   username: string;
   domain?: string;
+  domains?: string[];
   password?: string;
   lastUsedAt?: string;
 }
@@ -29,6 +30,10 @@ function credentialStoreModule() {
 
 function normalizeHost(value?: string) {
   return value?.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]?.toLowerCase();
+}
+
+function credentialDomainsForItem(item: MobileVaultItem) {
+  return Array.from(new Set([...item.websites, item.website].filter(Boolean)));
 }
 
 export function isProviderBackedPasskeyForItem(passkey: MobilePasskey, item: MobileVaultItem) {
@@ -48,18 +53,23 @@ export async function syncNativeCredentialStore(vault: MobileVaultState) {
 
   const payload = vault.items
     .filter((item) => item.itemType === "login" && item.username)
-    .map((item) => ({
-      id: item.id,
-      title: item.itemName,
-      username: item.username,
-      domain: item.websites[0] ?? item.website,
-      password: item.password,
-      otpCode: item.otpCode,
-      hasPassword: Boolean(item.password),
-      hasOtp: Boolean(item.otpCode),
-      hasPasskey: vault.passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)),
-      lastUsedAt: Date.now(),
-    }));
+    .map((item) => {
+      const domains = credentialDomainsForItem(item);
+
+      return {
+        id: item.id,
+        title: item.itemName,
+        username: item.username,
+        domain: domains[0],
+        domains,
+        password: item.password,
+        otpCode: item.otpCode,
+        hasPassword: Boolean(item.password),
+        hasOtp: Boolean(item.otpCode),
+        hasPasskey: vault.passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)),
+        lastUsedAt: Date.now(),
+      };
+    });
 
   await store.replaceCredentials(JSON.stringify(payload), Date.now() + unlockWindowMs);
 }

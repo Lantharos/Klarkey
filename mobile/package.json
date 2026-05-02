@@ -27,6 +27,7 @@
     "expo-dev-client": "~55.0.30",
     "expo-device": "~55.0.15",
     "expo-font": "~55.0.6",
+    "expo-image": "~55.0.9",
     "expo-intent-launcher": "~55.0.12",
     "expo-linking": "~55.0.14",
     "expo-local-authentication": "~55.0.13",
