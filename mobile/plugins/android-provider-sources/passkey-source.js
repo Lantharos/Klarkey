@@ -98,7 +98,7 @@ object KlarkeyPasskeys {
       true,
       false,
       origin.packageName,
-      null
+      origin.clientDataHash
     )
     applyPrivilegedClientDataPlaceholder(response, origin)
 
@@ -142,11 +142,10 @@ object KlarkeyPasskeys {
       false,
       base64UrlDecode(passkey.userHandle),
       origin.packageName,
-      null
+      origin.clientDataHash
     )
     applyPrivilegedClientDataPlaceholder(response, origin)
-    val dataToSign = origin.clientDataHash?.let { hash -> response.authenticatorData + hash } ?: response.dataToSign()
-    response.signature = sign(passkey.alias, dataToSign)
+    response.signature = sign(passkey.alias, response.dataToSign())
 
     PublicKeyCredential(
       FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
