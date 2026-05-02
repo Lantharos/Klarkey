@@ -67,9 +67,14 @@ export function itemDisplayFields(item: MobileVaultItem): DisplayField[] {
       { key: "username", label: "Username", value: item.username },
       { key: "password", label: "Password", value: item.password, secret: true },
       { key: "otp", label: "One-time code", value: item.otpCode ?? item.otp, secret: true },
-      { key: "website", label: "Website", value: item.website },
+      ...item.websites.map((website, index) => ({
+        key: `website-${index}`,
+        label: index === 0 ? "Website" : `Website ${index + 1}`,
+        value: website,
+      })),
       { key: "ssoProvider", label: "Sign in with", value: item.ssoProvider },
       { key: "notes", label: "Notes", value: item.notes },
+      ...customFieldDisplays(item),
     ]);
   }
 
@@ -84,6 +89,7 @@ export function itemDisplayFields(item: MobileVaultItem): DisplayField[] {
       { key: "birthDate", label: "Birth date", value: item.birthDate },
       { key: "address", label: "Address", value: item.address },
       { key: "notes", label: "Notes", value: item.notes },
+      ...customFieldDisplays(item),
     ]);
   }
 
@@ -96,20 +102,31 @@ export function itemDisplayFields(item: MobileVaultItem): DisplayField[] {
       { key: "cardBrand", label: "Network", value: item.cardBrand },
       { key: "billingPostalCode", label: "Billing postal code", value: item.billingPostalCode },
       { key: "notes", label: "Notes", value: item.notes },
+      ...customFieldDisplays(item),
     ]);
   }
 
   if (item.itemType === "ssh-key") {
     return presentFields([
       { key: "sshPrivateKey", label: "Private key", value: item.sshPrivateKey, secret: true },
+      { key: "sshPublicKey", label: "Public key", value: item.sshPublicKey },
       { key: "sshComment", label: "Comment", value: item.sshComment },
       { key: "notes", label: "Notes", value: item.notes },
+      ...customFieldDisplays(item),
     ]);
   }
 
-  return presentFields([{ key: "content", label: "Note", value: item.content }]);
+  return presentFields([{ key: "content", label: "Note", value: item.content }, ...customFieldDisplays(item)]);
 }
 
 function presentFields(fields: DisplayField[]) {
   return fields.filter((field) => Boolean(field.value));
+}
+
+function customFieldDisplays(item: MobileVaultItem): DisplayField[] {
+  return item.customFields.map((field, index) => ({
+    key: `custom-${field.id || index}`,
+    label: field.label || "Custom field",
+    value: field.value,
+  }));
 }

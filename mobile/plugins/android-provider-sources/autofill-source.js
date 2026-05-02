@@ -72,16 +72,16 @@ class KlarkeyAutofillService : AutofillService() {
         }
         targets.password?.let { id ->
           credential.password?.let { password ->
-            setTextValue(dataset, id, password, credential.title, "Password for " + credential.username, inlineSpec)
+            setTextValue(dataset, id, password, credential.title, credential.username, inlineSpec)
           }
         }
       } else {
         dataset.setAuthentication(providerIntent("fill-password", credential.id, "password"))
         targets.username?.let { id ->
-          setLockedValue(dataset, id, credential.title, "Unlock to fill " + credential.username, inlineSpec)
+          setLockedValue(dataset, id, credential.title, credential.username, inlineSpec)
         }
         targets.password?.let { id ->
-          setLockedValue(dataset, id, credential.title, "Unlock to fill " + credential.username, inlineSpec)
+          setLockedValue(dataset, id, credential.title, credential.username, inlineSpec)
         }
       }
       response.addDataset(dataset.build())

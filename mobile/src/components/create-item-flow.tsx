@@ -236,6 +236,10 @@ function ItemForm({
   setDraft: Dispatch<SetStateAction<NewItemInput>>;
   bottomPadding: number;
 }) {
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [titleHovered, setTitleHovered] = useState(false);
+  const titleActive = titleFocused || titleHovered;
+
   return (
     <ScrollView
       className="flex-1"
@@ -244,18 +248,25 @@ function ItemForm({
       showsVerticalScrollIndicator={false}>
       <View style={styles.titleRow}>
         <TypeGlyph itemType={draft.itemType} size={32} large />
-        <TextInput
-          value={draft.itemName}
-          onChangeText={(value) => update("itemName", value)}
-          placeholder={draft.itemType === "note" ? "Title" : "Name"}
-          placeholderTextColor="rgba(255,255,255,0.32)"
-          autoCapitalize="sentences"
-          autoCorrect={false}
-          autoFocus
-          selectionColor="#E07878"
-          cursorColor="#E07878"
-          style={styles.nameInput}
-        />
+        <Pressable
+          onHoverIn={() => setTitleHovered(true)}
+          onHoverOut={() => setTitleHovered(false)}
+          style={({ pressed }) => [styles.titleInputShell, titleActive ? styles.titleInputShellActive : undefined, pressed ? styles.titleInputShellPressed : undefined]}>
+          <TextInput
+            value={draft.itemName}
+            onChangeText={(value) => update("itemName", value)}
+            placeholder={draft.itemType === "note" ? "Title" : "Name"}
+            placeholderTextColor="rgba(255,255,255,0.32)"
+            autoCapitalize="sentences"
+            autoCorrect={false}
+            autoFocus
+            selectionColor="#E07878"
+            cursorColor="#E07878"
+            onFocus={() => setTitleFocused(true)}
+            onBlur={() => setTitleFocused(false)}
+            style={styles.nameInput}
+          />
+        </Pressable>
       </View>
 
       {draft.itemType === "login" ? (
@@ -409,11 +420,24 @@ const styles = StyleSheet.create({
   nameInput: {
     flex: 1,
     minHeight: 54,
-    borderRadius: 27,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    paddingHorizontal: 18,
     color: "#ffffff",
     fontSize: 21,
     fontWeight: "400",
+    padding: 0,
+  },
+  titleInputShell: {
+    flex: 1,
+    minHeight: 54,
+    borderRadius: 27,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 18,
+    justifyContent: "center",
+  },
+  titleInputShellActive: {
+    backgroundColor: "rgba(255,255,255,0.088)",
+  },
+  titleInputShellPressed: {
+    transform: [{ scale: 0.992 }],
+    opacity: 0.9,
   },
 });

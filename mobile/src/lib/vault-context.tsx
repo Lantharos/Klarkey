@@ -16,6 +16,7 @@ import {
   loadVaultSettings,
   saveVaultState,
   saveVaultSettings,
+  updateVaultItem,
   type AutoLockMinutes,
   type MobilePasskey,
   type MobileVaultItem,
@@ -41,6 +42,7 @@ interface MobileVaultContextValue {
   lastEvent?: string;
   unlock: () => Promise<void>;
   createItem: (input: NewItemInput) => Promise<boolean>;
+  updateItem: (id: string, input: NewItemInput) => Promise<MobileVaultItem | undefined>;
   deleteItem: (id: string) => Promise<void>;
   updateAutoLockMinutes: (minutes: AutoLockMinutes) => Promise<void>;
   copyValue: (label: string, value?: string) => Promise<void>;
@@ -306,6 +308,42 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
     [vault],
   );
 
+  const updateItem = useCallback(
+    async (id: string, input: NewItemInput) => {
+      if (!input.itemName.trim()) {
+        setLastEvent("Name is required.");
+        return undefined;
+      }
+
+      const currentItem = vault.items.find((candidate) => candidate.id === id);
+      if (!currentItem) {
+        setLastEvent("Item could not be found.");
+        return undefined;
+      }
+
+      setLoading(true);
+      try {
+        const item = updateVaultItem(currentItem, input);
+        const nextItem = {
+          ...item,
+          hasPasskey: vault.passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)),
+        };
+        const nextVault = {
+          ...vault,
+          items: vault.items.map((candidate) => (candidate.id === id ? nextItem : candidate)),
+        };
+        setVault(nextVault);
+        await saveVaultState(nextVault);
+        await syncNativeCredentialStore(nextVault);
+        setLastEvent(`${nextItem.itemName} updated.`);
+        return nextItem;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [vault],
+  );
+
   const updateAutoLockMinutes = useCallback(async (autoLockMinutes: AutoLockMinutes) => {
     const nextSettings = { autoLockMinutes };
     setSettings(nextSettings);
@@ -332,6 +370,7 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
       lastEvent,
       unlock,
       createItem,
+      updateItem,
       deleteItem,
       updateAutoLockMinutes,
       copyValue,
@@ -347,6 +386,7 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
       support,
       unlock,
       updateAutoLockMinutes,
+      updateItem,
       vault,
     ],
   );

@@ -8,7 +8,7 @@ import { VaultHomeSurface } from "@/components/vault-home-surface";
 import { openSecuritySettings } from "@/lib/platform-settings";
 import { itemSearchText } from "@/lib/vault-item-meta";
 import { useMobileVault } from "@/lib/vault-context";
-import type { MobileVaultItem } from "@/lib/vault";
+import type { MobileVaultItem, NewItemInput } from "@/lib/vault";
 import { View } from "@/tw";
 
 export default function HomeScreen() {
@@ -16,7 +16,7 @@ export default function HomeScreen() {
   const [query, setQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<MobileVaultItem>();
   const [createOpen, setCreateOpen] = useState(false);
-  const { locked, loading, support, vault, lastEvent, unlock, createItem, deleteItem, copyValue } = useMobileVault();
+  const { locked, loading, support, vault, lastEvent, unlock, createItem, updateItem, deleteItem, copyValue } = useMobileVault();
 
   const filteredItems = useMemo(
     () => vault.items.filter((item) => itemSearchText(item).includes(query.toLowerCase())),
@@ -35,6 +35,14 @@ export default function HomeScreen() {
     );
   }
 
+  async function handleUpdateItem(id: string, input: NewItemInput) {
+    const nextItem = await updateItem(id, input);
+    if (nextItem) {
+      setSelectedItem(nextItem);
+    }
+    return nextItem;
+  }
+
   return (
     <View className="flex-1 bg-[#1a1a1b]">
       <VaultHomeSurface
@@ -49,6 +57,8 @@ export default function HomeScreen() {
         item={selectedItem}
         onClose={() => setSelectedItem(undefined)}
         onCopy={(label, value) => void copyValue(label, value)}
+        onUpdate={handleUpdateItem}
+        loading={loading}
         onDelete={() => {
           if (!selectedItem) {
             return;

@@ -26,8 +26,8 @@ function LoginIcon({ item, size }: { item: MobileVaultItem; size: number }) {
   }, [sourceKey]);
 
   return (
-    <View style={[styles.shell, { width: size, height: size, borderRadius: Math.round(size * 0.32) }]}>
-      <FallbackInitial item={item} size={size} />
+    <View style={[styles.shell, styles.loginShell, { width: size, height: size, borderRadius: Math.round(size * 0.28) }]}>
+      <FallbackInitial title={item.itemName} size={size} />
       {source ? (
         <Image
           source={{ uri: source }}
@@ -49,7 +49,7 @@ function LoginIcon({ item, size }: { item: MobileVaultItem; size: number }) {
 function TypeIcon({ item, size }: { item: MobileVaultItem; size: number }) {
   const iconSize = Math.max(17, Math.round(size * 0.43));
   return (
-    <View style={[styles.shell, styles.typeShell, { width: size, height: size, borderRadius: Math.round(size * 0.32) }]}>
+    <View style={[styles.shell, styles.typeShell, { width: size, height: size, borderRadius: Math.round(size * 0.28) }]}>
       <TypeIconContent item={item} size={iconSize} />
     </View>
   );
@@ -71,13 +71,27 @@ function TypeIconContent({ item, size }: { item: MobileVaultItem; size: number }
   return <Shield size={size} color="rgba(255,255,255,0.72)" strokeWidth={2.1} />;
 }
 
-function FallbackInitial({ item, size }: { item: MobileVaultItem; size: number }) {
-  const initial = item.itemName.slice(0, 1).toUpperCase();
+function FallbackInitial({ title, size }: { title: string; size: number }) {
   return (
     <View style={styles.initialFill}>
-      <Text style={[styles.initial, { fontSize: Math.max(13, Math.round(size * 0.36)) }]}>{initial}</Text>
+      <Text style={[styles.initial, { fontSize: Math.max(12, Math.round(size * 0.375)) }]}>{itemInitials(title)}</Text>
     </View>
   );
+}
+
+function itemInitials(title: string) {
+  const trimmed = title.trim();
+  if (!trimmed) {
+    return "Kl";
+  }
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length === 1) {
+    const first = words[0].slice(0, 2);
+    return `${first.slice(0, 1).toUpperCase()}${first.slice(1, 2).toLowerCase()}`;
+  }
+
+  return `${words[0][0].toUpperCase()}${words[1][0].toLowerCase()}`;
 }
 
 const styles = StyleSheet.create({
@@ -85,7 +99,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(224,120,120,0.16)",
+  },
+  loginShell: {
+    backgroundColor: "rgba(14,165,233,0.20)",
   },
   typeShell: {
     backgroundColor: "rgba(255,255,255,0.07)",
@@ -96,7 +112,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   initial: {
-    color: "#ffffff",
-    fontWeight: "500",
+    color: "#bae6fd",
+    fontWeight: "600",
   },
 });

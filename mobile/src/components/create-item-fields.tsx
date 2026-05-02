@@ -1,8 +1,9 @@
 import { StyleSheet } from "react-native";
 import { useState, type ReactNode } from "react";
+import { Minus, Plus } from "lucide-react-native";
 
 import type { NewItemInput } from "@/lib/vault";
-import { Text, TextInput, View } from "@/tw";
+import { Pressable, Text, TextInput, View } from "@/tw";
 
 type SheetFieldsProps = {
   draft: NewItemInput;
@@ -11,6 +12,21 @@ type SheetFieldsProps = {
 };
 
 export function LoginFields({ draft, update, updateWebsites }: SheetFieldsProps) {
+  const websites = draft.websites?.length ? draft.websites : [""];
+
+  function updateWebsiteAt(index: number, value: string) {
+    updateWebsites?.(websites.map((website, currentIndex) => (currentIndex === index ? value : website)));
+  }
+
+  function addWebsite() {
+    updateWebsites?.([...websites, ""]);
+  }
+
+  function removeWebsite(index: number) {
+    const nextWebsites = websites.filter((_, currentIndex) => currentIndex !== index);
+    updateWebsites?.(nextWebsites.length ? nextWebsites : [""]);
+  }
+
   return (
     <>
       <FieldGroup>
@@ -19,7 +35,27 @@ export function LoginFields({ draft, update, updateWebsites }: SheetFieldsProps)
         <SheetField label="Password" value={draft.password ?? ""} onChangeText={(value) => update("password", value)} placeholder="Password" secureTextEntry />
       </FieldGroup>
       <FieldGroup>
-        <SheetField label="Website" value={draft.websites?.[0] ?? ""} onChangeText={(value) => updateWebsites?.([value])} placeholder="example.com" keyboardType="url" />
+        {websites.map((website, index) => (
+          <SheetField
+            key={index}
+            label={index === 0 ? "Website" : `Website ${index + 1}`}
+            value={website}
+            onChangeText={(value) => updateWebsiteAt(index, value)}
+            placeholder="example.com"
+            keyboardType="url"
+            rightAccessory={
+              index > 0 ? (
+                <FieldIconButton accessibilityLabel={`Remove website ${index + 1}`} onPress={() => removeWebsite(index)}>
+                  <Minus size={17} color="rgba(255,255,255,0.64)" strokeWidth={2.2} />
+                </FieldIconButton>
+              ) : undefined
+            }
+          />
+        ))}
+        <Pressable accessibilityRole="button" accessibilityLabel="Add website" onPress={addWebsite} style={({ pressed }) => [styles.addWebsiteButton, pressed ? styles.pressed : undefined]}>
+          <Plus size={17} color="#E07878" strokeWidth={2.2} />
+          <Text style={styles.addWebsiteText}>Add website</Text>
+        </Pressable>
         <FieldDivider />
         <SheetField label="One-time code" value={draft.otp ?? ""} onChangeText={(value) => update("otp", value)} placeholder="Secret or code" keyboardType="number-pad" />
         <FieldDivider />
@@ -134,6 +170,7 @@ function SheetField({
   keyboardType,
   multiline,
   large,
+  rightAccessory,
 }: {
   label: string;
   value: string;
@@ -143,30 +180,42 @@ function SheetField({
   keyboardType?: "default" | "email-address" | "url" | "number-pad" | "phone-pad";
   multiline?: boolean;
   large?: boolean;
+  rightAccessory?: ReactNode;
 }) {
   const [focused, setFocused] = useState(false);
 
   return (
     <View style={[styles.fieldRow, focused ? styles.focusedRow : undefined, large ? styles.largeRow : multiline ? styles.multilineRow : undefined]}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor="rgba(255,255,255,0.34)"
-        autoCapitalize="none"
-        autoCorrect={false}
-        secureTextEntry={secureTextEntry}
-        keyboardType={keyboardType}
-        multiline={multiline}
-        selectionColor="#E07878"
-        cursorColor="#E07878"
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        textAlignVertical={multiline ? "top" : "center"}
-        style={[styles.fieldInput, multiline ? styles.multilineInput : undefined]}
-      />
+      <View style={styles.inputLine}>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder}
+          placeholderTextColor="rgba(255,255,255,0.34)"
+          autoCapitalize="none"
+          autoCorrect={false}
+          secureTextEntry={secureTextEntry}
+          keyboardType={keyboardType}
+          multiline={multiline}
+          selectionColor="#E07878"
+          cursorColor="#E07878"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          textAlignVertical={multiline ? "top" : "center"}
+          style={[styles.fieldInput, multiline ? styles.multilineInput : undefined]}
+        />
+        {rightAccessory}
+      </View>
     </View>
+  );
+}
+
+function FieldIconButton({ accessibilityLabel, onPress, children }: { accessibilityLabel: string; onPress: () => void; children: ReactNode }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={({ pressed }) => [styles.fieldIconButton, pressed ? styles.pressed : undefined]}>
+      {children}
+    </Pressable>
   );
 }
 
@@ -186,6 +235,10 @@ const styles = StyleSheet.create({
   focusedRow: {
     backgroundColor: "rgba(255,255,255,0.082)",
   },
+  pressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.96 }],
+  },
   multilineRow: {
     minHeight: 118,
     justifyContent: "flex-start",
@@ -200,14 +253,44 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   fieldInput: {
+    flex: 1,
     minHeight: 30,
     color: "#ffffff",
     fontSize: 17,
     fontWeight: "400",
     padding: 0,
   },
+  inputLine: {
+    minHeight: 30,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   multilineInput: {
     flex: 1,
     paddingTop: 6,
+  },
+  fieldIconButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.065)",
+  },
+  addWebsiteButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    alignSelf: "flex-start",
+    borderRadius: 22,
+    backgroundColor: "rgba(224,120,120,0.11)",
+    paddingHorizontal: 14,
+  },
+  addWebsiteText: {
+    color: "#f0a0a0",
+    fontSize: 15,
+    fontWeight: "400",
   },
 });

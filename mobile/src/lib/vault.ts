@@ -50,15 +50,20 @@ export interface MobileVaultItem {
   cardCvc?: string;
   cardBrand?: string;
   billingPostalCode?: string;
+  sshAlgorithm?: string;
+  sshFingerprint?: string;
+  sshPublicKey?: string;
   sshPrivateKey?: string;
   sshComment?: string;
   content?: string;
   notes?: string;
   ssoProvider?: string;
   customFields: Array<{ id: string; label: string; value: string }>;
+  recoveryCodes?: string[];
   hasPassword: boolean;
   hasOtp: boolean;
   hasPasskey: boolean;
+  hasRecoveryCodes?: boolean;
   lastUsedAt?: string;
 }
 
@@ -92,12 +97,14 @@ export interface NewItemInput {
   cardCvc?: string;
   cardBrand?: string;
   billingPostalCode?: string;
+  sshPublicKey?: string;
   sshPrivateKey?: string;
   sshComment?: string;
   content?: string;
   notes?: string;
   ssoProvider?: string;
   customFields?: Array<{ id: string; label: string; value: string }>;
+  recoveryCodes?: string[];
 }
 
 export interface MobileVaultSettings {
@@ -222,17 +229,81 @@ export function createVaultItem(input: NewItemInput): MobileVaultItem {
     cardCvc: itemType === "card" ? clean(input.cardCvc) : undefined,
     cardBrand: itemType === "card" ? clean(input.cardBrand) : undefined,
     billingPostalCode: itemType === "card" ? clean(input.billingPostalCode) : undefined,
+    sshPublicKey: itemType === "ssh-key" ? clean(input.sshPublicKey) : undefined,
     sshPrivateKey,
     sshComment: itemType === "ssh-key" ? clean(input.sshComment) : undefined,
     content: itemType === "note" ? clean(input.content) : undefined,
     notes: itemType !== "note" ? clean(input.notes) : undefined,
     ssoProvider: itemType === "login" ? clean(input.ssoProvider) : undefined,
     customFields,
+    recoveryCodes: input.recoveryCodes?.map((code) => code.trim()).filter(Boolean),
     hasPassword: Boolean(password || sshPrivateKey || input.cardCvc),
     hasOtp: Boolean(otp),
     hasPasskey: false,
+    hasRecoveryCodes: Boolean(input.recoveryCodes?.some((code) => code.trim())),
     lastUsedAt: "Just now",
   };
+}
+
+export function vaultItemToInput(item: MobileVaultItem): NewItemInput {
+  return {
+    itemType: item.itemType,
+    itemName: item.itemName,
+    username: item.username ?? "",
+    password: item.password ?? "",
+    otp: item.otpCode ?? item.otp ?? "",
+    websites: item.websites.length ? item.websites : item.website ? [item.website] : [""],
+    fullName: item.fullName ?? "",
+    firstName: item.firstName ?? "",
+    middleName: item.middleName ?? "",
+    lastName: item.lastName ?? "",
+    company: item.company ?? "",
+    jobTitle: item.jobTitle ?? "",
+    birthDate: item.birthDate ?? "",
+    email: item.email ?? "",
+    phone: item.phone ?? "",
+    addressLine1: item.addressLine1 ?? "",
+    addressLine2: item.addressLine2 ?? "",
+    city: item.city ?? "",
+    state: item.state ?? "",
+    postalCode: item.postalCode ?? "",
+    country: item.country ?? "",
+    cardholderName: item.cardholderName ?? "",
+    cardNumber: item.cardNumber ?? "",
+    cardExpiry: item.cardExpiry ?? "",
+    cardExpiryMonth: item.cardExpiryMonth ?? "",
+    cardExpiryYear: item.cardExpiryYear ?? "",
+    cardCvc: item.cardCvc ?? "",
+    cardBrand: item.cardBrand ?? "",
+    billingPostalCode: item.billingPostalCode ?? "",
+    sshPublicKey: item.sshPublicKey ?? "",
+    sshPrivateKey: item.sshPrivateKey ?? "",
+    sshComment: item.sshComment ?? "",
+    content: item.content ?? "",
+    notes: item.notes ?? "",
+    ssoProvider: item.ssoProvider ?? "",
+    customFields: item.customFields.map((field) => ({ ...field })),
+    recoveryCodes: item.recoveryCodes ? [...item.recoveryCodes] : undefined,
+  };
+}
+
+export function updateVaultItem(item: MobileVaultItem, input: NewItemInput): MobileVaultItem {
+  const next = createVaultItem({ ...input, itemType: item.itemType });
+
+  return normalizeVaultItem({
+    ...item,
+    ...next,
+    id: item.id,
+    itemType: item.itemType,
+    kind: item.itemType,
+    hasPasskey: item.hasPasskey,
+    lastUsedAt: item.lastUsedAt,
+    sshAlgorithm: item.sshAlgorithm,
+    sshFingerprint: item.sshFingerprint,
+    sshPublicKey: item.itemType === "ssh-key" ? next.sshPublicKey ?? item.sshPublicKey : undefined,
+    recoveryCodes: next.recoveryCodes ?? item.recoveryCodes,
+    hasRecoveryCodes: Boolean(next.recoveryCodes?.length ?? item.recoveryCodes?.length),
+  });
 }
 
 export function createProviderSavedLogin(input: {
@@ -293,9 +364,11 @@ function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultItem {
     cardNumber,
     cardLastFour: item.cardLastFour ?? (cardNumber ? cardNumber.slice(-4) : undefined),
     customFields: item.customFields ?? [],
+    recoveryCodes: item.recoveryCodes ?? [],
     hasPassword: Boolean(item.hasPassword || password || item.sshPrivateKey || item.cardCvc),
     hasOtp: Boolean(item.hasOtp || otp),
     hasPasskey: Boolean(item.hasPasskey),
+    hasRecoveryCodes: Boolean(item.hasRecoveryCodes || item.recoveryCodes?.length),
   };
 }
 

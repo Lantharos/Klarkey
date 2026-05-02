@@ -193,10 +193,14 @@ check("Android provider plugin emits CredentialProviderService", () =>
     includes("plugins/android-provider-sources/autofill-source.js", "Presentations.Builder") &&
   includes("plugins/android-provider-sources/autofill-source.js", "credential.domains.mapNotNull") &&
   includes("plugins/android-provider-sources/store-source.js", "AndroidKeyStore") &&
+  includes("plugins/android-provider-sources/store-source.js", "fun unlock(context: Context") &&
   includes("plugins/android-provider-sources/store-source.js", "val domains: List<String>") &&
   includes("plugins/android-provider-sources/store-source.js", "credentialDomains(item)") &&
   includes("plugins/android-provider-sources/store-source.js", "JSONArray(credential.domains)") &&
   includes("plugins/android-provider-sources/activity-source.js", "PendingIntentHandler.setGetCredentialResponse") &&
+  includes("plugins/android-provider-sources/activity-source.js", "BiometricPrompt.Builder") &&
+  includes("plugins/android-provider-sources/activity-source.js", "EXTRA_AUTHENTICATION_RESULT") &&
+  includes("plugins/android-provider-sources/activity-source.js", "Dataset.Builder") &&
   includes("plugins/android-provider-sources/service-source.js", "PasswordCredentialEntry") &&
   includes("plugins/android-provider-sources/service-source.js", "PublicKeyCredentialEntry") &&
   includes("plugins/android-provider-sources/service-source.js", "addCredentialEntry") &&
@@ -262,9 +266,14 @@ check("Generated Android provider returns password entries and supports public-k
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderService.kt", "PublicKeyCredentialEntry") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderService.kt", "addCredentialEntry") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "PendingIntentHandler.setGetCredentialResponse") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "BiometricPrompt.Builder") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "EXTRA_AUTHENTICATION_RESULT") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "Dataset.Builder") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "KlarkeyCredentialStore.unlock") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "PendingIntentHandler.retrieveProviderCreateCredentialRequest") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "PendingIntentHandler.retrieveProviderGetCredentialRequest") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "AndroidKeyStore") &&
+    includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "fun unlock(context: Context") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "credentialsPayload") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStoreModule.kt", "getProviderCredentials") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/MainApplication.kt", "KlarkeyCredentialStorePackage"),
@@ -377,7 +386,7 @@ check("Klarkey mobile UI and vault screens exist", () =>
     "src/lib/login-logo.ts",
   ].every((file) => fs.existsSync(path.join(root, file))),
 );
-check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () =>
+check("Klarkey mobile vault has usable add, edit, copy, reveal, and delete flows", () =>
   includes("src/app/index.tsx", "VaultHomeSurface") &&
   includes("src/app/index.tsx", "CreateItemSheet") &&
   includes("src/app/index.tsx", "ItemDetailSheet") &&
@@ -405,8 +414,10 @@ check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () 
   includes("src/components/create-item-flow.tsx", "Save") &&
   includes("src/components/create-item-flow.tsx", "useKeyboardViewport") &&
   includes("src/components/create-item-flow.tsx", "contentBottomPadding") &&
+  includes("src/components/create-item-flow.tsx", "titleInputShellActive") &&
   includes("src/components/create-item-fields.tsx", "LoginFields") &&
   includes("src/components/create-item-fields.tsx", "focusedRow") &&
+  includes("src/components/create-item-fields.tsx", "Add website") &&
   includes("src/components/create-item-fields.tsx", 'selectionColor="#E07878"') &&
   includes("src/components/create-item-flow.tsx", 'itemType: "login"') &&
   includes("src/components/create-item-flow.tsx", 'draft.itemType === "identity"') &&
@@ -418,14 +429,20 @@ check("Klarkey mobile vault has usable add, copy, reveal, and delete flows", () 
   includes("src/components/item-detail-panel.tsx", "useKeyboardViewport") &&
   includes("src/components/item-detail-panel.tsx", "itemHero") &&
   includes("src/components/item-detail-panel.tsx", "fieldList") &&
+  includes("src/components/item-detail-panel.tsx", "EditItemForm") &&
+  includes("src/components/item-detail-panel.tsx", "onUpdate") &&
   includes("src/components/item-detail-panel.tsx", "Copy") &&
   includes("src/components/item-detail-panel.tsx", "Eye") &&
   includes("src/components/item-detail-panel.tsx", "Delete") &&
   includes("src/lib/vault-context.tsx", 'import * as Clipboard from "expo-clipboard"') &&
   includes("src/lib/vault-context.tsx", "createItem") &&
+  includes("src/lib/vault-context.tsx", "updateItem") &&
   includes("src/lib/vault-context.tsx", "deleteItem") &&
   includes("src/lib/vault-context.tsx", "copyValue") &&
   includes("src/lib/vault.ts", "createVaultItem") &&
+  includes("src/lib/vault.ts", "updateVaultItem") &&
+  includes("src/lib/vault.ts", "vaultItemToInput") &&
+  includes("src/lib/vault.ts", "sshPublicKey") &&
   includes("src/lib/vault.ts", "items: []") &&
   includes("src/lib/vault.ts", "passkeys: []"),
 );
@@ -436,6 +453,8 @@ check("Klarkey mobile uses cached desktop-style item icons", () =>
   includes("src/components/item-icon.tsx", 'cachePolicy="memory-disk"') &&
   includes("src/components/item-icon.tsx", "recyclingKey") &&
   includes("src/components/item-icon.tsx", "markLogoMissing") &&
+  includes("src/components/item-icon.tsx", "itemInitials") &&
+  includes("src/components/item-icon.tsx", "#bae6fd") &&
   includes("src/lib/login-logo.ts", "img.logo.dev") &&
   includes("src/lib/login-logo.ts", "logoDevToken") &&
   includes("src/lib/login-logo.ts", "normalizeLoginLogoDomain")
@@ -467,8 +486,12 @@ check("Android fill surfaces can suggest locked items before unlock", () =>
   includes("plugins/android-provider-sources/autofill-source.js", "setImageViewResource") &&
   includes("plugins/android-provider-sources/autofill-source.js", 'dataset.setAuthentication(providerIntent("fill-password"') &&
   includes("plugins/android-provider-sources/autofill-source.js", "setLockedValue(dataset") &&
+  !includes("plugins/android-provider-sources/autofill-source.js", "Unlock to fill") &&
+  !includes("plugins/android-provider-sources/autofill-source.js", "Password for ") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderService.kt", "val addedEntries = request.beginGetCredentialOptions") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", 'dataset.setAuthentication(providerIntent("fill-password"')
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", 'dataset.setAuthentication(providerIntent("fill-password"') &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Unlock to fill") &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Password for ")
 );
 check("Klarkey mobile source does not expose template or demo vault content", () =>
   [

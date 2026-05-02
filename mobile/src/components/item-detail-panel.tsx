@@ -1,83 +1,126 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { Modal, Platform, Pressable as RNPressable, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Copy, Eye, EyeOff, KeyRound, Trash2, X } from "lucide-react-native";
+import { ArrowLeft, Check, Copy, Eye, EyeOff, KeyRound, Pencil, Trash2, X } from "lucide-react-native";
 
+import { CardFields, IdentityFields, LoginFields, NoteFields, SshKeyFields } from "@/components/create-item-fields";
 import { ItemIcon } from "@/components/item-icon";
 import { useKeyboardViewport } from "@/lib/keyboard-viewport";
 import { itemDisplayFields, itemTypeLabel } from "@/lib/vault-item-meta";
 import type { DisplayField } from "@/lib/vault-item-meta";
-import type { MobileVaultItem } from "@/lib/vault";
-import { ScrollView, Text, View } from "@/tw";
+import { vaultItemToInput, type MobileVaultItem, type NewItemInput } from "@/lib/vault";
+import { Pressable, ScrollView, Text, TextInput, View } from "@/tw";
 
 export function ItemDetailSheet({
   item,
   onClose,
   onDelete,
   onCopy,
+  onUpdate,
+  loading,
 }: {
   item?: MobileVaultItem;
   onClose: () => void;
   onDelete: () => void;
   onCopy: (label: string, value?: string) => void;
+  onUpdate: (id: string, input: NewItemInput) => Promise<MobileVaultItem | undefined>;
+  loading: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const keyboardLayout = useKeyboardViewport(insets.bottom, 360);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<NewItemInput | undefined>();
   const fields = item ? itemDisplayFields(item) : [];
   const bottomPadding = (keyboardLayout.keyboardVisible ? 18 : Math.max(insets.bottom, 18)) + keyboardLayout.contentOffset;
 
   useEffect(() => {
     setRevealed({});
-  }, [item?.id]);
+    setEditing(false);
+    setDraft(item ? vaultItemToInput(item) : undefined);
+  }, [item]);
+
+  function cancelEdit() {
+    setDraft(item ? vaultItemToInput(item) : undefined);
+    setEditing(false);
+  }
+
+  async function saveEdit() {
+    if (!item || !draft) {
+      return;
+    }
+
+    const nextItem = await onUpdate(item.id, draft);
+    if (nextItem) {
+      setDraft(vaultItemToInput(nextItem));
+      setEditing(false);
+    }
+  }
 
   return (
     <Modal visible={Boolean(item)} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={styles.modalRoot}>
         <View style={[styles.surface, keyboardLayout.viewportStyle, { paddingTop: insets.top + 12, paddingBottom: keyboardLayout.keyboardVisible ? 10 : Math.max(insets.bottom, 12) }]}>
           <View style={styles.header}>
-            <IconButton accessibilityLabel="Close item" onPress={onClose} icon={X} />
-            <Text style={styles.headerTitle}>Item</Text>
-            <IconButton accessibilityLabel="Delete item" onPress={onDelete} icon={Trash2} danger />
+            <IconButton accessibilityLabel={editing ? "Back to item" : "Close item"} onPress={editing ? cancelEdit : onClose} icon={editing ? ArrowLeft : X} />
+            <Text style={styles.headerTitle}>{editing ? "Edit item" : "Item"}</Text>
+            {editing ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Save item" disabled={loading} onPress={() => void saveEdit()} style={({ pressed }) => [styles.saveButton, loading ? styles.disabled : undefined, pressed ? styles.pressed : undefined]}>
+                <Check size={18} color="#111112" strokeWidth={2.5} />
+                <Text style={styles.saveText}>Save</Text>
+              </Pressable>
+            ) : (
+              <View style={styles.headerActions}>
+                <IconButton accessibilityLabel="Edit item" onPress={() => setEditing(true)} icon={Pencil} />
+                <IconButton accessibilityLabel="Delete item" onPress={onDelete} icon={Trash2} danger />
+              </View>
+            )}
           </View>
 
           {item ? (
             <ScrollView className="flex-1" contentContainerStyle={[styles.content, { paddingBottom: bottomPadding + 22 }]} showsVerticalScrollIndicator={false}>
-              <View style={styles.itemHero}>
-                <ItemIcon item={item} size={62} />
-                <View style={styles.heroText}>
-                  <Text numberOfLines={2} style={styles.title}>
-                    {item.itemName}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.subtitle}>
-                    {itemTypeLabel(item.itemType)}
-                  </Text>
-                </View>
-              </View>
-
-              {item.hasPasskey ? (
-                <View style={styles.passkeyRow}>
-                  <KeyRound size={16} color="#E07878" strokeWidth={2.2} />
-                  <Text style={styles.passkeyText}>Passkey saved for this login</Text>
-                </View>
-              ) : null}
-
-              {fields.length === 0 ? (
-                <View style={styles.emptyField}>
-                  <Text style={styles.emptyText}>No fields saved for this item.</Text>
-                </View>
+              {editing && draft ? (
+                <EditItemForm item={item} draft={draft} setDraft={setDraft as Dispatch<SetStateAction<NewItemInput>>} />
               ) : (
-                <View style={styles.fieldList}>
-                  {fields.map((field) => (
-                    <DetailField
-                      key={field.key}
-                      field={field}
-                      revealed={Boolean(revealed[field.key])}
-                      onReveal={() => setRevealed((current) => ({ ...current, [field.key]: !current[field.key] }))}
-                      onCopy={() => onCopy(field.label, field.value)}
-                    />
-                  ))}
-                </View>
+                <>
+                  <View style={styles.itemHero}>
+                    <ItemIcon item={item} size={62} />
+                    <View style={styles.heroText}>
+                      <Text numberOfLines={2} style={styles.title}>
+                        {item.itemName}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.subtitle}>
+                        {itemTypeLabel(item.itemType)}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {item.hasPasskey ? (
+                    <View style={styles.passkeyRow}>
+                      <KeyRound size={16} color="#E07878" strokeWidth={2.2} />
+                      <Text style={styles.passkeyText}>Passkey saved for this login</Text>
+                    </View>
+                  ) : null}
+
+                  {fields.length === 0 ? (
+                    <View style={styles.emptyField}>
+                      <Text style={styles.emptyText}>No fields saved for this item.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.fieldList}>
+                      {fields.map((field, index) => (
+                        <DetailField
+                          key={field.key}
+                          field={field}
+                          last={index === fields.length - 1}
+                          revealed={Boolean(revealed[field.key])}
+                          onReveal={() => setRevealed((current) => ({ ...current, [field.key]: !current[field.key] }))}
+                          onCopy={() => onCopy(field.label, field.value)}
+                        />
+                      ))}
+                    </View>
+                  )}
+                </>
               )}
             </ScrollView>
           ) : null}
@@ -89,18 +132,20 @@ export function ItemDetailSheet({
 
 function DetailField({
   field,
+  last,
   revealed,
   onReveal,
   onCopy,
 }: {
   field: DisplayField;
+  last: boolean;
   revealed: boolean;
   onReveal: () => void;
   onCopy: () => void;
 }) {
   const showValue = !field.secret || revealed;
   return (
-    <View style={styles.fieldRow}>
+    <View style={[styles.fieldRow, last ? styles.lastFieldRow : undefined]}>
       <View style={styles.fieldHeader}>
         <Text style={styles.fieldLabel}>{field.label}</Text>
         <View style={styles.fieldActions}>
@@ -112,6 +157,73 @@ function DetailField({
         {showValue ? field.value : "************"}
       </Text>
     </View>
+  );
+}
+
+function EditItemForm({
+  item,
+  draft,
+  setDraft,
+}: {
+  item: MobileVaultItem;
+  draft: NewItemInput;
+  setDraft: Dispatch<SetStateAction<NewItemInput>>;
+}) {
+  const [titleFocused, setTitleFocused] = useState(false);
+  const [titleHovered, setTitleHovered] = useState(false);
+  const previewItem = useMemo(
+    () => ({
+      ...item,
+      itemName: draft.itemName,
+      title: draft.itemName,
+      websites: draft.websites ?? [],
+      website: draft.websites?.[0],
+    }),
+    [draft.itemName, draft.websites, item],
+  );
+
+  function update(key: keyof NewItemInput, value: string) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateWebsites(websites: string[]) {
+    setDraft((current) => ({ ...current, websites }));
+  }
+
+  return (
+    <>
+      <View style={styles.editTitleRow}>
+        <ItemIcon item={previewItem} size={58} />
+        <Pressable
+          onHoverIn={() => setTitleHovered(true)}
+          onHoverOut={() => setTitleHovered(false)}
+          style={({ pressed }) => [
+            styles.editTitleInputShell,
+            titleFocused || titleHovered ? styles.editTitleInputShellActive : undefined,
+            pressed ? styles.editTitleInputShellPressed : undefined,
+          ]}>
+          <TextInput
+            value={draft.itemName}
+            onChangeText={(value) => update("itemName", value)}
+            placeholder={draft.itemType === "note" ? "Title" : "Name"}
+            placeholderTextColor="rgba(255,255,255,0.32)"
+            autoCapitalize="sentences"
+            autoCorrect={false}
+            selectionColor="#E07878"
+            cursorColor="#E07878"
+            onFocus={() => setTitleFocused(true)}
+            onBlur={() => setTitleFocused(false)}
+            style={styles.editTitleInput}
+          />
+        </Pressable>
+      </View>
+
+      {draft.itemType === "login" ? <LoginFields draft={draft} update={update} updateWebsites={updateWebsites} /> : null}
+      {draft.itemType === "identity" ? <IdentityFields draft={draft} update={update} /> : null}
+      {draft.itemType === "card" ? <CardFields draft={draft} update={update} /> : null}
+      {draft.itemType === "note" ? <NoteFields draft={draft} update={update} /> : null}
+      {draft.itemType === "ssh-key" ? <SshKeyFields draft={draft} update={update} /> : null}
+    </>
   );
 }
 
@@ -176,6 +288,30 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     textAlign: "center",
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  saveButton: {
+    minWidth: 82,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 22,
+    backgroundColor: "#E07878",
+    paddingHorizontal: 14,
+  },
+  saveText: {
+    color: "#111112",
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  disabled: {
+    opacity: 0.5,
+  },
   title: {
     color: "#ffffff",
     fontSize: 26,
@@ -219,14 +355,19 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
   fieldList: {
-    gap: 8,
+    overflow: "hidden",
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.052)",
   },
   fieldRow: {
     gap: 8,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.052)",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.075)",
     paddingHorizontal: 15,
     paddingVertical: 13,
+  },
+  lastFieldRow: {
+    borderBottomWidth: 0,
   },
   fieldHeader: {
     flexDirection: "row",
@@ -268,5 +409,34 @@ const styles = StyleSheet.create({
   emptyText: {
     color: "rgba(255,255,255,0.44)",
     fontSize: 14,
+  },
+  editTitleRow: {
+    minHeight: 74,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  editTitleInputShell: {
+    flex: 1,
+    minHeight: 56,
+    justifyContent: "center",
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 18,
+  },
+  editTitleInputShellActive: {
+    backgroundColor: "rgba(255,255,255,0.088)",
+  },
+  editTitleInputShellPressed: {
+    transform: [{ scale: 0.992 }],
+    opacity: 0.9,
+  },
+  editTitleInput: {
+    minHeight: 34,
+    color: "#ffffff",
+    fontSize: 21,
+    fontWeight: "400",
+    padding: 0,
   },
 });

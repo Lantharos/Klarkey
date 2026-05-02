@@ -53,6 +53,10 @@ object KlarkeyCredentialStore {
     prefs(context).edit().putLong(unlockedUntilKey, 0).apply()
   }
 
+  fun unlock(context: Context, unlockedUntil: Long) {
+    prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
+  }
+
   fun isUnlocked(context: Context): Boolean {
     return prefs(context).getLong(unlockedUntilKey, 0) > System.currentTimeMillis()
   }
