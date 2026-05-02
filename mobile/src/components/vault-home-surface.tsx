@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Platform, Pressable as RNPressable, StyleSheet, TextInput as RNTextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyRound, Plus, Search, ShieldCheck, X } from "lucide-react-native";
+import { KeyRound, Plus, Search, Settings, ShieldCheck, X } from "lucide-react-native";
 
 import { ItemIcon } from "@/components/item-icon";
 import { useKeyboardViewport } from "@/lib/keyboard-viewport";
@@ -53,7 +53,7 @@ export function VaultHomeSurface({
   return (
     <View style={[styles.root, keyboardLayout.viewportStyle]}>
       <View style={[styles.topRail, { paddingTop: insets.top + 8 }]}>
-        <AvatarButton onPress={onOpenSettings} />
+        <SettingsButton onPress={onOpenSettings} />
       </View>
 
       <FlatList
@@ -105,7 +105,7 @@ function ListFooter() {
   );
 }
 
-function AvatarButton({ onPress }: { onPress: () => void }) {
+function SettingsButton({ onPress }: { onPress: () => void }) {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -116,8 +116,8 @@ function AvatarButton({ onPress }: { onPress: () => void }) {
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       android_ripple={ripple("rgba(224,120,120,0.2)", true)}
-      style={({ pressed }) => [styles.avatar, hovered ? styles.avatarHovered : undefined, pressed ? styles.pressed : undefined]}>
-      <Text style={styles.avatarText}>K</Text>
+      style={({ pressed }) => [styles.settingsButton, hovered ? styles.settingsButtonHovered : undefined, pressed ? styles.pressed : undefined]}>
+      <Settings size={22} color="rgba(255,255,255,0.82)" strokeWidth={2.1} />
     </RNPressable>
   );
 }
@@ -238,21 +238,15 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     paddingHorizontal: 18,
   },
-  avatar: {
+  settingsButton: {
     width: 42,
     height: 42,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 21,
-    backgroundColor: "rgba(224,120,120,0.18)",
   },
-  avatarHovered: {
-    backgroundColor: "rgba(224,120,120,0.26)",
-  },
-  avatarText: {
-    color: "#ffffff",
-    fontSize: 17,
-    fontWeight: "700",
+  settingsButtonHovered: {
+    backgroundColor: "rgba(255,255,255,0.065)",
   },
   itemSeparator: {
     height: 2,

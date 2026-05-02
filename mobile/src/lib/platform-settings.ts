@@ -6,7 +6,10 @@ const ANDROID_AUTOFILL_SETTINGS = "android.settings.REQUEST_SET_AUTOFILL_SERVICE
 const ANDROID_SECURITY_SETTINGS = "android.settings.SECURITY_SETTINGS";
 const ANDROID_APPLICATION_PREFERENCES = "android.intent.action.APPLICATION_PREFERENCES";
 const ANDROID_CATEGORY_APP_BROWSER = "android.intent.category.APP_BROWSER";
+const KLARKEY_PACKAGE = "com.lantharos.klarkey";
 const CHROME_PACKAGE = "com.android.chrome";
+
+const klarkeyPackageUri = `package:${KLARKEY_PACKAGE}`;
 
 export async function openCredentialProviderSettings() {
   if (Platform.OS !== "android") {
@@ -15,10 +18,14 @@ export async function openCredentialProviderSettings() {
   }
 
   try {
-    await IntentLauncher.startActivityAsync(ANDROID_CREDENTIAL_PROVIDER_SETTINGS);
+    await IntentLauncher.startActivityAsync(ANDROID_AUTOFILL_SETTINGS, {
+      data: klarkeyPackageUri,
+    });
   } catch {
     try {
-      await IntentLauncher.startActivityAsync(ANDROID_AUTOFILL_SETTINGS);
+      await IntentLauncher.startActivityAsync(ANDROID_CREDENTIAL_PROVIDER_SETTINGS, {
+        data: klarkeyPackageUri,
+      });
     } catch {
       await Linking.openSettings();
     }

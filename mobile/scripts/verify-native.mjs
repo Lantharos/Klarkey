@@ -395,6 +395,10 @@ check("Klarkey mobile vault has usable add, edit, copy, reveal, and delete flows
   includes("src/components/vault-home-surface.tsx", "onEndReached") &&
   includes("src/components/vault-home-surface.tsx", "visibleItems") &&
   includes("src/components/vault-home-surface.tsx", "itemPageSize") &&
+  includes("src/components/vault-home-surface.tsx", "SettingsButton") &&
+  !includes("src/components/vault-home-surface.tsx", "AvatarButton") &&
+  !includes("src/components/vault-home-surface.tsx", "avatarText") &&
+  !includes("src/components/vault-home-surface.tsx", 'backgroundColor: "rgba(255,255,255,0.07)"') &&
   includes("src/components/vault-home-surface.tsx", "autoFocus") &&
   includes("src/components/vault-home-surface.tsx", "Search in Klarkey") &&
   includes("src/components/vault-home-surface.tsx", 'selectionColor="#E07878"') &&
@@ -471,7 +475,13 @@ check("Klarkey mobile has lock screen, auto-lock, and Chrome setup paths", () =>
   includes("src/lib/vault-context.tsx", "disableDeviceFallback: false") &&
   includes("src/lib/vault-context.tsx", "redactVaultState") &&
   includes("src/app/settings.tsx", "Auto-lock") &&
+  includes("src/app/settings.tsx", "intervalContent") &&
+  !includes("src/app/settings.tsx", "SettingsIcon") &&
+  !includes("src/app/settings.tsx", "identityIcon") &&
   includes("src/lib/platform-settings.ts", "openSecuritySettings") &&
+  includes("src/lib/platform-settings.ts", "android.settings.REQUEST_SET_AUTOFILL_SERVICE") &&
+  includes("src/lib/platform-settings.ts", "data: klarkeyPackageUri") &&
+  includes("src/lib/platform-settings.ts", "package:") &&
   includes("src/lib/platform-settings.ts", "openChromeAutofillSettings") &&
   includes("src/lib/platform-settings.ts", "com.android.chrome") &&
   includes("src/app/autofill.tsx", "Chrome autofill settings"),
