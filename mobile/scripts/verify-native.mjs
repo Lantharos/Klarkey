@@ -291,8 +291,11 @@ check("Generated Android provider can create provider-owned passkeys", () =>
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "com.brave.browser") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "com.duckduckgo.mobile.android") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "getOrigin(privilegedAllowlist)") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AuthenticatorAttestationResponse") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AuthenticatorAssertionResponse") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "FidoPublicKeyCredential") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "request.clientDataHash") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "option.clientDataHash") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "usesProvidedClientDataHash") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "android:apk-key-hash:") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "apkContentsSigners") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "providerRequest.callingAppInfo") &&
@@ -307,7 +310,7 @@ check("Passkeys stay provider-backed and linked to matching website items", () =
   includes("src/lib/native-credential-store.ts", "passkey.rpId === host") &&
   includes("src/lib/vault-context.tsx", "linkPasskeysToItems") &&
   includes("src/components/item-detail-panel.tsx", "Passkey saved for this login") &&
-  includes("plugins/android-provider-sources/passkey-source.js", "val rpId = rp.optString") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "val rpId = options.rp.id") &&
   includes("plugins/android-provider-sources/passkey-source.js", "savePasskeyCredential") &&
   includes("plugins/android-provider-sources/store-source.js", "val itemId: String?") &&
   includes("plugins/android-provider-sources/store-source.js", "mergeProviderOwnedCredentials") &&
