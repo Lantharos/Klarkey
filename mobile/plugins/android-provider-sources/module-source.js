@@ -48,6 +48,16 @@ class KlarkeyCredentialStoreModule(
       promise.reject("ERR_KLARKEY_CREDENTIAL_STORE", error)
     }
   }
+
+  @ReactMethod
+  fun deleteProviderItem(itemId: String, passkeyIdsPayload: String, promise: Promise) {
+    try {
+      KlarkeyCredentialStore.deleteProviderItem(context, itemId, passkeyIdsPayload)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("ERR_KLARKEY_CREDENTIAL_STORE", error)
+    }
+  }
 }
 `;
 }

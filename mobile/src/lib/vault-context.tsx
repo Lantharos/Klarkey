@@ -4,6 +4,7 @@ import { AppState } from "react-native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  deleteNativeProviderItem,
   isProviderBackedPasskeyForItem,
   loadNativeProviderCredentials,
   loadNativeProviderPasskeys,
@@ -323,10 +324,14 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
   const deleteItem = useCallback(
     async (id: string) => {
       const item = vault.items.find((candidate) => candidate.id === id);
+      const linkedPasskeys = item ? vault.passkeys.filter((passkey) => isProviderBackedPasskeyForItem(passkey, item)) : [];
+      const linkedPasskeyIds = new Set(linkedPasskeys.map((passkey) => passkey.id));
       const nextVault = {
         ...vault,
         items: vault.items.filter((candidate) => candidate.id !== id),
+        passkeys: vault.passkeys.filter((passkey) => !linkedPasskeyIds.has(passkey.id)),
       };
+      await deleteNativeProviderItem(id, linkedPasskeys.map((passkey) => passkey.id));
       setVault(nextVault);
       await saveVaultState(nextVault);
       await syncNativeCredentialStore(nextVault);

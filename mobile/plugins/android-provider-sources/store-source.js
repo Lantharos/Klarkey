@@ -54,6 +54,11 @@ object KlarkeyCredentialStore {
     prefs(context).edit().putLong(unlockedUntilKey, 0).apply()
   }
 
+  fun deleteProviderItem(context: Context, itemId: String, passkeyIdsPayload: String) {
+    deleteCredential(context, itemId)
+    deletePasskeys(context, itemId, stringSet(passkeyIdsPayload))
+  }
+
   fun unlock(context: Context, unlockedUntil: Long) {
     prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
   }
@@ -367,6 +372,63 @@ object KlarkeyCredentialStore {
     return merged.toString()
   }
 
+  private fun deleteCredential(context: Context, itemId: String) {
+    if (itemId.isBlank()) {
+      return
+    }
+
+    val existing = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val next = JSONArray()
+    var changed = false
+    for (index in 0 until existing.length()) {
+      val item = existing.optJSONObject(index) ?: continue
+      if (item.optString("id") == itemId) {
+        changed = true
+      } else {
+        next.put(item)
+      }
+    }
+
+    if (changed) {
+      writeEncrypted(context, credentialsKey, next.toString())
+    }
+  }
+
+  private fun deletePasskeys(context: Context, itemId: String, passkeyIds: Set<String>) {
+    val existing = JSONArray(readEncrypted(context, passkeysKey) ?: "[]")
+    val next = JSONArray()
+    var changed = false
+    for (index in 0 until existing.length()) {
+      val item = existing.optJSONObject(index) ?: continue
+      val id = item.optString("id")
+      val linkedItemId = item.optString("itemId")
+      val shouldDelete = passkeyIds.contains(id) || (itemId.isNotBlank() && linkedItemId == itemId)
+      if (shouldDelete) {
+        item.optString("alias").takeIf { alias -> alias.isNotBlank() }?.let { alias -> deletePasskeyKey(alias) }
+        changed = true
+      } else {
+        next.put(item)
+      }
+    }
+
+    if (changed) {
+      writeEncrypted(context, passkeysKey, next.toString())
+    }
+  }
+
+  private fun stringSet(payload: String): Set<String> {
+    return try {
+      val values = JSONArray(payload)
+      val ids = mutableSetOf<String>()
+      for (index in 0 until values.length()) {
+        values.optString(index).takeIf { value -> value.isNotBlank() }?.let { value -> ids.add(value) }
+      }
+      ids
+    } catch (_: Exception) {
+      emptySet()
+    }
+  }
+
   private fun matchingCredential(item: JSONObject, username: String, domain: String?): Boolean {
     if (item.optString("username") != username || domain.isNullOrBlank()) {
       return false
@@ -411,6 +473,17 @@ object KlarkeyCredentialStore {
       .put("itemId", passkey.itemId ?: "")
       .put("signCount", passkey.signCount)
       .put("lastUsedAt", passkey.lastUsedTime.toEpochMilli())
+  }
+
+  private fun deletePasskeyKey(alias: String) {
+    try {
+      val keyStore = KeyStore.getInstance("AndroidKeyStore")
+      keyStore.load(null)
+      if (keyStore.containsAlias(alias)) {
+        keyStore.deleteEntry(alias)
+      }
+    } catch (_: Exception) {
+    }
   }
 
   private fun prefs(context: Context) = context.getSharedPreferences(storeName, Context.MODE_PRIVATE)

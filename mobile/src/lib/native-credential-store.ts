@@ -7,6 +7,7 @@ interface KlarkeyCredentialStoreModule {
   replaceCredentials: (payload: string, unlockedUntil: number) => Promise<void>;
   getProviderCredentials?: () => Promise<string>;
   getProviderPasskeys?: () => Promise<string>;
+  deleteProviderItem?: (itemId: string, passkeyIdsPayload: string) => Promise<void>;
   lock: () => Promise<void>;
 }
 
@@ -90,6 +91,15 @@ export async function lockNativeCredentialStore() {
   }
 
   await store.lock();
+}
+
+export async function deleteNativeProviderItem(itemId: string, passkeyIds: string[]) {
+  const store = credentialStoreModule();
+  if ((Platform.OS !== "android" && Platform.OS !== "ios") || !store?.deleteProviderItem) {
+    return;
+  }
+
+  await store.deleteProviderItem(itemId, JSON.stringify(passkeyIds));
 }
 
 export async function loadNativeProviderCredentials(): Promise<MobileVaultItem[]> {

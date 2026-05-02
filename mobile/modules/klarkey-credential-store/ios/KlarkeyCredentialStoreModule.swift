@@ -1,6 +1,7 @@
 import AuthenticationServices
 import ExpoModulesCore
 import Foundation
+import Security
 
 public class KlarkeyCredentialStoreModule: Module {
   private let suiteName = "group.com.lantharos.klarkey"
@@ -20,6 +21,11 @@ public class KlarkeyCredentialStoreModule: Module {
 
     Function("getProviderPasskeys") { () -> String in
       providerPasskeysPayload()
+    }
+
+    Function("deleteProviderItem") { (itemId: String, passkeyIdsPayload: String) -> Void in
+      deleteCredential(id: itemId)
+      deletePasskeys(ids: stringSet(from: passkeyIdsPayload))
     }
 
     Function("lock") { () -> Void in
@@ -50,6 +56,87 @@ public class KlarkeyCredentialStoreModule: Module {
       return "[]"
     }
     return value
+  }
+
+  private func deleteCredential(id: String) {
+    guard !id.isEmpty,
+      let previousPayload = defaults().string(forKey: credentialsKey),
+      let data = previousPayload.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let credentials = object as? [[String: Any]]
+    else {
+      return
+    }
+
+    let nextCredentials = credentials.filter { credential in
+      credential["id"] as? String != id
+    }
+    guard nextCredentials.count != credentials.count,
+      let nextData = try? JSONSerialization.data(withJSONObject: nextCredentials),
+      let nextPayload = String(data: nextData, encoding: .utf8)
+    else {
+      return
+    }
+
+    defaults().set(nextPayload, forKey: credentialsKey)
+    syncCredentialIdentities(previousPayload: previousPayload, nextPayload: nextPayload)
+  }
+
+  private func deletePasskeys(ids: Set<String>) {
+    guard !ids.isEmpty,
+      let data = defaults().data(forKey: passkeysKey),
+      let passkeys = try? JSONDecoder().decode([ProviderPasskey].self, from: data)
+    else {
+      return
+    }
+
+    let removed = passkeys.filter { passkey in
+      ids.contains(passkey.id.base64URLEncodedString())
+    }
+    guard !removed.isEmpty else {
+      return
+    }
+
+    let nextPasskeys = passkeys.filter { passkey in
+      !ids.contains(passkey.id.base64URLEncodedString())
+    }
+    if let nextData = try? JSONEncoder().encode(nextPasskeys) {
+      defaults().set(nextData, forKey: passkeysKey)
+    }
+
+    removed.forEach { passkey in
+      deletePrivateKey(tag: passkey.keyTag)
+    }
+    ASCredentialIdentityStore.shared.removeCredentialIdentities(removed.map { passkeyIdentity(for: $0) }, completion: nil)
+  }
+
+  private func passkeyIdentity(for passkey: ProviderPasskey) -> ASPasskeyCredentialIdentity {
+    ASPasskeyCredentialIdentity(
+      relyingPartyIdentifier: passkey.relyingParty,
+      userName: passkey.username,
+      credentialID: passkey.id,
+      userHandle: passkey.userHandle,
+      recordIdentifier: passkey.id.base64URLEncodedString()
+    )
+  }
+
+  private func deletePrivateKey(tag: Data) {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassKey,
+      kSecAttrApplicationTag as String: tag,
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom
+    ]
+    SecItemDelete(query as CFDictionary)
+  }
+
+  private func stringSet(from payload: String) -> Set<String> {
+    guard let data = payload.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      let values = object as? [String]
+    else {
+      return []
+    }
+    return Set(values.filter { !$0.isEmpty })
   }
 
   private func syncCredentialIdentities(previousPayload: String?, nextPayload: String) {
