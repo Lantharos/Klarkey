@@ -98,8 +98,9 @@ object KlarkeyPasskeys {
       true,
       false,
       origin.packageName,
-      origin.clientDataHash
+      null
     )
+    applyPrivilegedClientDataPlaceholder(response, origin)
 
     val passkey = ProviderPasskey(
       id = credentialId,
@@ -141,9 +142,11 @@ object KlarkeyPasskeys {
       false,
       base64UrlDecode(passkey.userHandle),
       origin.packageName,
-      origin.clientDataHash
+      null
     )
-    response.signature = sign(passkey.alias, response.dataToSign())
+    applyPrivilegedClientDataPlaceholder(response, origin)
+    val dataToSign = origin.clientDataHash?.let { hash -> response.authenticatorData + hash } ?: response.dataToSign()
+    response.signature = sign(passkey.alias, dataToSign)
 
     PublicKeyCredential(
       FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
@@ -226,6 +229,18 @@ object KlarkeyPasskeys {
     val appOrigin = callingAppOrigin(callingAppInfo)
     val requestOrigin = origin?.takeIf { value -> value.isNotBlank() }
     return OriginResult(appOrigin ?: requestOrigin ?: "https://" + rpId, null, callingAppInfo?.packageName)
+  }
+
+  private fun applyPrivilegedClientDataPlaceholder(response: AuthenticatorAttestationResponse, origin: OriginResult) {
+    if (origin.clientDataHash != null) {
+      response.clientJson = JSONObject()
+    }
+  }
+
+  private fun applyPrivilegedClientDataPlaceholder(response: AuthenticatorAssertionResponse, origin: OriginResult) {
+    if (origin.clientDataHash != null) {
+      response.clientJson = JSONObject()
+    }
   }
 
   private fun callingAppOrigin(callingAppInfo: CallingAppInfo?): String? {
