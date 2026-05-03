@@ -11,7 +11,6 @@ import androidx.credentials.exceptions.ClearCredentialException
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.provider.Action
-import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
 import androidx.credentials.provider.BeginGetCredentialOption
@@ -33,16 +32,11 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
     callback: OutcomeReceiver<BeginGetCredentialResponse, GetCredentialException>
   ) {
     val builder = BeginGetCredentialResponse.Builder()
-    val unlocked = KlarkeyCredentialStore.isUnlocked(this)
     val entries = KlarkeyCredentialStore.loadCredentials(this)
     val passkeys = KlarkeyCredentialStore.loadPasskeys(this)
     val addedEntries = request.beginGetCredentialOptions
       .map { option -> addEntriesForOption(builder, option, entries, passkeys) }
       .any { added -> added }
-
-    if (!unlocked) {
-      builder.addAuthenticationAction(AuthenticationAction.Builder("Unlock Klarkey", providerIntent("unlock")).build())
-    }
 
     builder.addAction(
       Action.Builder("Open Klarkey", providerIntent("choose"))

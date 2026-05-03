@@ -2,6 +2,7 @@ function buildPasskeySource(packageName) {
   return `package ${packageName}.credentialprovider
 
 import android.content.Context
+import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -31,6 +32,7 @@ import org.json.JSONObject
 
 object KlarkeyPasskeys {
   private const val keyPrefix = "klarkey_passkey_"
+  private const val publicKeyAlgorithm = -7
   private const val privilegedAllowlist = """{
   "apps": [
     {"type":"android","info":{"package_name":"com.android.chrome","signatures":[{"build":"release","cert_fingerprint_sha256":"F0:FD:6C:5B:41:0F:25:CB:25:C3:B5:33:46:C8:97:2F:AE:30:F8:EE:74:11:DF:91:04:80:AD:6B:2D:60:DB:83"}]}},
@@ -57,7 +59,7 @@ object KlarkeyPasskeys {
   ]
 }"""
   private val random = SecureRandom()
-  private data class OriginResult(val origin: String, val clientDataHash: ByteArray?, val packageName: String?)
+  private data class OriginResult(val origin: String, val packageName: String?)
 
   fun rpIdFromRequestJson(requestJson: String): String? {
     return try {
@@ -66,6 +68,14 @@ object KlarkeyPasskeys {
         ?: request.optJSONObject("rp")?.optString("id")?.takeIf { value -> value.isNotBlank() }
     } catch (_: Exception) {
       null
+    }
+  }
+
+  fun requiresUserVerification(requestJson: String): Boolean {
+    return try {
+      JSONObject(requestJson).optString("userVerification", "preferred") != "discouraged"
+    } catch (_: Exception) {
+      true
     }
   }
 
@@ -87,7 +97,7 @@ object KlarkeyPasskeys {
     val keyPair = generateKeyPair(alias)
     val publicKey = keyPair.public as ECPublicKey
     val coseKey = cosePublicKey(publicKey)
-    val origin = originFor(request.origin, rpId, callingAppInfo, request.clientDataHash) ?: return null
+    val origin = originFor(request.origin, rpId, callingAppInfo) ?: return null
     val response = AuthenticatorAttestationResponse(
       options,
       credentialIdBytes,
@@ -98,9 +108,9 @@ object KlarkeyPasskeys {
       true,
       false,
       origin.packageName,
-      origin.clientDataHash
+      null
     )
-    applyPrivilegedClientDataPlaceholder(response, origin)
+    response.clientJson.put("crossOrigin", false)
 
     val passkey = ProviderPasskey(
       id = credentialId,
@@ -114,15 +124,20 @@ object KlarkeyPasskeys {
     )
     KlarkeyCredentialStore.savePasskeyCredential(context, passkey)
 
-    CreatePublicKeyCredentialResponse(
-      FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
+    val responseJson = registrationJson(
+      FidoPublicKeyCredential(credentialIdBytes, response, "platform").json(),
+      rpId,
+      credentialIdBytes,
+      coseKey,
+      publicKey
     )
+    CreatePublicKeyCredentialResponse(responseJson)
     } catch (_: Exception) {
       null
     }
   }
 
-  fun getAssertion(option: GetPublicKeyCredentialOption, passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?): PublicKeyCredential? {
+  fun getAssertion(option: GetPublicKeyCredentialOption, passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?, userVerified: Boolean): PublicKeyCredential? {
     return try {
     val requestJson = option.requestJson
     if (!allowsCredential(requestJson, passkey.id)) {
@@ -130,26 +145,27 @@ object KlarkeyPasskeys {
     }
 
     val requestOptions = PublicKeyCredentialRequestOptions(requestJson)
-    val origin = originFor(null, passkey.rpId, callingAppInfo, option.clientDataHash) ?: return null
+    val origin = originFor(null, passkey.rpId, callingAppInfo) ?: return null
     val credentialIdBytes = base64UrlDecode(passkey.id)
+    val clientDataHash = clientDataHashForAssertion(callingAppInfo, option.clientDataHash)
     val response = AuthenticatorAssertionResponse(
       requestOptions,
       credentialIdBytes,
       origin.origin,
       true,
-      true,
+      userVerified,
       true,
       false,
       base64UrlDecode(passkey.userHandle),
       origin.packageName,
-      origin.clientDataHash
+      clientDataHash
     )
-    applyPrivilegedClientDataPlaceholder(response, origin)
+    response.clientJson.put("crossOrigin", false)
+    response.authenticatorData = assertionAuthenticatorData(passkey.rpId, userVerified, passkey.signCount + 1)
     response.signature = sign(passkey.alias, response.dataToSign())
 
-    PublicKeyCredential(
-      FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
-    )
+    val responseJson = FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
+    PublicKeyCredential(responseJson)
     } catch (_: Exception) {
       null
     }
@@ -169,6 +185,31 @@ object KlarkeyPasskeys {
     }
 
     return false
+  }
+
+  private fun clientDataHashForAssertion(callingAppInfo: CallingAppInfo?, clientDataHash: ByteArray?): ByteArray? {
+    if (callingAppInfo?.isOriginPopulated() != true) {
+      return null
+    }
+
+    return clientDataHash?.takeIf { value -> value.isNotEmpty() }
+  }
+
+  private fun assertionAuthenticatorData(rpId: String, userVerified: Boolean, signCount: Int): ByteArray {
+    val out = ByteArrayOutputStream()
+    var flags = 0x09
+    if (userVerified) {
+      flags = flags or 0x04
+    }
+    out.write(sha256(rpId.toByteArray(Charsets.UTF_8)))
+    out.write(flags)
+    out.write(byteArrayOf(
+      (signCount ushr 24).toByte(),
+      (signCount ushr 16).toByte(),
+      (signCount ushr 8).toByte(),
+      signCount.toByte()
+    ))
+    return out.toByteArray()
   }
 
   private fun generateKeyPair(alias: String): KeyPair {
@@ -194,6 +235,27 @@ object KlarkeyPasskeys {
     return signature.sign()
   }
 
+  private fun registrationJson(responseJson: String, rpId: String, credentialId: ByteArray, credentialPublicKey: ByteArray, publicKey: ECPublicKey): String {
+    val credential = JSONObject(responseJson)
+    val response = credential.getJSONObject("response")
+    response.put("authenticatorData", base64Url(authenticatorData(rpId, credentialId, credentialPublicKey)))
+    response.put("publicKey", base64Url(publicKey.encoded))
+    response.put("publicKeyAlgorithm", publicKeyAlgorithm)
+    return credential.toString()
+  }
+
+  private fun authenticatorData(rpId: String, credentialId: ByteArray, credentialPublicKey: ByteArray): ByteArray {
+    val out = ByteArrayOutputStream()
+    out.write(sha256(rpId.toByteArray(Charsets.UTF_8)))
+    out.write(0x4d)
+    out.write(byteArrayOf(0, 0, 0, 0))
+    out.write(ByteArray(16))
+    out.write(byteArrayOf((credentialId.size shr 8).toByte(), credentialId.size.toByte()))
+    out.write(credentialId)
+    out.write(credentialPublicKey)
+    return out.toByteArray()
+  }
+
   private fun cosePublicKey(publicKey: ECPublicKey): ByteArray {
     return Cbor.writer()
       .map(5)
@@ -214,31 +276,39 @@ object KlarkeyPasskeys {
     }
   }
 
-  private fun originFor(origin: String?, rpId: String, callingAppInfo: CallingAppInfo?, clientDataHash: ByteArray?): OriginResult? {
+  private fun originFor(origin: String?, rpId: String, callingAppInfo: CallingAppInfo?): OriginResult? {
     if (callingAppInfo?.isOriginPopulated() == true) {
       val privilegedOrigin = try {
         callingAppInfo.getOrigin(privilegedAllowlist)?.takeIf { value -> value.isNotBlank() }
       } catch (_: Exception) {
         null
       }
-      val hash = clientDataHash?.takeIf { value -> value.isNotEmpty() } ?: return null
-      return privilegedOrigin?.let { value -> OriginResult(value, hash, null) }
+      return privilegedOrigin?.let { value -> OriginResult(normalizeWebOrigin(value), null) }
     }
 
     val appOrigin = callingAppOrigin(callingAppInfo)
     val requestOrigin = origin?.takeIf { value -> value.isNotBlank() }
-    return OriginResult(appOrigin ?: requestOrigin ?: "https://" + rpId, null, callingAppInfo?.packageName)
-  }
-
-  private fun applyPrivilegedClientDataPlaceholder(response: AuthenticatorAttestationResponse, origin: OriginResult) {
-    if (origin.clientDataHash != null) {
-      response.clientJson = JSONObject()
+    if (appOrigin != null) {
+      return OriginResult(appOrigin, callingAppInfo?.packageName)
     }
+    return OriginResult(normalizeWebOrigin(requestOrigin ?: "https://" + rpId), null)
   }
 
-  private fun applyPrivilegedClientDataPlaceholder(response: AuthenticatorAssertionResponse, origin: OriginResult) {
-    if (origin.clientDataHash != null) {
-      response.clientJson = JSONObject()
+  private fun normalizeWebOrigin(value: String): String {
+    if (value.startsWith("android:apk-key-hash:")) {
+      return value
+    }
+    return try {
+      val parsed = Uri.parse(value.trim())
+      val scheme = parsed.scheme
+      val host = parsed.host
+      if ((scheme == "https" || scheme == "http") && !host.isNullOrBlank()) {
+        scheme + "://" + host.lowercase() + (if (parsed.port >= 0) ":" + parsed.port else "")
+      } else {
+        value.trimEnd('/')
+      }
+    } catch (_: Exception) {
+      value.trimEnd('/')
     }
   }
 

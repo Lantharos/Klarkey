@@ -297,14 +297,34 @@ check("Generated Android provider can create provider-owned passkeys", () =>
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AuthenticatorAttestationResponse") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AuthenticatorAssertionResponse") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "FidoPublicKeyCredential") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "request.clientDataHash") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "option.clientDataHash") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "response.clientJson = JSONObject()") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "origin.clientDataHash") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "normalizeWebOrigin") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "clientDataHashForAssertion") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "clientDataHashForAssertion") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "crossOrigin") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "crossOrigin") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "publicKeyAlgorithm") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "authenticatorData") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "assertionAuthenticatorData") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "assertionAuthenticatorData") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "passkey.signCount + 1") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "passkey.signCount + 1") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "requiresUserVerification") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "requiresUserVerification") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", 'response.put("publicKey"') &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "response.clientJson = JSONObject()") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "response.dataToSign()") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "android:apk-key-hash:") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "apkContentsSigners") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "providerRequest.callingAppInfo") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "finishPasskeySelectionWithVerifiedUser") &&
+  includes("plugins/android-provider-sources/activity-source.js", "finishPasskeySelectionWithVerifiedUser") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "userVerified") &&
+  includes("plugins/android-provider-sources/activity-source.js", "userVerified") &&
+  !includes("plugins/android-provider-sources/activity-source.js", "Log.") &&
+  !includes("plugins/android-provider-sources/passkey-source.js", "Log.") &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderActivity.kt", "Log.") &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "Log.") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "Base64.NO_PADDING"),
 );
 check("Passkeys stay provider-backed and linked to matching website items", () =>
@@ -525,7 +545,8 @@ check("Klarkey mobile has lock screen, auto-lock, and Chrome setup paths", () =>
 check("Android fill surfaces can suggest locked items before unlock", () =>
   includes("plugins/android-provider-sources/service-source.js", "val addedEntries = request.beginGetCredentialOptions") &&
   !includes("plugins/android-provider-sources/service-source.js", "val addedEntries = if (unlocked)") &&
-  includes("plugins/android-provider-sources/service-source.js", 'AuthenticationAction.Builder("Unlock Klarkey"') &&
+  !includes("plugins/android-provider-sources/service-source.js", 'AuthenticationAction.Builder("Unlock Klarkey"') &&
+  !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialProviderService.kt", 'AuthenticationAction.Builder("Unlock Klarkey"') &&
   includes("plugins/android-provider-sources/autofill-source.js", "val isUnlocked = KlarkeyCredentialStore.isUnlocked(this)") &&
   includes("plugins/android-provider-sources/autofill-source.js", "credentialMatchesTarget") &&
   includes("plugins/android-provider-sources/autofill-source.js", "node.webDomain") &&

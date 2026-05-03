@@ -74,11 +74,6 @@ class KlarkeyCredentialProviderActivity : Activity() {
   }
 
   private fun finishPasskeySelection() {
-    if (!KlarkeyCredentialStore.isUnlocked(this)) {
-      authenticateThen { finishPasskeySelection() }
-      return
-    }
-
     val passkey = KlarkeyCredentialStore.passkeyById(this, intent.getStringExtra("itemId"))
     val providerRequest = PendingIntentHandler.retrieveProviderGetCredentialRequest(intent)
     val option = providerRequest?.credentialOptions?.filterIsInstance<GetPublicKeyCredentialOption>()?.firstOrNull()
@@ -88,7 +83,24 @@ class KlarkeyCredentialProviderActivity : Activity() {
       return
     }
 
-    val credential = KlarkeyPasskeys.getAssertion(option, passkey, providerRequest.callingAppInfo)
+    if (KlarkeyPasskeys.requiresUserVerification(option.requestJson) || !KlarkeyCredentialStore.isUnlocked(this)) {
+      authenticateThen { finishPasskeySelectionWithVerifiedUser(passkey, providerRequest.callingAppInfo, option) }
+      return
+    }
+
+    finishPasskeySelectionWithPresentUser(passkey, providerRequest.callingAppInfo, option)
+  }
+
+  private fun finishPasskeySelectionWithVerifiedUser(passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?, option: GetPublicKeyCredentialOption) {
+    finishPasskeySelectionWithUserState(passkey, callingAppInfo, option, true)
+  }
+
+  private fun finishPasskeySelectionWithPresentUser(passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?, option: GetPublicKeyCredentialOption) {
+    finishPasskeySelectionWithUserState(passkey, callingAppInfo, option, false)
+  }
+
+  private fun finishPasskeySelectionWithUserState(passkey: ProviderPasskey, callingAppInfo: CallingAppInfo?, option: GetPublicKeyCredentialOption, userVerified: Boolean) {
+    val credential = KlarkeyPasskeys.getAssertion(option, passkey, callingAppInfo, userVerified)
     if (credential == null) {
       setResult(RESULT_CANCELED)
       finish()
