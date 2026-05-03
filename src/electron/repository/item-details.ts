@@ -28,6 +28,7 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
         itemData?: string
         passwordPayload?: string
         otpPayload?: string
+        updatedAt?: string
       }
     | undefined
 
@@ -67,6 +68,7 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
     itemId: row.id,
     itemType: (row.itemType ?? 'login') as ItemDetails['itemType'],
     itemName: row.itemName,
+    updatedAt: row.updatedAt,
     username: row.username,
     password: tryDecrypt(key, row.passwordPayload),
     otp,

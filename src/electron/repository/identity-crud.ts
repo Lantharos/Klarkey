@@ -42,7 +42,7 @@ export function insertIdentity(db: Database.Database, key: Buffer, input: Create
         })
       : undefined
   const timestamp = now()
-  const itemId = id('item')
+  const itemId = input.itemId ?? id('item')
   const itemData: ItemDataPayload = sanitizeItemData(itemType, input)
 
   let sshKey

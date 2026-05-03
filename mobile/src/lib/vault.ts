@@ -1,5 +1,6 @@
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
+import { loadStoredVaultState, saveStoredVaultState } from "@/lib/vault-storage";
 
 export type MobileItemKind = "login" | "identity" | "card" | "note" | "ssh-key";
 export type AutoLockMinutes = 1 | 5 | 15 | 30 | 60;
@@ -20,6 +21,8 @@ export interface MobileVaultItem {
   kind: MobileItemKind;
   itemName: string;
   title: string;
+  createdAt?: string;
+  updatedAt?: string;
   username?: string;
   password?: string;
   website?: string;
@@ -117,7 +120,6 @@ export interface MobileVaultState {
   passkeys: MobilePasskey[];
 }
 
-const VAULT_KEY = "klarkey.mobile.vault.v1";
 const SETTINGS_KEY = "klarkey.mobile.settings.v1";
 
 const secureOptions: SecureStore.SecureStoreOptions = {
@@ -138,13 +140,13 @@ export async function loadVaultState(): Promise<MobileVaultState> {
     return defaultVault;
   }
 
-  const stored = await SecureStore.getItemAsync(VAULT_KEY, secureOptions);
+  const stored = await loadStoredVaultState();
   if (!stored) {
     await saveVaultState(defaultVault);
     return defaultVault;
   }
 
-  return normalizeVaultState(JSON.parse(stored) as Partial<MobileVaultState>);
+  return normalizeVaultState(stored);
 }
 
 export async function saveVaultState(state: MobileVaultState) {
@@ -152,7 +154,7 @@ export async function saveVaultState(state: MobileVaultState) {
     return;
   }
 
-  await SecureStore.setItemAsync(VAULT_KEY, JSON.stringify(state), secureOptions);
+  await saveStoredVaultState(normalizeVaultState(state));
 }
 
 export async function loadVaultSettings(): Promise<MobileVaultSettings> {
@@ -178,6 +180,7 @@ export async function saveVaultSettings(settings: MobileVaultSettings) {
 }
 
 export function createVaultItem(input: NewItemInput): MobileVaultItem {
+  const timestamp = new Date().toISOString();
   const itemType = input.itemType;
   const websites = itemType === "login" ? cleanWebsites(input.websites) : [];
   const website = websites[0];
@@ -199,6 +202,8 @@ export function createVaultItem(input: NewItemInput): MobileVaultItem {
     kind: itemType,
     itemName: input.itemName.trim(),
     title: input.itemName.trim(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
     username: itemType === "login" || itemType === "identity" ? clean(input.username) : undefined,
     password,
     website,
@@ -297,6 +302,8 @@ export function updateVaultItem(item: MobileVaultItem, input: NewItemInput): Mob
     id: item.id,
     itemType: item.itemType,
     kind: item.itemType,
+    createdAt: item.createdAt,
+    updatedAt: new Date().toISOString(),
     hasPasskey: item.hasPasskey,
     lastUsedAt: item.lastUsedAt,
     sshAlgorithm: item.sshAlgorithm,
@@ -314,6 +321,7 @@ export function createProviderSavedLogin(input: {
   domain?: string;
   domains?: string[];
   password?: string;
+  otpCode?: string;
   hasPasskey?: boolean;
   lastUsedAt?: string;
 }): MobileVaultItem {
@@ -325,12 +333,16 @@ export function createProviderSavedLogin(input: {
     itemType: "login",
     itemName: input.title,
     title: input.title,
+    createdAt: input.lastUsedAt,
+    updatedAt: input.lastUsedAt,
     username: input.username,
     password: input.password,
+    otp: input.otpCode,
+    otpCode: input.otpCode,
     website: websites[0],
     websites,
     hasPassword: Boolean(input.password),
-    hasOtp: false,
+    hasOtp: Boolean(input.otpCode),
     hasPasskey: Boolean(input.hasPasskey),
     customFields: [],
     lastUsedAt: input.lastUsedAt ?? "Saved from autofill",
@@ -340,17 +352,18 @@ export function createProviderSavedLogin(input: {
 function normalizeVaultState(state: Partial<MobileVaultState>): MobileVaultState {
   return {
     items: (state.items ?? []).map(normalizeVaultItem),
-    passkeys: state.passkeys ?? [],
+    passkeys: (state.passkeys ?? []).map(normalizeMobilePasskey),
   };
 }
 
-function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultItem {
+export function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultItem {
   const kind = item.itemType ?? item.kind ?? "login";
   const itemName = item.itemName ?? item.title ?? "New item";
   const websites = cleanWebsites(item.websites ?? [item.website ?? ""]);
   const otp = item.otp ?? item.otpCode;
   const password = item.password;
   const cardNumber = item.cardNumber?.replace(/\s+/g, "").trim();
+  const stableTimestamp = item.updatedAt ?? item.createdAt ?? item.lastUsedAt ?? item.id ?? "1970-01-01T00:00:00.000Z";
 
   return {
     ...item,
@@ -359,6 +372,8 @@ function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultItem {
     kind,
     itemName,
     title: itemName,
+    createdAt: item.createdAt ?? stableTimestamp,
+    updatedAt: stableTimestamp,
     website: websites[0],
     websites,
     otp,
@@ -371,6 +386,24 @@ function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultItem {
     hasOtp: Boolean(item.hasOtp || otp),
     hasPasskey: Boolean(item.hasPasskey),
     hasRecoveryCodes: Boolean(item.hasRecoveryCodes || item.recoveryCodes?.length),
+  };
+}
+
+export function normalizeMobilePasskey(passkey: Partial<MobilePasskey> & { credentialId?: string; label?: string; userName?: string }): MobilePasskey {
+  const rpId = clean(passkey.rpId) ?? "";
+  const id = clean(passkey.id) ?? clean(passkey.credentialId) ?? Crypto.randomUUID();
+  const username = clean(passkey.username) ?? clean(passkey.userName) ?? clean(passkey.label) ?? (rpId || "Passkey");
+  const createdAt = clean(passkey.createdAt) ?? new Date().toISOString();
+
+  return {
+    ...passkey,
+    id,
+    rpId,
+    username,
+    itemId: clean(passkey.itemId),
+    createdAt,
+    lastUsedAt: clean(passkey.lastUsedAt),
+    providerBacked: passkey.providerBacked === true,
   };
 }
 

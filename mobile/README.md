@@ -48,6 +48,23 @@ Check the local native registration surfaces:
 bun run verify:native
 ```
 
+## Cloud Sync
+
+Mobile sync is optional. The app works as a local offline vault without Ave or Convex configuration, and sync controls only become useful after the user connects Ave. Mobile sync uses Ave AuthSession, the Ave Expo session helpers, Convex, and encrypted local SQLite vault records. SecureStore keeps the Ave session and the local database encryption key; vault items and passkey metadata live as AES-GCM records in SQLite.
+
+Set these values before starting a development build:
+
+```bash
+EXPO_PUBLIC_AVE_CLIENT_ID=ave_app_client_id
+EXPO_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+```
+
+The Ave app must have E2EE enabled and include the mobile `klarkey://oauth/callback` redirect. Convex must use the same Ave client id in its auth config and have the sync functions deployed from the root `convex` folder.
+
+Sync is offline-first. Klarkey pulls remote encrypted records after unlock, pushes changed local records, and keeps conflict copies rather than replacing local secrets silently. Ave sessions hydrate from SecureStore and refresh before Convex receives an `id_token`. Native credential-provider stores stay device-local caches that are repopulated from the unlocked vault.
+
+When the user is signed in and the vault is unlocked, mobile keeps a Convex realtime subscription to the small sync-status query. That subscription only watches the remote sequence; encrypted records are fetched through `pullSince` after the sequence changes. Local item changes are debounced into background sync, so the app feels live without polling the full vault.
+
 Generate the website association files for `https://klarkey.com/.well-known/` after you know the signing values:
 
 ```bash

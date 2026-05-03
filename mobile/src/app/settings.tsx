@@ -1,6 +1,6 @@
 import { useRouter } from "expo-router";
-import { ArrowLeft, Check, ChevronRight, CircleAlert, Clock3, Fingerprint, Globe, KeyRound, LockKeyhole, ShieldCheck } from "lucide-react-native";
-import { Platform, StyleSheet } from "react-native";
+import { ArrowLeft, Check, ChevronRight, CircleAlert, Clock3, Cloud, Fingerprint, Globe, KeyRound, LockKeyhole, LogOut, RefreshCw, ShieldCheck } from "lucide-react-native";
+import { ActivityIndicator, Platform, StyleSheet } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LockedVaultScreen } from "@/components/klarkey-ui";
@@ -23,7 +23,7 @@ type RowIcon = typeof ShieldCheck;
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { locked, support, unlock, loading, lastEvent, settings, updateAutoLockMinutes } = useMobileVault();
+  const { locked, support, unlock, loading, lastEvent, settings, syncStatus, updateAutoLockMinutes, syncSignIn, syncSignOut, syncNow } = useMobileVault();
 
   if (locked) {
     return (
@@ -66,6 +66,35 @@ export default function SettingsScreen() {
             detail={support.secureStore ? "Items are saved on this phone." : "This phone cannot store vault data yet."}
             state={support.secureStore ? "ready" : "attention"}
           />
+        </SettingsGroup>
+
+        <SettingsGroup title="Sync">
+          <SettingsRow
+            icon={Cloud}
+            title="Cloud sync"
+            detail={!syncStatus.configured ? "Set Ave and Convex environment values to connect this device." : syncStatus.signedIn ? syncStatus.accountName ?? "Connected with Ave." : "Sign in with Ave to sync this vault."}
+            state={syncStatus.signedIn ? "ready" : syncStatus.configured ? "neutral" : "attention"}
+            onPress={!syncStatus.configured ? undefined : syncStatus.signedIn ? () => void syncNow() : () => void syncSignIn()}
+          />
+          {syncStatus.signedIn ? (
+            <>
+              <SettingsRow
+                icon={RefreshCw}
+                title="Sync now"
+                detail={syncStatus.syncing ? "Syncing encrypted changes." : syncStatus.lastError ?? (syncStatus.lastSyncAt ? `Last sync ${new Date(syncStatus.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Push and pull encrypted vault changes.")}
+                state={syncStatus.conflictCount > 0 ? "attention" : "neutral"}
+                syncing={syncStatus.syncing}
+                onPress={() => void syncNow()}
+              />
+              <SettingsRow
+                icon={LogOut}
+                title="Disconnect sync"
+                detail={syncStatus.conflictCount > 0 ? `${syncStatus.conflictCount} conflict copy saved.` : "This only signs out this phone."}
+                state="neutral"
+                onPress={() => void syncSignOut()}
+              />
+            </>
+          ) : null}
         </SettingsGroup>
 
         <View style={styles.section}>
@@ -130,12 +159,14 @@ function SettingsRow({
   detail,
   state,
   onPress,
+  syncing = false,
 }: {
   icon: RowIcon;
   title: string;
   detail: string;
   state: RowState;
   onPress?: () => void;
+  syncing?: boolean;
 }) {
   const interactive = Boolean(onPress);
   const StateIcon = state === "ready" ? Check : state === "attention" ? CircleAlert : undefined;
@@ -149,7 +180,7 @@ function SettingsRow({
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowDetail}>{detail}</Text>
       </View>
-      {StateIcon ? <StateIcon size={18} color={stateColor} strokeWidth={2.2} /> : null}
+      {syncing ? <ActivityIndicator size="small" color="rgba(255,255,255,0.62)" /> : StateIcon ? <StateIcon size={18} color={stateColor} strokeWidth={2.2} /> : null}
       {interactive ? <ChevronRight size={19} color="rgba(255,255,255,0.35)" strokeWidth={2.2} /> : null}
     </>
   );

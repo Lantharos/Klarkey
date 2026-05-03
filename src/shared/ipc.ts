@@ -17,6 +17,7 @@ import type {
   VaultOperationResult,
   VaultPasskeyRecord,
 } from '@/shared/types'
+import type { SyncStatus, SyncUpdateEvent } from '@/shared/sync'
 
 export interface KlarkeyApi {
   palette: {
@@ -56,6 +57,12 @@ export interface KlarkeyApi {
     get: () => Promise<UserSettings>
     set: (update: SettingsUpdate) => Promise<UserSettings>
   }
+  sync: {
+    status: () => Promise<SyncStatus>
+    signIn: () => Promise<SyncStatus>
+    signOut: () => Promise<SyncStatus>
+    syncNow: () => Promise<SyncStatus>
+  }
   passkeys: {
     getSupport: () => Promise<PasskeySupport>
     list: () => Promise<VaultPasskeyRecord[]>
@@ -77,6 +84,7 @@ export interface KlarkeyApi {
   onFocusRequest: (callback: () => void) => () => void
   onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
   onLockStateChanged: (callback: (info: VaultLockInfo) => void) => () => void
+  onSyncChanged: (callback: (event: SyncUpdateEvent) => void) => () => void
   dev?: {
     forceLock: () => Promise<VaultLockInfo>
     forceUnlock: () => Promise<VaultLockInfo>

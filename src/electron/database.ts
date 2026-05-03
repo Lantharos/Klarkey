@@ -135,6 +135,28 @@ export function createDatabase(): DatabaseHandle {
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sync_record_state (
+      recordId TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL DEFAULT 0,
+      contentHash TEXT NOT NULL DEFAULT '',
+      serverSequence INTEGER NOT NULL DEFAULT 0,
+      updatedAt TEXT NOT NULL,
+      deletedAt INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_metadata (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sync_conflicts (
+      id TEXT PRIMARY KEY,
+      recordId TEXT NOT NULL,
+      localContentHash TEXT NOT NULL,
+      remoteContentHash TEXT NOT NULL,
+      createdAt TEXT NOT NULL
+    );
   `)
 
   ensureColumn(db, 'identities', 'itemType', "TEXT NOT NULL DEFAULT 'login'")

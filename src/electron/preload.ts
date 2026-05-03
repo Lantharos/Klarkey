@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '@/electron/constants'
 import type { KlarkeyApi } from '@/shared/ipc'
+import type { SyncUpdateEvent } from '@/shared/sync'
 import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import { PASSKEY_RP_ID, PASSKEY_RP_NAME } from '@/shared/passkeys'
 import type { CreateVaultPasskeyInput, ExternalWindowContext, VaultLockInfo, VaultPasskeyRecord } from '@/shared/types'
@@ -156,6 +157,12 @@ const api: KlarkeyApi = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.settingsGet),
     set: (update) => ipcRenderer.invoke(IPC_CHANNELS.settingsSet, update),
   },
+  sync: {
+    status: () => ipcRenderer.invoke(IPC_CHANNELS.syncStatus),
+    signIn: () => ipcRenderer.invoke(IPC_CHANNELS.syncSignIn),
+    signOut: () => ipcRenderer.invoke(IPC_CHANNELS.syncSignOut),
+    syncNow: () => ipcRenderer.invoke(IPC_CHANNELS.syncNow),
+  },
   passkeys: {
     getSupport: async () => {
       const [browserSupport, systemSupport] = await Promise.all([
@@ -254,6 +261,11 @@ const api: KlarkeyApi = {
     const listener = (_event: Electron.IpcRendererEvent, info: VaultLockInfo) => callback(info)
     ipcRenderer.on(IPC_CHANNELS.vaultLockState, listener)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.vaultLockState, listener)
+  },
+  onSyncChanged: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, update: SyncUpdateEvent) => callback(update)
+    ipcRenderer.on(IPC_CHANNELS.syncChanged, listener)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.syncChanged, listener)
   },
 }
 

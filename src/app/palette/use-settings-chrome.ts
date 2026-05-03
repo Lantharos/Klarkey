@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { keyboardEventToAccelerator } from '@/app/hotkey-accelerator'
+import { isSettingsRowVisible, moveVisibleSettingsRow, nearestVisibleSettingsRow } from '@/app/settings/settings-row-visibility'
 import { nextAutoLockMinutes, nextClipboardSeconds } from '@/app/settings-constants'
 import { usePaletteStore } from '@/app/usePaletteStore'
 import { DEFAULT_SETTINGS, type SettingsUpdate, type UserSettings, type VaultLockInfo } from '@/shared/types'
@@ -27,13 +28,12 @@ export function useSettingsChrome(
 ) {
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [hotkeyError, setHotkeyError] = useState<string | undefined>()
+  const syncStatus = usePaletteStore((state) => state.syncStatus)
 
   const resetSettingsChrome = useCallback(() => {
     setHotkeyRecording(false)
     setHotkeyError(undefined)
   }, [])
-
-  const totalSettingsRows = 12
 
   const settingsFooter = useMemo(() => {
     if (hotkeyError) {
@@ -63,8 +63,16 @@ export function useSettingsChrome(
       7: 'Enter sets up a master password.',
       8: 'Enter cycles auto-lock minutes.',
       9: 'Enter toggles the Windows SSH agent pipe for Git and OpenSSH clients.',
-      10: 'Enter exports your vault to a file.',
-      11: 'Enter imports items from another password manager.',
+      10: !syncStatus?.configured
+        ? 'Add sync environment values to .env.local, then restart Klarkey.'
+        : syncStatus.signedIn
+          ? 'Enter syncs encrypted vault changes now.'
+          : 'Enter connects Klarkey sync through Ave.',
+      11: 'Enter pushes and pulls encrypted vault changes.',
+      12: 'Conflict copies are saved as separate items so nothing disappears.',
+      13: 'Enter disconnects this device from cloud sync.',
+      14: 'Enter exports your vault to a file.',
+      15: 'Enter imports items from another password manager.',
     }
     return {
       barClass: '',
@@ -72,7 +80,7 @@ export function useSettingsChrome(
       primaryClass: 'text-white/48',
       keyHints: ['↑↓', 'Enter', 'Esc'],
     }
-  }, [hotkeyError, hotkeyRecording, selectedIndex])
+  }, [hotkeyError, hotkeyRecording, selectedIndex, syncStatus?.configured, syncStatus?.signedIn])
 
   const activateSettingsRow = useCallback(
     (index: number) => {
@@ -133,17 +141,50 @@ export function useSettingsChrome(
       }
 
       if (index === 10) {
-        usePaletteStore.getState().openExportPage()
+        const { syncStatus, syncNow, syncSignIn } = usePaletteStore.getState()
+        if (!syncStatus?.configured) {
+          return
+        }
+        void (syncStatus?.signedIn ? syncNow() : syncSignIn())
         return
       }
 
       if (index === 11) {
+        if (!usePaletteStore.getState().syncStatus?.signedIn) {
+          return
+        }
+        void usePaletteStore.getState().syncNow()
+        return
+      }
+
+      if (index === 13) {
+        if (!usePaletteStore.getState().syncStatus?.signedIn) {
+          return
+        }
+        void usePaletteStore.getState().syncSignOut()
+        return
+      }
+
+      if (index === 14) {
+        usePaletteStore.getState().openExportPage()
+        return
+      }
+
+      if (index === 15) {
         usePaletteStore.getState().openImportPage()
         return
       }
     },
     [lockInfo?.passcodeSet, settings, updateSettings],
   )
+
+  useEffect(() => {
+    if (page !== 'settings' || isSettingsRowVisible(selectedIndex, syncStatus)) {
+      return
+    }
+
+    usePaletteStore.getState().setSelectedIndex(nearestVisibleSettingsRow(selectedIndex, syncStatus))
+  }, [page, selectedIndex, syncStatus])
 
   useEffect(() => {
     if (!hotkeyRecording || page !== 'settings') {
@@ -202,14 +243,14 @@ export function useSettingsChrome(
       if (event.key === 'ArrowDown') {
         event.preventDefault()
         const { selectedIndex: current, setSelectedIndex } = usePaletteStore.getState()
-        setSelectedIndex((current + 1) % totalSettingsRows)
+        setSelectedIndex(moveVisibleSettingsRow(current, 1, usePaletteStore.getState().syncStatus))
         return
       }
 
       if (event.key === 'ArrowUp') {
         event.preventDefault()
         const { selectedIndex: current, setSelectedIndex } = usePaletteStore.getState()
-        setSelectedIndex((current - 1 + totalSettingsRows) % totalSettingsRows)
+        setSelectedIndex(moveVisibleSettingsRow(current, -1, usePaletteStore.getState().syncStatus))
         return
       }
 
@@ -222,7 +263,7 @@ export function useSettingsChrome(
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activateSettingsRow, hotkeyRecording, page, totalSettingsRows])
+  }, [activateSettingsRow, hotkeyRecording, page])
 
   return {
     hotkeyRecording,

@@ -1,7 +1,7 @@
 import { requireOptionalNativeModule } from "expo";
 import { NativeModules, Platform } from "react-native";
 
-import { createProviderSavedLogin, type MobilePasskey, type MobileVaultItem, type MobileVaultState } from "@/lib/vault";
+import { createProviderSavedLogin, normalizeMobilePasskey, type MobilePasskey, type MobileVaultItem, type MobileVaultState } from "@/lib/vault";
 
 interface KlarkeyCredentialStoreModule {
   replaceCredentials: (payload: string, unlockedUntil: number) => Promise<void>;
@@ -18,6 +18,7 @@ interface ProviderSavedCredential {
   domain?: string;
   domains?: string[];
   password?: string;
+  otpCode?: string;
   hasPasskey?: boolean;
   lastUsedAt?: string;
 }
@@ -77,7 +78,7 @@ export async function syncNativeCredentialStore(vault: MobileVaultState) {
         hasPassword: Boolean(item.password),
         hasOtp: Boolean(item.otpCode),
         hasPasskey: vault.passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)),
-        lastUsedAt: Date.now(),
+        lastUsedAt: item.lastUsedAt ?? item.updatedAt ?? item.createdAt ?? item.id,
       };
     });
 
@@ -121,7 +122,7 @@ export async function loadNativeProviderPasskeys(): Promise<MobilePasskey[]> {
 
   const payload = await store.getProviderPasskeys();
   const passkeys = JSON.parse(payload) as MobilePasskey[];
-  return passkeys.map((passkey) => ({
+  return passkeys.map((passkey) => normalizeMobilePasskey({
     ...passkey,
     providerBacked: true,
   }));

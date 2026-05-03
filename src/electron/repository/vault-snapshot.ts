@@ -27,6 +27,8 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
       hasPasskey: number
       lastUsedAt?: string
     }>
+  const passkeyRows = db.prepare('SELECT DISTINCT itemId FROM passkeys WHERE itemId IS NOT NULL').all() as Array<{ itemId: string }>
+  const passkeyItemIds = new Set(passkeyRows.map((row) => row.itemId))
   const recents = db
     .prepare('SELECT id, actionId, itemId, label, usedAt FROM recent_actions ORDER BY usedAt DESC LIMIT 25')
     .all() as RecentAction[]
@@ -79,7 +81,7 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
         customFields: parseJson<Array<{ id: string; label: string; value: string }>>(item.customFields, []),
         hasPassword: Boolean(item.passwordPayload),
         hasOtp: Boolean(item.otpPayload),
-        hasPasskey: Boolean(item.hasPasskey),
+        hasPasskey: passkeyItemIds.has(item.id),
         hasRecoveryCodes: Boolean(itemData.recoveryCodes && itemData.recoveryCodes.length > 0),
         ssoProvider: itemData.ssoProvider,
         passwordPreview: item.passwordPayload ? '**********' : undefined,

@@ -36,11 +36,13 @@ export function LockedVaultScreen({
   autoPrompt?: boolean;
 }) {
   const prompted = useRef(false);
-  const title = canUnlock ? "Vault locked" : "Set a device lock";
-  const detail = canUnlock
+  const probingUnlock = loading && !canUnlock;
+  const unlockVisible = canUnlock || probingUnlock;
+  const title = unlockVisible ? "Vault locked" : "Set a device lock";
+  const detail = unlockVisible
     ? "Unlock with your phone to search, fill, and save in Klarkey."
     : "Klarkey needs a phone password, PIN, pattern, or biometric before it can open your vault.";
-  const ButtonIcon = canUnlock ? LockKeyhole : Settings;
+  const ButtonIcon = unlockVisible ? LockKeyhole : Settings;
 
   useEffect(() => {
     if (!autoPrompt || !canUnlock || loading || prompted.current) {
@@ -56,7 +58,7 @@ export function LockedVaultScreen({
     <View className="flex-1 bg-[#1a1a1b] px-6" style={{ paddingBottom: 42, paddingTop: 54 }}>
       <View className="flex-1 justify-center gap-7">
         <View className="h-[82px] w-[82px] items-center justify-center rounded-[28px] bg-[#E07878]/16">
-          {canUnlock ? <ShieldCheck size={34} color="#E07878" strokeWidth={1.9} /> : <Lock size={34} color="#E07878" strokeWidth={1.9} />}
+          {unlockVisible ? <ShieldCheck size={34} color="#E07878" strokeWidth={1.9} /> : <Lock size={34} color="#E07878" strokeWidth={1.9} />}
         </View>
         <View className="gap-3">
           <Text className="text-[34px] font-medium leading-[39px] text-white">{title}</Text>
@@ -68,12 +70,12 @@ export function LockedVaultScreen({
         {lastEvent ? <Text className="text-[14px] leading-5 text-[#E07878]">{lastEvent}</Text> : null}
         <Pressable
           accessibilityRole="button"
-          className={`min-h-[56px] flex-row items-center justify-center gap-2 rounded-[18px] px-5 ${canUnlock ? "bg-[#E07878]" : "bg-white/9"}`}
+          className={`min-h-[56px] flex-row items-center justify-center gap-2 rounded-[18px] px-5 ${unlockVisible ? "bg-[#E07878]" : "bg-white/9"}`}
           onPress={canUnlock ? onUnlock : (onOpenSecuritySettings ?? onUnlock)}
           disabled={loading}>
-          <ButtonIcon size={20} color={canUnlock ? "#111112" : "rgba(255,255,255,0.76)"} strokeWidth={2.2} />
-          <Text className={`text-[16px] font-medium ${canUnlock ? "text-[#111112]" : "text-white"}`}>
-            {loading ? "Unlocking" : canUnlock ? "Unlock Klarkey" : "Open security settings"}
+          <ButtonIcon size={20} color={unlockVisible ? "#111112" : "rgba(255,255,255,0.76)"} strokeWidth={2.2} />
+          <Text className={`text-[16px] font-medium ${unlockVisible ? "text-[#111112]" : "text-white"}`}>
+            {loading ? "Checking unlock" : canUnlock ? "Unlock Klarkey" : "Open security settings"}
           </Text>
         </Pressable>
       </View>

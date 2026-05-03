@@ -69,6 +69,8 @@
       ],
       "expo-secure-store",
       "expo-image",
+      "expo-web-browser",
+      "expo-sqlite",
       [
         "expo-local-authentication",
         {

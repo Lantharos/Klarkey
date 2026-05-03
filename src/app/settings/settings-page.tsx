@@ -1,6 +1,7 @@
 import { clsx } from 'clsx'
 import { useEffect, useRef } from 'react'
 import { formatClipboardClearLabel } from '@/app/settings-constants'
+import type { SyncStatus } from '@/shared/sync'
 import type { VaultLockInfo, UserSettings } from '@/shared/types'
 
 function SettingRow({
@@ -14,7 +15,7 @@ function SettingRow({
 }: {
   label: string
   value: string
-  valueTone?: 'default' | 'recording'
+  valueTone?: 'default' | 'recording' | 'syncing'
   selected: boolean
   onHover: () => void
   onClick?: () => void
@@ -33,6 +34,10 @@ function SettingRow({
       ? selected
         ? 'text-emerald-200/90'
         : 'text-emerald-200/72'
+      : valueTone === 'syncing'
+        ? selected
+          ? 'text-white/70'
+          : 'text-white/52'
       : selected
         ? 'text-white/52'
         : 'text-white/40'
@@ -42,12 +47,13 @@ function SettingRow({
       <div className={clsx('text-[15px] font-medium', selected ? 'text-white' : 'text-white/78')}>{label}</div>
       <div
         className={clsx(
-          'text-[14px] tabular-nums',
+          'flex items-center gap-2 text-[14px] tabular-nums',
           valueClass,
           valueTone === 'recording' ? 'motion-safe:animate-pulse' : '',
         )}
       >
-        {value}
+        {valueTone === 'syncing' ? <span className="h-3 w-3 rounded-full border border-white/18 border-t-white/72 motion-safe:animate-spin" /> : null}
+        <span>{value}</span>
       </div>
     </>
   )
@@ -105,6 +111,10 @@ export function SettingsPage({
   onSetPasscode,
   onSetupMasterPassword,
   onToggleSshAgent,
+  syncStatus,
+  onSyncSignIn,
+  onSyncNow,
+  onSyncSignOut,
   onExportVault,
   onImportVault,
   pointerActive = true,
@@ -125,6 +135,10 @@ export function SettingsPage({
   onSetPasscode: () => void
   onSetupMasterPassword: () => void
   onToggleSshAgent: () => void
+  syncStatus?: SyncStatus
+  onSyncSignIn: () => void
+  onSyncNow: () => void
+  onSyncSignOut: () => void
   onExportVault: () => void
   onImportVault: () => void
   pointerActive?: boolean
@@ -134,6 +148,13 @@ export function SettingsPage({
   const passcodeLabel = lockInfo?.passcodeSet ? (settings.passcodeEnabled ? 'On' : 'Off') : 'Not set'
   const masterPasswordLabel = lockInfo?.masterPasswordSet ? 'Set' : 'Not set'
   const sshAgentLabel = settings.sshAgentEnabled ? 'On' : 'Off'
+  const syncLabel = !syncStatus?.configured
+    ? 'Not configured'
+    : syncStatus.signedIn
+      ? syncStatus.account?.email ?? syncStatus.account?.displayName ?? 'Connected'
+      : 'Sign in'
+  const syncNowLabel = syncStatus?.syncing ? 'Syncing' : syncStatus?.lastSyncAt ? new Date(syncStatus.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'
+  const conflictLabel = syncStatus?.conflictCount ? `${syncStatus.conflictCount} saved` : 'None'
 
   return (
     <div className="space-y-1 px-2 pb-3 pt-1">
@@ -222,20 +243,57 @@ export function SettingsPage({
         onClick={onToggleSshAgent}
         pointerActive={pointerActive}
       />
+      <div className="px-3 pb-1 pt-3 text-[12px] text-white/38">Sync</div>
+      <SettingRow
+        label="Cloud sync"
+        value={syncLabel}
+        selected={selectedIndex === 10}
+        onHover={() => onSelectRow(10)}
+        onClick={!syncStatus?.configured ? undefined : syncStatus.signedIn ? onSyncNow : onSyncSignIn}
+        pointerActive={pointerActive}
+      />
+      {syncStatus?.signedIn ? (
+        <>
+          <SettingRow
+            label="Sync now"
+            value={syncNowLabel}
+            valueTone={syncStatus.syncing ? 'syncing' : 'default'}
+            selected={selectedIndex === 11}
+            onHover={() => onSelectRow(11)}
+            onClick={onSyncNow}
+            pointerActive={pointerActive}
+          />
+          <SettingRow
+            label="Conflict copies"
+            value={conflictLabel}
+            selected={selectedIndex === 12}
+            onHover={() => onSelectRow(12)}
+            pointerActive={pointerActive}
+          />
+          <SettingRow
+            label="Disconnect sync"
+            value="This device"
+            selected={selectedIndex === 13}
+            onHover={() => onSelectRow(13)}
+            onClick={onSyncSignOut}
+            pointerActive={pointerActive}
+          />
+        </>
+      ) : null}
       <div className="px-3 pb-1 pt-3 text-[12px] text-white/38">Data</div>
       <SettingRow
         label="Export vault"
         value="Klarkey or CSV"
-        selected={selectedIndex === 10}
-        onHover={() => onSelectRow(10)}
+        selected={selectedIndex === 14}
+        onHover={() => onSelectRow(14)}
         onClick={onExportVault}
         pointerActive={pointerActive}
       />
       <SettingRow
         label="Import vault"
         value="1Password, Bitwarden, etc."
-        selected={selectedIndex === 11}
-        onHover={() => onSelectRow(11)}
+        selected={selectedIndex === 15}
+        onHover={() => onSelectRow(15)}
         onClick={onImportVault}
         pointerActive={pointerActive}
       />

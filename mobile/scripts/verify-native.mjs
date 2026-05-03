@@ -140,7 +140,6 @@ check("Template assets and unused styling packages are removed", () =>
     "tailwindcss",
     "expo-glass-effect",
     "expo-symbols",
-    "expo-web-browser",
     "@react-navigation/bottom-tabs",
   ].some((dependency) => dependency in pkg.dependencies),
 );
@@ -340,13 +339,22 @@ check("Generated Android provider can create provider-owned passkeys", () =>
 check("Passkeys stay provider-backed and linked to matching website items", () =>
   includes("src/lib/vault.ts", "providerBacked?: boolean") &&
   includes("src/lib/vault.ts", "itemId?: string") &&
+  includes("src/lib/vault.ts", "normalizeMobilePasskey") &&
+  includes("src/lib/vault-storage.ts", "persistedId") &&
   includes("src/lib/native-credential-store.ts", "export function isProviderBackedPasskeyForItem") &&
+  includes("src/lib/native-credential-store.ts", "normalizeMobilePasskey") &&
   includes("src/lib/native-credential-store.ts", "passkey.providerBacked !== true") &&
   includes("src/lib/native-credential-store.ts", "passkey.itemId && passkey.itemId === item.id") &&
   includes("src/lib/native-credential-store.ts", "passkey.rpId === host") &&
   includes("src/lib/vault-context.tsx", "linkPasskeysToItems") &&
+  includes("src/lib/vault-context.tsx", "deleteNativeProviderRecordsForRemovedItems") &&
   includes("src/lib/vault-context.tsx", "deleteNativeProviderItem") &&
   includes("src/lib/vault-context.tsx", "linkedPasskeyIds") &&
+  includes("src/lib/sync.ts", "isDeviceLocalPasskeyItemId") &&
+  includes("src/lib/sync.ts", "!isDeviceLocalPasskeyItem(item)") &&
+  includes("src/lib/sync.ts", "isDeviceLocalPasskeyItemRecord") &&
+  includes("src/lib/sync.ts", "passkeyBelongsToItem") &&
+  includes("src/lib/sync.ts", "isProviderBackedPasskeyForItem") &&
   includes("src/components/item-detail-panel.tsx", "Passkey saved for this login") &&
   includes("plugins/android-provider-sources/passkey-source.js", "val rpId = options.rp.id") &&
   includes("plugins/android-provider-sources/passkey-source.js", "savePasskeyCredential") &&

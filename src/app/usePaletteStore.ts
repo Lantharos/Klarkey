@@ -14,6 +14,7 @@ import {
   type VaultLockInfo,
   type VaultOperationResult,
 } from '@/shared/types'
+import type { SyncStatus } from '@/shared/sync'
 
 const searchPageSize = 20
 
@@ -55,6 +56,12 @@ const fallbackApi: KlarkeyApi = {
     get: async () => DEFAULT_SETTINGS,
     set: async () => DEFAULT_SETTINGS,
   },
+  sync: {
+    status: async () => fallbackSyncStatus,
+    signIn: async () => fallbackSyncStatus,
+    signOut: async () => fallbackSyncStatus,
+    syncNow: async () => fallbackSyncStatus,
+  },
   passkeys: {
     getSupport: async () => ({
       available: false,
@@ -85,10 +92,48 @@ const fallbackApi: KlarkeyApi = {
   onFocusRequest: () => () => undefined,
   onTargetWindowChange: () => () => undefined,
   onLockStateChanged: () => () => undefined,
+  onSyncChanged: () => () => undefined,
+}
+
+const fallbackSyncStatus: SyncStatus = {
+  configured: false,
+  signedIn: false,
+  syncing: false,
+  deviceId: 'unavailable',
+  deviceName: 'Desktop bridge unavailable',
+  conflictCount: 0,
+  serverSequence: 0,
+}
+
+function syncStatusError(error: unknown): SyncStatus {
+  return {
+    ...fallbackSyncStatus,
+    lastError: error instanceof Error ? error.message : 'Sync is unavailable.',
+  }
+}
+
+async function safeSyncStatus() {
+  try {
+    return await api.sync.status()
+  } catch (error) {
+    console.warn('Sync status unavailable', error)
+    return syncStatusError(error)
+  }
 }
 
 const api = window.klarkey ?? fallbackApi
 let nextResolveKey = 0
+let syncListenerAttached = false
+
+function preserveSelectedIndex(actions: ResolvedAction[], selectedActionId: string | undefined, previousIndex: number) {
+  if (selectedActionId) {
+    const nextIndex = actions.findIndex((action) => action.id === selectedActionId)
+    if (nextIndex >= 0) {
+      return nextIndex
+    }
+  }
+  return Math.max(0, Math.min(previousIndex, Math.max(0, actions.length - 1)))
+}
 
 interface PaletteState {
   hydrated: boolean
@@ -108,10 +153,11 @@ interface PaletteState {
   recoveryCodesMode?: 'add' | 'view'
   settings?: UserSettings
   lockInfo?: VaultLockInfo
+  syncStatus?: SyncStatus
   boot: () => Promise<void>
   primeHome: () => void
   resetToHome: () => Promise<void>
-  refresh: (raw: string) => Promise<void>
+  refresh: (raw: string, options?: { preserveSelection?: boolean }) => Promise<void>
   setTrailingText: (value: string) => Promise<void>
   removeToken: (token: CommandQuery['tokens'][number]) => void
   moveSelection: (delta: number) => void
@@ -146,6 +192,10 @@ interface PaletteState {
   updateRecoveryCodesInPlace: (codes: string[]) => Promise<ActionExecutionResult | undefined>
   focusInput: () => void
   updateSettings: (update: SettingsUpdate) => Promise<void>
+  refreshSyncStatus: () => Promise<void>
+  syncSignIn: () => Promise<void>
+  syncSignOut: () => Promise<void>
+  syncNow: () => Promise<void>
   loadMoreActions: () => Promise<void>
   exportVault: (format: 'klarkey-json' | 'csv') => Promise<{ success: boolean; message: string }>
   importVault: (format: 'auto' | 'klarkey-json' | 'csv' | '1pux' | 'bitwarden-json' | 'lastpass-csv' | 'dashlane-csv' | 'dashlane-json' | 'chrome-csv') => Promise<{ success: boolean; message: string }>
@@ -174,17 +224,37 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   detailAction: undefined,
   recoveryCodesMode: undefined,
   lockInfo: undefined,
+  syncStatus: fallbackSyncStatus,
   settings: DEFAULT_SETTINGS,
   async boot() {
+    if (!syncListenerAttached) {
+      syncListenerAttached = true
+      api.onSyncChanged((update) => {
+        set({ syncStatus: update.status })
+        if (update.returnHome && get().page === 'settings') {
+          get().primeHome()
+          void get().resetToHome()
+          return
+        }
+        if (update.vaultChanged && get().page === 'home') {
+          void get().refresh(get().query.raw, { preserveSelection: true })
+        }
+      })
+    }
+
     try {
       const resolveKey = ++nextResolveKey
-      const settings = await api.settings.get()
-      const lockInfo = await api.vault.lockState()
+      const [settings, lockInfo, syncStatus] = await Promise.all([
+        api.settings.get(),
+        api.vault.lockState(),
+        safeSyncStatus(),
+      ])
       const startPage = lockInfo.state === 'locked' ? 'locked' as const : lockInfo.state === 'passcode' ? 'passcode' as const : 'home' as const
         set({
           resolveKey,
           settings,
           lockInfo,
+          syncStatus,
           page: startPage,
           detailAction: undefined,
           formMode: undefined,
@@ -250,18 +320,23 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       }
     }
   },
-  async refresh(raw) {
+  async refresh(raw, options) {
     const query = await api.command.parse(raw)
     const previousActions = get().actions
+    const previousHasMoreResults = get().hasMoreResults
+    const previousNextOffset = get().nextOffset
+    const previousIndex = get().selectedIndex
+    const selectedActionId = options?.preserveSelection ? previousActions[previousIndex]?.id : undefined
+    const limit = options?.preserveSelection ? Math.max(searchPageSize, previousActions.length) : searchPageSize
     const resolveKey = ++nextResolveKey
     set({
       resolveKey,
       page: 'home',
       query,
       actions: previousActions,
-      hasMoreResults: false,
-      nextOffset: 0,
-      selectedIndex: 0,
+      hasMoreResults: options?.preserveSelection ? previousHasMoreResults : false,
+      nextOffset: options?.preserveSelection ? previousNextOffset : 0,
+      selectedIndex: options?.preserveSelection ? previousIndex : 0,
       detailAction: undefined,
       formMode: undefined,
       execution: undefined,
@@ -269,7 +344,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       isLoadingMore: false,
     })
     try {
-      const response = await api.search.resolve({ query, offset: 0, limit: searchPageSize })
+      const response = await api.search.resolve({ query, offset: 0, limit })
       if (get().resolveKey !== resolveKey) {
         return
       }
@@ -277,6 +352,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         actions: response.actions,
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
+        selectedIndex: options?.preserveSelection
+          ? preserveSelectedIndex(response.actions, selectedActionId, previousIndex)
+          : get().selectedIndex,
         isLoadingResults: false,
       })
     } catch {
@@ -455,7 +533,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         set({ page: 'detail', selectedIndex: 0, formMode: undefined, recoveryCodesMode: undefined, execution: undefined })
         return
       }
-      set({ page: 'settings', selectedIndex: page === 'export' ? 10 : 11, formMode: undefined, execution: undefined })
+      set({ page: 'settings', selectedIndex: page === 'export' ? 14 : 15, formMode: undefined, execution: undefined })
       return
     }
 
@@ -609,6 +687,78 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     const settings = await api.settings.set(update)
     set({ settings })
   },
+  async refreshSyncStatus() {
+    const syncStatus = await safeSyncStatus()
+    set({ syncStatus })
+  },
+  async syncSignIn() {
+    try {
+      const syncStatus = await api.sync.signIn()
+      set({
+        syncStatus,
+        execution: {
+          status: 'info',
+          title: 'Ave opened',
+          message: 'Finish sign-in in the browser to connect sync.',
+        },
+      })
+    } catch (error) {
+      set({
+        execution: {
+          status: 'error',
+          title: 'Sync sign-in failed',
+          message: error instanceof Error ? error.message : 'Klarkey could not start Ave sign-in.',
+        },
+      })
+    }
+  },
+  async syncSignOut() {
+    const syncStatus = await api.sync.signOut()
+    set({
+      syncStatus,
+      selectedIndex: 10,
+      execution: {
+        status: 'success',
+        title: 'Sync disconnected',
+        message: 'This device stopped using cloud sync.',
+      },
+    })
+  },
+  async syncNow() {
+    try {
+      set({
+        syncStatus: {
+          ...(get().syncStatus ?? fallbackSyncStatus),
+          syncing: true,
+          lastError: undefined,
+        },
+        execution: {
+          status: 'info',
+          title: 'Syncing',
+          message: 'Checking encrypted vault changes.',
+        },
+      })
+      const syncStatus = await api.sync.syncNow()
+      set({
+        syncStatus,
+        execution: {
+          status: syncStatus.conflictCount > 0 ? 'info' : 'success',
+          title: syncStatus.conflictCount > 0 ? 'Sync finished with conflicts' : 'Sync complete',
+          message: syncStatus.conflictCount > 0 ? `${syncStatus.conflictCount} conflict copy saved.` : 'Your vault is up to date.',
+        },
+      })
+    } catch (error) {
+      const syncStatus = await safeSyncStatus()
+      set({
+        syncStatus,
+        execution: {
+          status: 'error',
+          title: 'Sync failed',
+          message: error instanceof Error ? error.message : 'Klarkey could not sync.',
+        },
+      })
+    }
+  },
   async exportVault(format) {
     const filePath = await api.importExport.pickExportFile(format)
     if (!filePath) {
@@ -618,9 +768,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ page: 'import-loading' as const, execution: undefined })
     const result = await api.importExport.exportVault({ format, filePath })
     if (result.success) {
-      set({ page: 'settings', selectedIndex: 10, execution: { status: 'success', title: 'Export complete', message: result.message } })
+      set({ page: 'settings', selectedIndex: 14, execution: { status: 'success', title: 'Export complete', message: result.message } })
     } else {
-      set({ page: 'settings', selectedIndex: 10, execution: { status: 'error', title: 'Export failed', message: result.message } })
+      set({ page: 'settings', selectedIndex: 14, execution: { status: 'error', title: 'Export failed', message: result.message } })
     }
     return { success: result.success, message: result.message }
   },
@@ -633,10 +783,10 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ page: 'import-loading' as const, execution: undefined })
     const result = await api.importExport.importVault({ format, filePath })
     if (result.success) {
-      set({ page: 'settings', selectedIndex: 11, execution: { status: 'success', title: 'Import complete', message: result.message } })
+      set({ page: 'settings', selectedIndex: 15, execution: { status: 'success', title: 'Import complete', message: result.message } })
       await get().resetToHome()
     } else {
-      set({ page: 'settings', selectedIndex: 11, execution: { status: 'error', title: 'Import failed', message: result.message } })
+      set({ page: 'settings', selectedIndex: 15, execution: { status: 'error', title: 'Import failed', message: result.message } })
     }
     return { success: result.success, message: result.message }
   },

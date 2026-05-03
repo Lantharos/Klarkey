@@ -47,6 +47,7 @@ function App() {
   const detailAction = usePaletteStore((state) => state.detailAction);
   const execution = usePaletteStore((state) => state.execution);
   const settings = usePaletteStore((state) => state.settings);
+  const syncStatus = usePaletteStore((state) => state.syncStatus);
   const hasMoreResults = usePaletteStore((state) => state.hasMoreResults);
   const isLoadingMore = usePaletteStore((state) => state.isLoadingMore);
   const boot = usePaletteStore((state) => state.boot);
@@ -60,6 +61,10 @@ function App() {
   const executeAction = usePaletteStore((state) => state.executeAction);
   const setSelectedIndex = usePaletteStore((state) => state.setSelectedIndex);
   const updateSettings = usePaletteStore((state) => state.updateSettings);
+  const refreshSyncStatus = usePaletteStore((state) => state.refreshSyncStatus);
+  const syncSignIn = usePaletteStore((state) => state.syncSignIn);
+  const syncSignOut = usePaletteStore((state) => state.syncSignOut);
+  const syncNow = usePaletteStore((state) => state.syncNow);
   const loadMoreActions = usePaletteStore((state) => state.loadMoreActions);
   const goBackOrClose = usePaletteStore((state) => state.goBackOrClose);
   const openEditForm = usePaletteStore((state) => state.openEditForm);
@@ -325,6 +330,12 @@ function App() {
   }, [focusInput, page]);
 
   useEffect(() => {
+    if (page === "settings") {
+      void refreshSyncStatus();
+    }
+  }, [page, refreshSyncStatus]);
+
+  useEffect(() => {
     if (page !== "export" && page !== "import") {
       return undefined;
     }
@@ -340,7 +351,7 @@ function App() {
         event.preventDefault();
         usePaletteStore.setState({
           page: "settings",
-          selectedIndex: page === "export" ? 10 : 11,
+          selectedIndex: page === "export" ? 14 : 15,
         });
         return;
       }
@@ -653,6 +664,10 @@ function App() {
                     .sshAgentEnabled,
                 })
               }
+              syncStatus={syncStatus}
+              onSyncSignIn={() => void syncSignIn()}
+              onSyncNow={() => void syncNow()}
+              onSyncSignOut={() => void syncSignOut()}
               onExportVault={() => {
                 usePaletteStore.setState({
                   page: "export",

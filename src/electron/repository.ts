@@ -22,6 +22,7 @@ import { loadItemDetails } from '@/electron/repository/item-details'
 import { id, now, tryDecrypt } from '@/electron/repository/helpers'
 import { mergeVaultSettings, readVaultSettings } from '@/electron/repository/vault-settings'
 import { buildVaultSnapshot } from '@/electron/repository/vault-snapshot'
+import { applyPlainVaultRecord, buildPlainVaultRecords, createConflictCopy } from '@/electron/repository/sync-records'
 import {
   createVaultDevicePasskey,
   deleteVaultDevicePasskey,
@@ -44,6 +45,7 @@ import {
   type VaultPasskeyRecord,
   type VaultSnapshot,
 } from '@/shared/types'
+import type { PlainVaultRecord } from '@/shared/sync'
 
 export class VaultRepository {
   private db: Database.Database
@@ -102,6 +104,18 @@ export class VaultRepository {
 
   getSnapshot(): VaultSnapshot {
     return buildVaultSnapshot(this.db)
+  }
+
+  getSyncRecords(): PlainVaultRecord[] {
+    return buildPlainVaultRecords(this.db, this.key)
+  }
+
+  applySyncRecord(record: PlainVaultRecord) {
+    return applyPlainVaultRecord(this.db, this.key, record)
+  }
+
+  preserveSyncConflict(record: PlainVaultRecord) {
+    return createConflictCopy(this.db, this.key, record)
   }
 
   createItem(input: CreateItemInput) {

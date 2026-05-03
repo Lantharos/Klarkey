@@ -5,6 +5,7 @@ import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { VaultRepository } from '@/electron/repository'
+import { SyncManager } from '@/electron/sync/manager'
 import { VaultLockManager } from '@/electron/vault-lock'
 import { exportVault } from '@/electron/export'
 import { importVault } from '@/electron/import'
@@ -44,11 +45,13 @@ export class KlarkeyController {
   private readonly window: BrowserWindow
   private readonly lockManager: VaultLockManager
   private readonly repository: VaultRepository
+  private readonly syncManager: SyncManager
   private readonly paletteWindowHandle: string
   private lastExternalWindow?: string
   private externalWindow?: ExternalWindowContext
   private actionCache = new Map<string, ResolvedAction>()
   private readonly isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
+  private syncTimer?: ReturnType<typeof setTimeout>
 
   constructor(window: BrowserWindow) {
     this.window = window
@@ -71,6 +74,7 @@ export class KlarkeyController {
     }
 
     this.repository = new VaultRepository(this.database.db, key)
+    this.syncManager = new SyncManager(this.database)
     this.lockManager = new VaultLockManager(this.keyManager, this.database.db, this.repository.getSettings())
 
     if (this.keyManager.isKeyInMemory()) {
@@ -82,15 +86,27 @@ export class KlarkeyController {
       if (info.state === 'locked') {
         this.repository.clearKey()
         this.clipboard.clearNow()
+        this.stopSyncRealtime()
       } else if (info.state === 'unlocked' || info.state === 'passcode') {
         if (this.keyManager.isKeyInMemory()) {
           this.repository.setKey(this.keyManager.getKey())
         }
+        this.startSyncRealtime()
+        this.scheduleSync(300)
       }
     })
+
+    if (!this.lockManager.isLocked()) {
+      this.startSyncRealtime()
+      this.scheduleSync(600)
+    }
   }
 
   dispose() {
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer)
+    }
+    this.stopSyncRealtime()
     this.lockManager.lock()
     this.database.close()
   }
@@ -147,14 +163,57 @@ export class KlarkeyController {
     const settings = this.repository.updateSettings(update)
     this.lockManager.updateSettings(settings)
     app.setLoginItemSettings({ openAtLogin: settings.launchOnStartup })
+    this.scheduleSync()
     return settings
+  }
+
+  getSyncStatus() {
+    return this.syncManager.getStatus()
+  }
+
+  startSyncSignIn() {
+    return this.syncManager.startSignIn()
+  }
+
+  async completeSyncSignIn(callbackUrl: string) {
+    const status = await this.syncManager.completeCallback(callbackUrl)
+    this.startSyncRealtime()
+    this.scheduleSync(150)
+    this.emitSyncUpdate(false, true)
+    return status
+  }
+
+  signOutSync() {
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer)
+      this.syncTimer = undefined
+    }
+    const status = this.syncManager.signOut()
+    this.emitSyncUpdate(false)
+    return status
+  }
+
+  async syncNow() {
+    if (this.lockManager.isLocked()) {
+      return Promise.reject(new Error('Unlock the vault before syncing.'))
+    }
+    const pending = this.syncManager.syncNow(this.repository, { fullPull: true })
+    this.emitSyncUpdate(false)
+    const status = await pending
+    this.startSyncRealtime()
+    this.emitSyncUpdate(this.syncManager.didLastRunChangeVault())
+    return status
   }
 
   createItem(input: CreateItemInput) {
     if (this.lockManager.isLocked()) {
       return lockedResult()
     }
-    return this.repository.createItem(input)
+    const result = this.repository.createItem(input)
+    if (result.status !== 'error') {
+      this.scheduleSync()
+    }
+    return result
   }
 
   getItem(itemId: string) {
@@ -168,14 +227,22 @@ export class KlarkeyController {
     if (this.lockManager.isLocked()) {
       return lockedResult()
     }
-    return this.repository.updateItem(input)
+    const result = this.repository.updateItem(input)
+    if (result.status !== 'error') {
+      this.scheduleSync()
+    }
+    return result
   }
 
   deleteItem(itemId: string) {
     if (this.lockManager.isLocked()) {
       return lockedResult()
     }
-    return this.repository.deleteItem(itemId)
+    const result = this.repository.deleteItem(itemId)
+    if (result.status !== 'error') {
+      this.scheduleSync()
+    }
+    return result
   }
 
   getPasskeySupport(): PasskeySupport {
@@ -206,7 +273,11 @@ export class KlarkeyController {
     if (this.lockManager.isLocked()) {
       return lockedResult()
     }
-    return this.repository.createVaultPasskey(input)
+    const result = this.repository.createVaultPasskey(input)
+    if (result.status !== 'error') {
+      this.scheduleSync()
+    }
+    return result
   }
 
   authenticateVaultPasskey(credentialId: string): ActionExecutionResult {
@@ -225,7 +296,11 @@ export class KlarkeyController {
     if (this.lockManager.isLocked()) {
       return lockedResult()
     }
-    return this.repository.deleteVaultPasskey(passkeyId)
+    const result = this.repository.deleteVaultPasskey(passkeyId)
+    if (result.status !== 'error') {
+      this.scheduleSync()
+    }
+    return result
   }
 
   async exportVault(options: ExportOptions): Promise<ExportResult> {
@@ -249,7 +324,11 @@ export class KlarkeyController {
         message: 'Vault is locked. Unlock to import.',
       }
     }
-    return importVault(this.repository, options)
+    const result = await importVault(this.repository, options)
+    if (result.success && result.importedCount > 0) {
+      this.scheduleSync()
+    }
+    return result
   }
 
   parseCommand(_: IpcMainInvokeEvent, raw: string) {
@@ -326,6 +405,61 @@ export class KlarkeyController {
       actionId,
       modifier,
     )
+  }
+
+  private emitSyncUpdate(vaultChanged: boolean, returnHome = false) {
+    this.window.webContents.send(IPC_CHANNELS.syncChanged, {
+      status: this.syncManager.getStatus(),
+      vaultChanged,
+      returnHome,
+    })
+  }
+
+  private startSyncRealtime() {
+    if (this.lockManager.isLocked()) {
+      return
+    }
+
+    this.syncManager.startRealtime(
+      () => this.scheduleSync(150),
+      () => this.emitSyncUpdate(false),
+    )
+  }
+
+  private stopSyncRealtime() {
+    this.syncManager.stopRealtime()
+  }
+
+  private scheduleSync(delay = 900) {
+    const status = this.syncManager.getStatus()
+    if (this.lockManager.isLocked() || !status.configured || !status.signedIn) {
+      return
+    }
+
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer)
+    }
+
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = undefined
+      void this.syncInBackground()
+    }, delay)
+  }
+
+  private async syncInBackground() {
+    if (this.lockManager.isLocked()) {
+      return
+    }
+
+    try {
+      const pending = this.syncManager.syncNow(this.repository)
+      this.emitSyncUpdate(false)
+      await pending
+      this.startSyncRealtime()
+      this.emitSyncUpdate(this.syncManager.didLastRunChangeVault())
+    } catch {
+      this.emitSyncUpdate(false)
+    }
   }
 
   focus() {

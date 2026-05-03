@@ -23,6 +23,7 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Browser extension foundation for desktop-only native-messaging autofill and save flows
 - Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge and attached to login items
 - Windows Hello-backed user verification for browser passkeys on Windows when a site asks for platform verification
+- Ave-authenticated Convex cloud sync foundation with encrypted vault records, per-device metadata, conflict copies, and a future entitlement gate
 - Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
 - Clipboard auto-clear for copied secrets
 - Tray/background behavior and lightweight settings
@@ -48,6 +49,24 @@ To build the browser extension bundles:
 bun run build:extension
 ```
 
+## Cloud sync
+
+Cloud sync is optional. Klarkey stays fully usable as a local offline vault when these values are not set or when the user never signs in. Klarkey sync uses Ave for identity and Convex for encrypted record transport. Register a normal Ave app with E2EE enabled, not Quick Ave, and add `klarkey://oauth/callback` as a desktop redirect URI. The app requests `openid profile email offline_access` and sends the Ave `id_token` to Convex.
+
+Set these before running the desktop app:
+
+```powershell
+$env:KLARKEY_AVE_CLIENT_ID="ave_app_client_id"
+$env:KLARKEY_CONVEX_URL="https://your-deployment.convex.cloud"
+$env:AVE_CLIENT_ID=$env:KLARKEY_AVE_CLIENT_ID
+```
+
+The desktop app also reads `.env.local` and `.env` at runtime. `AVE_CLIENT_ID` can stand in for `KLARKEY_AVE_CLIENT_ID`; `CONVEX_URL` can stand in for `KLARKEY_CONVEX_URL`. Convex needs `AVE_CLIENT_ID` for `convex/auth.config.ts`. Run `bunx convex dev` to create the deployment, generate `_generated` files, and push `convex/schema.ts` plus `convex/sync.ts`. Ave sessions refresh with the rotated refresh token before Convex calls, and Convex receives a fresh `id_token`.
+
+Servers never receive plaintext vault contents. Klarkey derives a sync wrapping key from the Ave E2EE `app_key`, wraps one vault data key per Ave identity, and encrypts each item/passkey/settings record with AES-GCM. Concurrent item edits are resolved per record; when Klarkey sees a conflict, it keeps a separate conflict copy instead of dropping a secret.
+
+After sign-in, sync runs automatically while the vault is unlocked. Desktop and mobile subscribe to a small Convex sync-status query that only carries the account sequence, then call `pullSince` only when the sequence advances. Local item changes are debounced into background sync batches, and device registration is rate-limited locally so normal editing does not create an extra write every time.
+
 ## Quality checks
 
 ```bash
@@ -59,6 +78,7 @@ bun run build
 ## Notes
 
 - Sensitive actions use an in-memory unlock window on top of OS-backed key protection.
+- Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
 - Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses the native Windows Hello helper for UV-capable Windows flows.
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
@@ -83,6 +103,13 @@ bun expo run:ios
 ```
 
 For iOS builds, set `EXPO_APPLE_TEAM_ID` or `APPLE_TEAM_ID` so the Credential Provider Extension can be signed. The current mobile native identity defaults to `com.lantharos.klarkey` and `klarkey.com`, with iOS 18+ as the mobile target for newer credential-manager fill surfaces. On macOS with Xcode, `bun run verify:ios-build` from `mobile` runs iOS prebuild validation and a Simulator compile. From Windows, use `bunx eas-cli build --platform ios --profile ios-simulator` or `bunx eas-cli build --platform ios --profile development` from `mobile` after storing `EXPO_APPLE_TEAM_ID` in the EAS environment. Before shipping, run `bun run write:well-known` from `mobile` with the Apple Team ID and Android release signing SHA-256 fingerprint, then host the generated files on `https://klarkey.com/.well-known/`.
+
+For mobile sync, also set:
+
+```bash
+EXPO_PUBLIC_AVE_CLIENT_ID=ave_app_client_id
+EXPO_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
+```
 
 ## Browser extension
 

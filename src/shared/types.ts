@@ -393,6 +393,7 @@ export interface SettingsUpdate {
 }
 
 export interface CreateItemInput {
+  itemId?: string
   itemType: CreatableItemType
   itemName: string
   preserveEmptyPassword?: boolean
@@ -484,6 +485,7 @@ export interface ItemDetails {
   itemId: string
   itemType: ItemType
   itemName: string
+  updatedAt?: string
   username: string
   password?: string
   otp?: TotpDetails

@@ -62,6 +62,7 @@ const appIconPath = () =>
   isDevMode ? join(app.getAppPath(), 'public', 'klarkey.png') : join(app.getAppPath(), 'dist', 'klarkey.png')
 const appIcon = () => nativeImage.createFromPath(appIconPath())
 const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode || isSshAgentHostMode ? true : app.requestSingleInstanceLock()
+const findOAuthCallbackUrl = (argv: string[]) => argv.find((arg) => arg.startsWith('klarkey://oauth/callback'))
 
 const spawnBackgroundHost = (modeFlag: '--ssh-agent-host') => {
   const appPath = app.getAppPath()
@@ -143,6 +144,31 @@ const registerAppProtocol = () => {
 
     return net.fetch(pathToFileURL(resolveAppAssetPath(url.pathname)).toString())
   })
+}
+
+const registerOAuthProtocolClient = () => {
+  if (process.defaultApp) {
+    app.setAsDefaultProtocolClient(PASSKEY_SCHEME, process.execPath, [app.getAppPath()])
+    return
+  }
+
+  app.setAsDefaultProtocolClient(PASSKEY_SCHEME)
+}
+
+const handleOAuthCallbackUrl = (url: string) => {
+  const completion = controllerRef?.completeSyncSignIn(url)
+  if (!completion) {
+    return
+  }
+
+  void completion
+    .then(() => {
+      openPalette()
+    })
+    .catch((error) => {
+      console.error('Ave sync sign-in failed', error)
+      openPalette()
+    })
 }
 
 const validateIpcSender = (event: Electron.IpcMainInvokeEvent) => {
@@ -433,6 +459,13 @@ const bindIpc = () => {
     syncSshAgentHost()
     return nextSettings
   }))
+  ipcMain.handle(IPC_CHANNELS.syncStatus, (event) => {
+    validateIpcSender(event)
+    return controllerRef?.getSyncStatus()
+  })
+  ipcMain.handle(IPC_CHANNELS.syncSignIn, withDesktopInteraction(30_000, () => controllerRef?.startSyncSignIn()))
+  ipcMain.handle(IPC_CHANNELS.syncSignOut, withDesktopInteraction(15_000, () => controllerRef?.signOutSync()))
+  ipcMain.handle(IPC_CHANNELS.syncNow, withDesktopInteraction(120_000, () => controllerRef?.syncNow()))
   ipcMain.handle(IPC_CHANNELS.passkeySupport, (event) => {
     validateIpcSender(event)
     return controllerRef?.getPasskeySupport()
@@ -610,12 +643,17 @@ app.whenReady()
     resetRuntimeStateForAppStart()
     bindIpc()
     registerAppProtocol()
+    registerOAuthProtocolClient()
     try {
       ensureNativeMessagingHostRegistration()
     } catch (error) {
       console.error('Failed to register the browser native host', error)
     }
     await createWindow()
+    const callbackUrl = findOAuthCallbackUrl(process.argv)
+    if (callbackUrl) {
+      handleOAuthCallbackUrl(callbackUrl)
+    }
     createTray()
     registerHotkey()
     app.setLoginItemSettings({ openAtLogin: controllerRef?.getSettings().launchOnStartup ?? false })
@@ -630,7 +668,20 @@ app.whenReady()
   })
 
 app.on('second-instance', (_event, argv) => {
+  const callbackUrl = findOAuthCallbackUrl(argv)
+  if (callbackUrl) {
+    handleOAuthCallbackUrl(callbackUrl)
+    return
+  }
+
   openPalette({ externalUnlock: shouldAutoUnlockFromArgs(argv) })
+})
+
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  if (url.startsWith('klarkey://oauth/callback')) {
+    handleOAuthCallbackUrl(url)
+  }
 })
 
 app.on('activate', () => {
