@@ -18,6 +18,8 @@ import android.service.autofill.Presentations
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
+import android.text.InputType
+import android.view.View
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
 import android.view.inputmethod.InlineSuggestionsRequest
@@ -92,25 +94,32 @@ class KlarkeyAutofillService : AutofillService() {
   }
 
   override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-    val structure = request.fillContexts.lastOrNull()?.structure
-    if (structure == null) {
+    val values = AutofillLoginValues()
+    var appPackage: String? = null
+    var sawStructure = false
+
+    request.fillContexts.forEach { context ->
+      val structure = context.structure
+      sawStructure = true
+      appPackage = appPackage ?: structure.activityComponent?.packageName
+      for (index in 0 until structure.windowNodeCount) {
+        collectValues(structure.getWindowNodeAt(index).rootViewNode, values)
+      }
+    }
+
+    if (!sawStructure) {
       callback.onFailure("Klarkey could not read the login form.")
       return
     }
 
-    val values = AutofillLoginValues()
-    for (index in 0 until structure.windowNodeCount) {
-      collectValues(structure.getWindowNodeAt(index).rootViewNode, values)
-    }
-
-    val username = values.username
+    val username = values.username ?: values.fallbackUsername ?: values.webDomain ?: appPackage ?: "Saved login"
     val password = values.password
-    if (username.isNullOrBlank() || password.isNullOrBlank()) {
-      callback.onFailure("Klarkey could not find a username and password to save.")
+    if (password.isNullOrBlank()) {
+      callback.onFailure("Klarkey could not find a password to save.")
       return
     }
 
-    KlarkeyCredentialStore.savePasswordCredential(this, username, password, values.webDomain ?: structure.activityComponent?.packageName)
+    KlarkeyCredentialStore.savePasswordCredential(this, username, password, values.webDomain ?: appPackage)
     callback.onSuccess()
   }
 
@@ -134,12 +143,12 @@ class KlarkeyAutofillService : AutofillService() {
   private fun collectValues(node: AssistStructure.ViewNode, values: AutofillLoginValues) {
     values.webDomain = values.webDomain ?: normalizeHost(node.webDomain)
 
-    val value = node.autofillValue?.textValue?.toString()?.trim()
+    val value = nodeValue(node)
     if (!value.isNullOrBlank()) {
       when (classify(node)) {
         FieldKind.Username -> if (values.username == null) values.username = value
         FieldKind.Password -> if (values.password == null) values.password = value
-        null -> Unit
+        null -> if (values.fallbackUsername == null && canUseAsFallbackUsername(node, value)) values.fallbackUsername = value
       }
     }
 
@@ -149,15 +158,9 @@ class KlarkeyAutofillService : AutofillService() {
   }
 
   private fun classify(node: AssistStructure.ViewNode): FieldKind? {
-    val hints = node.autofillHints?.joinToString(" ") ?: ""
-    val details = listOfNotNull(
-      hints,
-      node.hint?.toString(),
-      node.idEntry,
-      node.className?.toString()
-    ).joinToString(" ").lowercase()
+    val details = fieldDetails(node)
 
-    if (details.contains("password")) {
+    if (isPasswordInput(node) || details.contains("password") || details.contains("current-password") || details.contains("new-password")) {
       return FieldKind.Password
     }
 
@@ -166,8 +169,73 @@ class KlarkeyAutofillService : AutofillService() {
       details.contains("email") -> FieldKind.Username
       details.contains("login") -> FieldKind.Username
       details.contains("user") -> FieldKind.Username
+      details.contains("account") -> FieldKind.Username
+      details.contains("identifier") -> FieldKind.Username
       else -> null
     }
+  }
+
+  private fun nodeValue(node: AssistStructure.ViewNode): String? {
+    val autofillValue = node.autofillValue
+    val autofillText = if (autofillValue?.isText == true) {
+      autofillValue.textValue?.toString()
+    } else {
+      null
+    }
+    return firstNonBlank(autofillText, node.text?.toString())
+  }
+
+  private fun firstNonBlank(vararg values: String?): String? {
+    return values
+      .mapNotNull { value -> value?.trim() }
+      .firstOrNull { value -> value.isNotBlank() }
+  }
+
+  private fun fieldDetails(node: AssistStructure.ViewNode): String {
+    val hints = node.autofillHints?.joinToString(" ") ?: ""
+    val htmlInfo = node.htmlInfo
+    val htmlAttributes = htmlInfo?.attributes?.joinToString(" ") { attribute ->
+      listOfNotNull(attribute.first, attribute.second).joinToString(" ")
+    }
+
+    return listOfNotNull(
+      hints,
+      node.hint,
+      node.idEntry,
+      node.idPackage,
+      node.idType,
+      node.className,
+      node.contentDescription?.toString(),
+      htmlInfo?.tag,
+      htmlAttributes
+    ).joinToString(" ").lowercase()
+  }
+
+  private fun isPasswordInput(node: AssistStructure.ViewNode): Boolean {
+    val variation = node.inputType and InputType.TYPE_MASK_VARIATION
+    return variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+      variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+      variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+      variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
+  }
+
+  private fun canUseAsFallbackUsername(node: AssistStructure.ViewNode, value: String): Boolean {
+    if (!isTextEntry(node) || isPasswordInput(node) || value.length > 160) {
+      return false
+    }
+
+    val details = fieldDetails(node)
+    return details.contains("input") ||
+      details.contains("email") ||
+      details.contains("user") ||
+      details.contains("login") ||
+      value.contains("@")
+  }
+
+  private fun isTextEntry(node: AssistStructure.ViewNode): Boolean {
+    return node.autofillType == View.AUTOFILL_TYPE_TEXT ||
+      node.inputType != 0 ||
+      node.htmlInfo?.tag?.equals("input", ignoreCase = true) == true
   }
 
   private fun presentation(title: String, subtitle: String): RemoteViews {
@@ -373,6 +441,7 @@ private data class AutofillTargets(
 private data class AutofillLoginValues(
   var username: String? = null,
   var password: String? = null,
+  var fallbackUsername: String? = null,
   var webDomain: String? = null
 )
 

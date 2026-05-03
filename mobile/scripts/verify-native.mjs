@@ -258,6 +258,16 @@ check("Generated Android AutofillService returns and saves password datasets", (
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "setLockedValue") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "Presentations.Builder") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "AutofillValue.forText") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "request.fillContexts.forEach") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "values.username ?: values.fallbackUsername") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "nodeValue(node)") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "node.text?.toString()") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "node.htmlInfo") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "request.fillContexts.forEach") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "values.username ?: values.fallbackUsername") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "nodeValue(node)") &&
+  includes("plugins/android-provider-sources/autofill-source.js", "node.htmlInfo") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "KlarkeyCredentialStore.loadCredentials") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyAutofillService.kt", "KlarkeyCredentialStore.savePasswordCredential"),
 );
