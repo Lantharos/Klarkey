@@ -132,7 +132,7 @@ describe('site passkey authenticator', () => {
     expect(verifiedAuthData[32] & 0x04).toBe(0x04)
   })
 
-  it('creates an assertion for a stored passkey and increments the sign count', () => {
+  it('creates an assertion for a stored synced passkey with sign count zero', () => {
     const created = createSitePasskeyCredential({
       origin: 'https://example.com',
       requestDetailsJson: JSON.stringify(createOptions),
@@ -161,7 +161,7 @@ describe('site passkey authenticator', () => {
     const response = JSON.parse(assertion.responseJson)
 
     expect(assertion.credentialId).toBe(created.credentialId)
-    expect(assertion.signCount).toBe(1)
+    expect(assertion.signCount).toBe(0)
     expect(response.id).toBe(created.credentialId)
     expect(response.response.signature).toBeTruthy()
     expect(response.response.userHandle).toBe(created.userHandle)

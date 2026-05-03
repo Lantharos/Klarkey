@@ -289,13 +289,17 @@ check("Generated Android provider returns password entries and supports public-k
     includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "deletePasskeys") &&
     includes("android/app/src/main/java/com/lantharos/klarkey/MainApplication.kt", "KlarkeyCredentialStorePackage"),
 );
-check("Generated Android provider can create provider-owned passkeys", () =>
+check("Generated Android provider can create synced software passkeys", () =>
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "CreatePublicKeyCredentialResponse") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "PublicKeyCredential(") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "SHA256withECDSA") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "generateSoftwareKeyPair") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "privateKeyJwk") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "privateKeyFromJwk") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "AndroidKeyStore") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "savePasskey") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "savePasskeyCredential") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "replacePasskeys") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyCredentialStore.kt", "deleteProviderItem") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "privilegedAllowlist") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "org.mozilla.firefox") &&
@@ -316,8 +320,8 @@ check("Generated Android provider can create provider-owned passkeys", () =>
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "authenticatorData") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "assertionAuthenticatorData") &&
   includes("plugins/android-provider-sources/passkey-source.js", "assertionAuthenticatorData") &&
-  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "passkey.signCount + 1") &&
-  includes("plugins/android-provider-sources/passkey-source.js", "passkey.signCount + 1") &&
+  includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "passkey.privateKeyJwk.isNullOrBlank()") &&
+  includes("plugins/android-provider-sources/passkey-source.js", "passkey.privateKeyJwk.isNullOrBlank()") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "requiresUserVerification") &&
   includes("plugins/android-provider-sources/passkey-source.js", "requiresUserVerification") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", 'response.put("publicKey"') &&
@@ -336,14 +340,17 @@ check("Generated Android provider can create provider-owned passkeys", () =>
   !includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "Log.") &&
   includes("android/app/src/main/java/com/lantharos/klarkey/credentialprovider/KlarkeyPasskeys.kt", "Base64.NO_PADDING"),
 );
-check("Passkeys stay provider-backed and linked to matching website items", () =>
+check("Passkeys sync when exportable and keep device-backed fallback links", () =>
   includes("src/lib/vault.ts", "providerBacked?: boolean") &&
   includes("src/lib/vault.ts", "itemId?: string") &&
+  includes("src/lib/vault.ts", "privateKeyJwk?: JsonWebKey") &&
   includes("src/lib/vault.ts", "normalizeMobilePasskey") &&
   includes("src/lib/vault-storage.ts", "persistedId") &&
   includes("src/lib/native-credential-store.ts", "export function isProviderBackedPasskeyForItem") &&
+  includes("src/lib/native-credential-store.ts", "replacePasskeys") &&
   includes("src/lib/native-credential-store.ts", "normalizeMobilePasskey") &&
   includes("src/lib/native-credential-store.ts", "passkey.providerBacked !== true") &&
+  includes("src/lib/native-credential-store.ts", "passkey.itemId === item.id || isProviderBackedPasskeyForItem") &&
   includes("src/lib/native-credential-store.ts", "passkey.itemId && passkey.itemId === item.id") &&
   includes("src/lib/native-credential-store.ts", "passkey.rpId === host") &&
   includes("src/lib/vault-context.tsx", "linkPasskeysToItems") &&
@@ -353,6 +360,8 @@ check("Passkeys stay provider-backed and linked to matching website items", () =
   includes("src/lib/sync.ts", "isDeviceLocalPasskeyItemId") &&
   includes("src/lib/sync.ts", "!isDeviceLocalPasskeyItem(item)") &&
   includes("src/lib/sync.ts", "isDeviceLocalPasskeyItemRecord") &&
+  includes("src/lib/sync.ts", "isSyncablePasskey") &&
+  includes("src/lib/sync.ts", "recordId: `site-passkey:${passkey.id}`") &&
   includes("src/lib/sync.ts", "passkeyBelongsToItem") &&
   includes("src/lib/sync.ts", "isProviderBackedPasskeyForItem") &&
   includes("src/components/item-detail-panel.tsx", "Passkey saved for this login") &&
@@ -362,12 +371,13 @@ check("Passkeys stay provider-backed and linked to matching website items", () =
   includes("plugins/android-provider-sources/store-source.js", "mergeProviderOwnedCredentials") &&
   includes("plugins/android-provider-sources/service-source.js", "val rpId = KlarkeyPasskeys.rpIdFromRequestJson"),
 );
-check("Expo vault syncs unlocked credentials to Android provider store", () =>
+check("Expo vault syncs unlocked credentials and passkeys to native provider stores", () =>
   includes("src/lib/native-credential-store.ts", "requireOptionalNativeModule") &&
     includes("src/lib/native-credential-store.ts", "KlarkeyCredentialStore") &&
   includes("src/lib/native-credential-store.ts", "credentialDomainsForItem") &&
   includes("src/lib/native-credential-store.ts", "domains,") &&
   includes("src/lib/native-credential-store.ts", "replaceCredentials") &&
+  includes("src/lib/native-credential-store.ts", "replacePasskeys") &&
   includes("src/lib/native-credential-store.ts", "deleteProviderItem") &&
   includes("src/lib/native-credential-store.ts", "getProviderCredentials") &&
   includes("src/lib/native-credential-store.ts", "getProviderPasskeys") &&
@@ -405,12 +415,13 @@ check("iOS extension implements passkey entry points", () =>
   includes("targets/credential-provider/CredentialProviderViewController.swift", "completePasskeyRegistration") &&
   includes("targets/credential-provider/CredentialProviderViewController.swift", "completePasskeyAssertion"),
 );
-check("iOS extension can create provider-owned passkeys", () =>
+check("iOS extension can create synced software passkeys", () =>
   includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "ASPasskeyRegistrationCredential") &&
   includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "ASPasskeyAssertionCredential") &&
-  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "SecKeyCreateRandomKey") &&
-  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "secureEnclave: true") &&
-  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "secureEnclave: false") &&
+  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "P256.Signing.PrivateKey") &&
+  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "SyncedPasskeyJwk") &&
+  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "privateKeyJwk") &&
+  includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "passkey.privateKeyJwk == nil ? passkey.signCount + 1 : 0") &&
   includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "SecKeyCreateSignature") &&
   includes("targets/credential-provider/KlarkeyPasskeyStore.swift", "ASCredentialIdentityStore.shared.saveCredentialIdentities") &&
   includes("targets/credential-provider/KlarkeyCbor.swift", "final class KlarkeyCbor"),
@@ -420,6 +431,9 @@ check("iOS app syncs unlocked vault rows through app group", () =>
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", 'Name("KlarkeyCredentialStore")') &&
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "group.com.lantharos.klarkey") &&
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", 'Function("deleteProviderItem")') &&
+  includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", 'Function("replacePasskeys")') &&
+  includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "replaceSyncedPasskeys") &&
+  includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "privateKeyJwk") &&
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "SecItemDelete") &&
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "ASCredentialIdentityStore.shared.saveCredentialIdentities") &&
   includes("modules/klarkey-credential-store/ios/KlarkeyCredentialStoreModule.swift", "ASPasswordCredentialIdentity") &&

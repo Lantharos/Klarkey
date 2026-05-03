@@ -9,9 +9,14 @@ export interface MobilePasskey {
   id: string;
   rpId: string;
   username: string;
+  userHandle?: string;
+  transports?: string[];
+  privateKeyJwk?: JsonWebKey;
+  signCount?: number;
   itemId?: string;
   createdAt: string;
   lastUsedAt?: string;
+  syncedCounter?: boolean;
   providerBacked?: boolean;
 }
 
@@ -389,21 +394,51 @@ export function normalizeVaultItem(item: Partial<MobileVaultItem>): MobileVaultI
   };
 }
 
-export function normalizeMobilePasskey(passkey: Partial<MobilePasskey> & { credentialId?: string; label?: string; userName?: string }): MobilePasskey {
+type RawMobilePasskey = Partial<Omit<MobilePasskey, "privateKeyJwk">> & {
+  credentialId?: string;
+  label?: string;
+  userName?: string;
+  privateKeyJwk?: JsonWebKey | string;
+};
+
+function normalizePrivateKeyJwk(value: JsonWebKey | string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as JsonWebKey;
+      return parsed && typeof parsed === "object" ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  return value;
+}
+
+export function normalizeMobilePasskey(passkey: RawMobilePasskey): MobilePasskey {
   const rpId = clean(passkey.rpId) ?? "";
   const id = clean(passkey.id) ?? clean(passkey.credentialId) ?? Crypto.randomUUID();
   const username = clean(passkey.username) ?? clean(passkey.userName) ?? clean(passkey.label) ?? (rpId || "Passkey");
   const createdAt = clean(passkey.createdAt) ?? new Date().toISOString();
+  const privateKeyJwk = normalizePrivateKeyJwk(passkey.privateKeyJwk);
 
   return {
     ...passkey,
     id,
     rpId,
     username,
+    userHandle: clean(passkey.userHandle),
+    transports: passkey.transports ?? ["internal"],
+    privateKeyJwk,
+    signCount: passkey.signCount ?? 0,
     itemId: clean(passkey.itemId),
     createdAt,
     lastUsedAt: clean(passkey.lastUsedAt),
-    providerBacked: passkey.providerBacked === true,
+    syncedCounter: passkey.syncedCounter === true || Boolean(privateKeyJwk),
+    providerBacked: passkey.providerBacked === true && !privateKeyJwk,
   };
 }
 

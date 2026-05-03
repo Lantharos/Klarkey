@@ -6,6 +6,8 @@ import type { BrowserCreationOptions, BrowserRequestOptions, WebAuthnCredentialR
 export const AAGUID = new Uint8Array(16)
 export const AUTH_DATA_UP = 0x01
 export const AUTH_DATA_UV = 0x04
+export const AUTH_DATA_BE = 0x08
+export const AUTH_DATA_BS = 0x10
 export const AUTH_DATA_AT = 0x40
 export const cborEncoder = new Encoder({ structuredClone: false })
 

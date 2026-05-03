@@ -3,8 +3,6 @@ function buildPasskeySource(packageName) {
 
 import android.content.Context
 import android.net.Uri
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CreatePublicKeyCredentialResponse
@@ -18,15 +16,20 @@ import androidx.credentials.webauthn.PublicKeyCredentialCreationOptions
 import androidx.credentials.webauthn.PublicKeyCredentialRequestOptions
 import java.io.ByteArrayOutputStream
 import java.math.BigInteger
+import java.security.AlgorithmParameters
 import java.security.KeyPair
 import java.security.KeyPairGenerator
+import java.security.KeyFactory
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.security.Signature
+import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
+import java.security.spec.ECParameterSpec
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECPrivateKeySpec
 import java.time.Instant
 import org.json.JSONObject
 
@@ -94,8 +97,9 @@ object KlarkeyPasskeys {
     val credentialIdBytes = randomBytes(32)
     val credentialId = base64Url(credentialIdBytes)
     val alias = keyPrefix + credentialId
-    val keyPair = generateKeyPair(alias)
+    val keyPair = generateSoftwareKeyPair()
     val publicKey = keyPair.public as ECPublicKey
+    val privateKeyJwk = privateKeyJwk(keyPair.private as ECPrivateKey, publicKey)
     val coseKey = cosePublicKey(publicKey)
     val origin = originFor(request.origin, rpId, callingAppInfo) ?: return null
     val response = AuthenticatorAttestationResponse(
@@ -119,6 +123,7 @@ object KlarkeyPasskeys {
       username = username,
       userHandle = userHandle,
       itemId = null,
+      privateKeyJwk = privateKeyJwk,
       signCount = 0,
       lastUsedTime = Instant.now()
     )
@@ -161,8 +166,9 @@ object KlarkeyPasskeys {
       clientDataHash
     )
     response.clientJson.put("crossOrigin", false)
-    response.authenticatorData = assertionAuthenticatorData(passkey.rpId, userVerified, passkey.signCount + 1)
-    response.signature = sign(passkey.alias, response.dataToSign())
+    val signCount = if (passkey.privateKeyJwk.isNullOrBlank()) passkey.signCount + 1 else 0
+    response.authenticatorData = assertionAuthenticatorData(passkey.rpId, userVerified, signCount)
+    response.signature = sign(passkey, response.dataToSign())
 
     val responseJson = FidoPublicKeyCredential(credentialIdBytes, response, "platform").json()
     PublicKeyCredential(responseJson)
@@ -197,7 +203,7 @@ object KlarkeyPasskeys {
 
   private fun assertionAuthenticatorData(rpId: String, userVerified: Boolean, signCount: Int): ByteArray {
     val out = ByteArrayOutputStream()
-    var flags = 0x09
+    var flags = 0x19
     if (userVerified) {
       flags = flags or 0x04
     }
@@ -212,27 +218,49 @@ object KlarkeyPasskeys {
     return out.toByteArray()
   }
 
-  private fun generateKeyPair(alias: String): KeyPair {
-    val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore")
-    val spec = KeyGenParameterSpec.Builder(
-      alias,
-      KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
-    )
-      .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
-      .setDigests(KeyProperties.DIGEST_SHA256)
-      .build()
-    generator.initialize(spec)
+  private fun generateSoftwareKeyPair(): KeyPair {
+    val generator = KeyPairGenerator.getInstance("EC")
+    generator.initialize(ECGenParameterSpec("secp256r1"), random)
     return generator.generateKeyPair()
   }
 
-  private fun sign(alias: String, data: ByteArray): ByteArray {
-    val keyStore = KeyStore.getInstance("AndroidKeyStore")
-    keyStore.load(null)
-    val privateKey = keyStore.getKey(alias, null) as PrivateKey
+  private fun sign(passkey: ProviderPasskey, data: ByteArray): ByteArray {
+    val privateKey = passkey.privateKeyJwk
+      ?.takeIf { value -> value.isNotBlank() }
+      ?.let { jwk -> privateKeyFromJwk(jwk) }
+      ?: privateKeyFromAndroidKeyStore(passkey.alias)
     val signature = Signature.getInstance("SHA256withECDSA")
     signature.initSign(privateKey)
     signature.update(data)
     return signature.sign()
+  }
+
+  private fun privateKeyFromAndroidKeyStore(alias: String): PrivateKey {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore")
+    keyStore.load(null)
+    return keyStore.getKey(alias, null) as PrivateKey
+  }
+
+  private fun privateKeyJwk(privateKey: ECPrivateKey, publicKey: ECPublicKey): String {
+    return JSONObject()
+      .put("kty", "EC")
+      .put("crv", "P-256")
+      .put("x", base64Url(coordinate(publicKey.w.affineX)))
+      .put("y", base64Url(coordinate(publicKey.w.affineY)))
+      .put("d", base64Url(coordinate(privateKey.s)))
+      .put("ext", true)
+      .toString()
+  }
+
+  private fun privateKeyFromJwk(jwk: String): PrivateKey {
+    val parsed = JSONObject(jwk)
+    val params = AlgorithmParameters.getInstance("EC")
+    params.init(ECGenParameterSpec("secp256r1"))
+    val spec = ECPrivateKeySpec(
+      BigInteger(1, base64UrlDecode(parsed.getString("d"))),
+      params.getParameterSpec(ECParameterSpec::class.java)
+    )
+    return KeyFactory.getInstance("EC").generatePrivate(spec)
   }
 
   private fun registrationJson(responseJson: String, rpId: String, credentialId: ByteArray, credentialPublicKey: ByteArray, publicKey: ECPublicKey): String {
@@ -247,7 +275,7 @@ object KlarkeyPasskeys {
   private fun authenticatorData(rpId: String, credentialId: ByteArray, credentialPublicKey: ByteArray): ByteArray {
     val out = ByteArrayOutputStream()
     out.write(sha256(rpId.toByteArray(Charsets.UTF_8)))
-    out.write(0x4d)
+    out.write(0x5d)
     out.write(byteArrayOf(0, 0, 0, 0))
     out.write(ByteArray(16))
     out.write(byteArrayOf((credentialId.size shr 8).toByte(), credentialId.size.toByte()))

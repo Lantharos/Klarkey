@@ -20,6 +20,7 @@ import {
   saveVaultSettings,
   updateVaultItem,
   normalizeMobilePasskey,
+  normalizeVaultItem,
   type AutoLockMinutes,
   type MobilePasskey,
   type MobileVaultItem,
@@ -158,10 +159,42 @@ function mergeProviderCredentials(items: MobileVaultItem[], providerItems: Mobil
   return Array.from(byId.values());
 }
 
+function passkeyBelongsToVaultItem(passkey: MobilePasskey, item: MobileVaultItem) {
+  return passkey.itemId === item.id || isProviderBackedPasskeyForItem(passkey, item);
+}
+
+function ensurePasskeyItems(items: MobileVaultItem[], passkeys: MobilePasskey[]) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  passkeys.forEach((passkey) => {
+    if (!passkey.itemId || byId.has(passkey.itemId) || passkey.itemId.startsWith("passkey:")) {
+      return;
+    }
+
+    const itemName = passkey.rpId || passkey.username || "Passkey";
+    byId.set(passkey.itemId, normalizeVaultItem({
+      id: passkey.itemId,
+      kind: "login",
+      itemType: "login",
+      itemName,
+      title: itemName,
+      username: passkey.username,
+      websites: passkey.rpId ? [passkey.rpId] : [],
+      hasPassword: false,
+      hasOtp: false,
+      hasPasskey: true,
+      customFields: [],
+      createdAt: passkey.createdAt,
+      updatedAt: passkey.lastUsedAt ?? passkey.createdAt,
+      lastUsedAt: passkey.lastUsedAt,
+    }));
+  });
+  return Array.from(byId.values());
+}
+
 function linkPasskeysToItems(items: MobileVaultItem[], passkeys: MobilePasskey[]) {
   return items.map((item) => ({
     ...item,
-    hasPasskey: item.itemType === "login" ? passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)) : item.hasPasskey,
+    hasPasskey: item.itemType === "login" ? passkeys.some((passkey) => passkeyBelongsToVaultItem(passkey, item)) : item.hasPasskey,
   }));
 }
 
@@ -173,7 +206,7 @@ function removedItems(previousVault: MobileVaultState, nextVault: MobileVaultSta
 async function deleteNativeProviderRecordsForRemovedItems(previousVault: MobileVaultState, nextVault: MobileVaultState) {
   const deletedItems = removedItems(previousVault, nextVault);
   for (const item of deletedItems) {
-    const linkedPasskeys = previousVault.passkeys.filter((passkey) => isProviderBackedPasskeyForItem(passkey, item));
+    const linkedPasskeys = previousVault.passkeys.filter((passkey) => passkeyBelongsToVaultItem(passkey, item));
     await deleteNativeProviderItem(item.id, linkedPasskeys.map((passkey) => passkey.id));
   }
 }
@@ -183,7 +216,7 @@ async function loadSyncedVaultState() {
   const providerCredentials = await loadNativeProviderCredentials();
   const providerPasskeys = await loadNativeProviderPasskeys();
   const passkeys = mergePasskeys(storedVault.passkeys, providerPasskeys);
-  const items = linkPasskeysToItems(mergeProviderCredentials(storedVault.items, providerCredentials), passkeys);
+  const items = linkPasskeysToItems(ensurePasskeyItems(mergeProviderCredentials(storedVault.items, providerCredentials), passkeys), passkeys);
 
   return {
     vault: {
@@ -648,7 +681,7 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
   const deleteItem = useCallback(
     async (id: string) => {
       const item = vault.items.find((candidate) => candidate.id === id);
-      const linkedPasskeys = item ? vault.passkeys.filter((passkey) => isProviderBackedPasskeyForItem(passkey, item)) : [];
+      const linkedPasskeys = item ? vault.passkeys.filter((passkey) => passkeyBelongsToVaultItem(passkey, item)) : [];
       const linkedPasskeyIds = new Set(linkedPasskeys.map((passkey) => passkey.id));
       if (item) {
         await queueMobileSyncDeletedItem(item);

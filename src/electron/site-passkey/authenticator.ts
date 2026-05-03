@@ -3,6 +3,8 @@ import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import type { CreateSitePasskeyInput, GetSitePasskeyInput } from '@/electron/site-passkey/types'
 import {
   AUTH_DATA_AT,
+  AUTH_DATA_BE,
+  AUTH_DATA_BS,
   AUTH_DATA_UP,
   AUTH_DATA_UV,
   buildAuthenticatorData,
@@ -57,7 +59,7 @@ export const createSitePasskeyCredential = ({
   const publicKeySpki = exportSpkiPublicKey(publicKey as KeyObject)
   const authenticatorData = buildAuthenticatorData({
     rpId,
-    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0) | AUTH_DATA_AT,
+    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0) | AUTH_DATA_BE | AUTH_DATA_BS | AUTH_DATA_AT,
     signCount: 0,
     credentialId,
     publicKey: publicKeyCose,
@@ -105,10 +107,10 @@ export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey, u
   const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a passkey challenge.')
   const rpId = resolveRpId(origin, options.rpId)
   const clientDataJSON = buildClientDataJson('webauthn.get', challenge, origin)
-  const nextSignCount = passkey.signCount + 1
+  const nextSignCount = 0
   const authenticatorData = buildAuthenticatorData({
     rpId,
-    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0),
+    flags: AUTH_DATA_UP | (userVerified ? AUTH_DATA_UV : 0) | AUTH_DATA_BE | AUTH_DATA_BS,
     signCount: nextSignCount,
   })
   const signatureBase = joinBytes(authenticatorData, sha256(clientDataJSON))

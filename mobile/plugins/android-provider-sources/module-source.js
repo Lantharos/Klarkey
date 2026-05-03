@@ -22,6 +22,16 @@ class KlarkeyCredentialStoreModule(
   }
 
   @ReactMethod
+  fun replacePasskeys(payload: String, promise: Promise) {
+    try {
+      KlarkeyCredentialStore.replacePasskeys(context, payload)
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("ERR_KLARKEY_CREDENTIAL_STORE", error)
+    }
+  }
+
+  @ReactMethod
   fun lock(promise: Promise) {
     try {
       KlarkeyCredentialStore.lock(context)

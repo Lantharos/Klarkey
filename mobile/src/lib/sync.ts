@@ -445,8 +445,19 @@ function isDeviceLocalPasskeyItem(item: MobileVaultItem) {
   return isDeviceLocalPasskeyItemId(item.id);
 }
 
+function isSyncablePasskey(passkey: MobilePasskey) {
+  return Boolean(
+    !passkey.providerBacked &&
+    passkey.privateKeyJwk &&
+    passkey.itemId &&
+    !isDeviceLocalPasskeyItemId(passkey.itemId) &&
+    passkey.id &&
+    passkey.rpId,
+  );
+}
+
 function plainRecords(vault: MobileVaultState): PlainMobileRecord[] {
-  return vault.items
+  const itemRecords = vault.items
     .filter((item) => !isDeviceLocalPasskeyItem(item))
     .map((item) => ({
       kind: "item",
@@ -455,7 +466,28 @@ function plainRecords(vault: MobileVaultState): PlainMobileRecord[] {
       itemType: item.itemType,
       item: mobileItemToSyncInput(item),
       updatedAt: item.updatedAt ?? item.createdAt ?? item.id,
-    }));
+    } satisfies PlainMobileRecord));
+  const passkeyRecords = vault.passkeys
+    .filter(isSyncablePasskey)
+    .map((passkey) => ({
+      kind: "site-passkey",
+      recordId: `site-passkey:${passkey.id}`,
+      passkeyId: passkey.id,
+      itemId: passkey.itemId ?? "",
+      credentialId: passkey.id,
+      label: passkey.username || passkey.rpId,
+      rpId: passkey.rpId,
+      userName: passkey.username,
+      userHandle: passkey.userHandle,
+      transports: passkey.transports ?? ["internal"],
+      privateKeyJwk: passkey.privateKeyJwk,
+      signCount: 0,
+      createdAt: passkey.createdAt,
+      lastUsedAt: passkey.lastUsedAt,
+      syncedCounter: true,
+    } satisfies PlainMobileRecord));
+
+  return [...itemRecords, ...passkeyRecords];
 }
 
 function mobileItemToSyncInput(item: MobileVaultItem) {
@@ -542,9 +574,14 @@ function applyPlainRecord(vault: MobileVaultState, record: PlainMobileRecord) {
     id: record.credentialId || record.passkeyId,
     rpId: record.rpId ?? "",
     username: record.userName ?? record.label,
+    userHandle: record.userHandle,
+    transports: record.transports,
+    privateKeyJwk: record.privateKeyJwk,
+    signCount: 0,
     itemId: record.itemId,
     createdAt: record.createdAt,
     lastUsedAt: record.lastUsedAt,
+    syncedCounter: true,
     providerBacked: false,
   });
   return {

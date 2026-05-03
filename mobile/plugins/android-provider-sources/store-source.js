@@ -7,6 +7,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.security.KeyStore
 import java.time.Instant
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -33,6 +34,7 @@ data class ProviderPasskey(
   val username: String,
   val userHandle: String,
   val itemId: String?,
+  val privateKeyJwk: String?,
   val signCount: Int,
   val lastUsedTime: Instant
 )
@@ -48,6 +50,50 @@ object KlarkeyCredentialStore {
   fun replaceCredentials(context: Context, payload: String, unlockedUntil: Long) {
     writeEncrypted(context, credentialsKey, mergeProviderOwnedCredentials(context, payload))
     prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
+  }
+
+  fun replacePasskeys(context: Context, payload: String) {
+    val incoming = JSONArray(payload)
+    val incomingIds = mutableSetOf<String>()
+    val merged = JSONArray()
+
+    for (index in 0 until incoming.length()) {
+      val item = incoming.optJSONObject(index) ?: continue
+      val id = item.optString("id")
+      val rpId = item.optString("rpId")
+      val username = item.optString("username")
+      val userHandle = item.optString("userHandle")
+      val privateKeyJwk = item.opt("privateKeyJwk")?.toString()
+      if (id.isBlank() || rpId.isBlank() || username.isBlank() || userHandle.isBlank() || privateKeyJwk.isNullOrBlank()) {
+        continue
+      }
+
+      incomingIds.add(id)
+      merged.put(passkeyJson(
+        ProviderPasskey(
+          id = id,
+          alias = "",
+          rpId = rpId,
+          username = username,
+          userHandle = userHandle,
+          itemId = item.optString("itemId").takeIf { value -> value.isNotBlank() },
+          privateKeyJwk = privateKeyJwk,
+          signCount = 0,
+          lastUsedTime = Instant.ofEpochMilli(item.optLong("lastUsedAt", System.currentTimeMillis()))
+        )
+      ))
+    }
+
+    val existing = JSONArray(readEncrypted(context, passkeysKey) ?: "[]")
+    for (index in 0 until existing.length()) {
+      val item = existing.optJSONObject(index) ?: continue
+      val id = item.optString("id")
+      if (item.optString("privateKeyJwk").isBlank() && !incomingIds.contains(id)) {
+        merged.put(item)
+      }
+    }
+
+    writeEncrypted(context, passkeysKey, merged.toString())
   }
 
   fun lock(context: Context) {
@@ -163,7 +209,8 @@ object KlarkeyCredentialStore {
       val rpId = item.optString("rpId")
       val username = item.optString("username")
       val userHandle = item.optString("userHandle")
-      if (id.isBlank() || alias.isBlank() || rpId.isBlank() || username.isBlank() || userHandle.isBlank()) {
+      val privateKeyJwk = item.optString("privateKeyJwk").takeIf { value -> value.isNotBlank() }
+      if (id.isBlank() || (alias.isBlank() && privateKeyJwk == null) || rpId.isBlank() || username.isBlank() || userHandle.isBlank()) {
         continue
       }
 
@@ -175,6 +222,7 @@ object KlarkeyCredentialStore {
           username = username,
           userHandle = userHandle,
           itemId = item.optString("itemId").takeIf { value -> value.isNotBlank() },
+          privateKeyJwk = privateKeyJwk,
           signCount = item.optInt("signCount", 0),
           lastUsedTime = Instant.ofEpochMilli(item.optLong("lastUsedAt", System.currentTimeMillis()))
         )
@@ -230,10 +278,14 @@ object KlarkeyCredentialStore {
           .put("id", passkey.id)
           .put("rpId", passkey.rpId)
           .put("username", passkey.username)
+          .put("userHandle", passkey.userHandle)
           .put("itemId", passkey.itemId ?: "")
           .put("createdAt", passkey.lastUsedTime.toString().take(10))
-          .put("lastUsedAt", "Provider")
-          .put("providerBacked", true)
+          .put("lastUsedAt", if (passkey.privateKeyJwk == null) "Provider" else passkey.lastUsedTime.toString())
+          .put("privateKeyJwk", passkey.privateKeyJwk?.let { value -> JSONObject(value) } ?: "")
+          .put("signCount", 0)
+          .put("syncedCounter", passkey.privateKeyJwk != null)
+          .put("providerBacked", passkey.privateKeyJwk == null)
       )
     }
     return items.toString()
@@ -273,7 +325,7 @@ object KlarkeyCredentialStore {
         val password = item.optString("password").takeIf { value -> value.isNotBlank() }
         val domains = mergeDomain(credentialDomains(item), host)
         val updated = credentialJson(
-          id = item.optString("id").takeIf { value -> value.isNotBlank() } ?: "passkey:" + host + ":" + passkey.username,
+          id = item.optString("id").takeIf { value -> value.isNotBlank() && !value.startsWith("passkey:") } ?: UUID.randomUUID().toString(),
           title = item.optString("title").takeIf { value -> value.isNotBlank() } ?: host,
           username = passkey.username,
           password = password,
@@ -293,7 +345,7 @@ object KlarkeyCredentialStore {
     if (credential == null) {
       val domains = listOf(host)
       credential = credentialJson(
-        id = "passkey:" + host + ":" + passkey.username,
+        id = UUID.randomUUID().toString(),
         title = host,
         username = passkey.username,
         password = null,
@@ -471,6 +523,7 @@ object KlarkeyCredentialStore {
       .put("username", passkey.username)
       .put("userHandle", passkey.userHandle)
       .put("itemId", passkey.itemId ?: "")
+      .put("privateKeyJwk", passkey.privateKeyJwk ?: "")
       .put("signCount", passkey.signCount)
       .put("lastUsedAt", passkey.lastUsedTime.toEpochMilli())
   }

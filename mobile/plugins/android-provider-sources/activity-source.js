@@ -107,7 +107,8 @@ class KlarkeyCredentialProviderActivity : Activity() {
       return
     }
 
-    KlarkeyCredentialStore.savePasskey(this, passkey.copy(signCount = passkey.signCount + 1))
+    val storedSignCount = if (passkey.privateKeyJwk.isNullOrBlank()) passkey.signCount + 1 else 0
+    KlarkeyCredentialStore.savePasskey(this, passkey.copy(signCount = storedSignCount))
     val result = Intent()
     PendingIntentHandler.setGetCredentialResponse(result, GetCredentialResponse(credential))
     setResult(RESULT_OK, result)

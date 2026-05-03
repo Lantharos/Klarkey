@@ -182,7 +182,7 @@ export function createConflictCopy(db: Database.Database, key: Buffer, record: P
   }
 
   return insertIdentity(db, key, {
-    ...record.item,
+    ...itemInputFromSyncRecord(record),
     itemId: id('item'),
     itemName: `${record.item.itemName} conflict`,
   })

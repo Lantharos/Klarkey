@@ -19,6 +19,10 @@ public class KlarkeyCredentialStoreModule: Module {
       syncCredentialIdentities(previousPayload: previousPayload, nextPayload: payload)
     }
 
+    Function("replacePasskeys") { (payload: String) -> Void in
+      replaceSyncedPasskeys(payload: payload)
+    }
+
     Function("getProviderPasskeys") { () -> String in
       providerPasskeysPayload()
     }
@@ -45,9 +49,14 @@ public class KlarkeyCredentialStoreModule: Module {
         "id": passkey.id.base64URLEncodedString(),
         "rpId": passkey.relyingParty,
         "username": passkey.username,
+        "userHandle": passkey.userHandle.base64URLEncodedString(),
+        "itemId": passkey.itemId ?? "",
+        "privateKeyJwk": passkey.privateKeyJwk?.dictionary ?? "",
+        "signCount": 0,
+        "syncedCounter": passkey.privateKeyJwk != nil,
         "createdAt": isoDay(passkey.lastUsedAt),
-        "lastUsedAt": "Provider",
-        "providerBacked": true
+        "lastUsedAt": passkey.privateKeyJwk == nil ? "Provider" : ISO8601DateFormatter().string(from: passkey.lastUsedAt),
+        "providerBacked": passkey.privateKeyJwk == nil
       ] as [String: Any]
     }
     guard let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -56,6 +65,37 @@ public class KlarkeyCredentialStoreModule: Module {
       return "[]"
     }
     return value
+  }
+
+  private func replaceSyncedPasskeys(payload: String) {
+    guard let data = payload.data(using: .utf8),
+      let incoming = try? JSONDecoder().decode([SharedPasskey].self, from: data)
+    else {
+      return
+    }
+
+    let incomingIds = Set(incoming.map(\.id))
+    let previous = storedPasskeys()
+    let preserved = previous.filter { passkey in
+      passkey.privateKeyJwk == nil && !incomingIds.contains(passkey.id.base64URLEncodedString())
+    }
+    let next = incoming.map { passkey in
+      ProviderPasskey(
+        id: Data(base64URLString: passkey.id) ?? Data(),
+        relyingParty: passkey.rpId,
+        username: passkey.username,
+        userHandle: Data(base64URLString: passkey.userHandle ?? "") ?? Data(),
+        keyTag: Data(),
+        itemId: passkey.itemId,
+        privateKeyJwk: passkey.privateKeyJwk,
+        signCount: 0,
+        lastUsedAt: passkey.lastUsedAt.flatMap(ISO8601DateFormatter().date(from:)) ?? Date()
+      )
+    }.filter { passkey in
+      !passkey.id.isEmpty && !passkey.relyingParty.isEmpty && !passkey.username.isEmpty && !passkey.userHandle.isEmpty
+    }
+    savePasskeys(next + preserved)
+    syncPasskeyIdentities(previous: previous, next: next + preserved)
   }
 
   private func deleteCredential(id: String) {
@@ -84,12 +124,12 @@ public class KlarkeyCredentialStoreModule: Module {
 
   private func deletePasskeys(ids: Set<String>) {
     guard !ids.isEmpty,
-      let data = defaults().data(forKey: passkeysKey),
-      let passkeys = try? JSONDecoder().decode([ProviderPasskey].self, from: data)
+      !storedPasskeys().isEmpty
     else {
       return
     }
 
+    let passkeys = storedPasskeys()
     let removed = passkeys.filter { passkey in
       ids.contains(passkey.id.base64URLEncodedString())
     }
@@ -100,12 +140,12 @@ public class KlarkeyCredentialStoreModule: Module {
     let nextPasskeys = passkeys.filter { passkey in
       !ids.contains(passkey.id.base64URLEncodedString())
     }
-    if let nextData = try? JSONEncoder().encode(nextPasskeys) {
-      defaults().set(nextData, forKey: passkeysKey)
-    }
+    savePasskeys(nextPasskeys)
 
     removed.forEach { passkey in
-      deletePrivateKey(tag: passkey.keyTag)
+      if !passkey.keyTag.isEmpty {
+        deletePrivateKey(tag: passkey.keyTag)
+      }
     }
     ASCredentialIdentityStore.shared.removeCredentialIdentities(removed.map { passkeyIdentity(for: $0) }, completion: nil)
   }
@@ -118,6 +158,34 @@ public class KlarkeyCredentialStoreModule: Module {
       userHandle: passkey.userHandle,
       recordIdentifier: passkey.id.base64URLEncodedString()
     )
+  }
+
+  private func storedPasskeys() -> [ProviderPasskey] {
+    guard let data = defaults().data(forKey: passkeysKey),
+      let passkeys = try? JSONDecoder().decode([ProviderPasskey].self, from: data)
+    else {
+      return []
+    }
+    return passkeys
+  }
+
+  private func savePasskeys(_ passkeys: [ProviderPasskey]) {
+    if let data = try? JSONEncoder().encode(passkeys) {
+      defaults().set(data, forKey: passkeysKey)
+    }
+  }
+
+  private func syncPasskeyIdentities(previous: [ProviderPasskey], next: [ProviderPasskey]) {
+    let previousIdentities = previous.map(passkeyIdentity)
+    let nextIdentities = next.map(passkeyIdentity)
+    if previousIdentities.isEmpty {
+      ASCredentialIdentityStore.shared.saveCredentialIdentities(nextIdentities, completion: nil)
+      return
+    }
+
+    ASCredentialIdentityStore.shared.removeCredentialIdentities(previousIdentities) { _, _ in
+      ASCredentialIdentityStore.shared.saveCredentialIdentities(nextIdentities, completion: nil)
+    }
   }
 
   private func deletePrivateKey(tag: Data) {
@@ -210,8 +278,40 @@ private struct ProviderPasskey: Codable {
   let username: String
   let userHandle: Data
   let keyTag: Data
+  let itemId: String?
+  let privateKeyJwk: SyncedPasskeyJwk?
   let signCount: UInt32
   let lastUsedAt: Date
+}
+
+private struct SyncedPasskeyJwk: Codable {
+  let kty: String
+  let crv: String
+  let x: String
+  let y: String
+  let d: String
+  let ext: Bool
+
+  var dictionary: [String: Any] {
+    [
+      "kty": kty,
+      "crv": crv,
+      "x": x,
+      "y": y,
+      "d": d,
+      "ext": ext
+    ]
+  }
+}
+
+private struct SharedPasskey: Codable {
+  let id: String
+  let rpId: String
+  let username: String
+  let userHandle: String?
+  let itemId: String?
+  let privateKeyJwk: SyncedPasskeyJwk?
+  let lastUsedAt: String?
 }
 
 private struct SharedCredential: Codable {
@@ -243,6 +343,15 @@ private struct SharedCredential: Codable {
 }
 
 private extension Data {
+  init?(base64URLString: String) {
+    var value = base64URLString
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    let padding = (4 - value.count % 4) % 4
+    value += String(repeating: "=", count: padding)
+    self.init(base64Encoded: value)
+  }
+
   func base64URLEncodedString() -> String {
     base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")

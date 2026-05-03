@@ -9,8 +9,19 @@ struct KlarkeyStoredPasskey: Codable {
   let username: String
   let userHandle: Data
   let keyTag: Data
+  let itemId: String?
+  let privateKeyJwk: SyncedPasskeyJwk?
   var signCount: UInt32
   var lastUsedAt: Date
+}
+
+struct SyncedPasskeyJwk: Codable {
+  let kty: String
+  let crv: String
+  let x: String
+  let y: String
+  let d: String
+  let ext: Bool
 }
 
 enum KlarkeyPasskeyStore {
@@ -43,8 +54,8 @@ enum KlarkeyPasskeyStore {
 
     let credentialId = randomData(32)
     let keyTag = Data((keyPrefix + credentialId.base64URLEncodedString()).utf8)
-    guard let publicKey = createPrivateKey(tag: keyTag, secureEnclave: true) ?? createPrivateKey(tag: keyTag, secureEnclave: false),
-      let coseKey = coseKey(from: publicKey)
+    let privateKey = P256.Signing.PrivateKey()
+    guard let coseKey = coseKey(from: privateKey.publicKey)
     else {
       return nil
     }
@@ -67,6 +78,8 @@ enum KlarkeyPasskeyStore {
       username: identity.userName,
       userHandle: identity.userHandle,
       keyTag: keyTag,
+      itemId: UUID().uuidString,
+      privateKeyJwk: jwk(privateKey: privateKey),
       signCount: 0,
       lastUsedAt: Date()
     )
@@ -85,9 +98,9 @@ enum KlarkeyPasskeyStore {
     passkey: KlarkeyStoredPasskey,
     clientDataHash: Data
   ) -> ASPasskeyAssertionCredential? {
-    let nextCount = passkey.signCount + 1
+    let nextCount = passkey.privateKeyJwk == nil ? passkey.signCount + 1 : 0
     let authData = assertionAuthenticatorData(relyingParty: passkey.relyingParty, signCount: nextCount)
-    guard let signature = sign(data: authData + clientDataHash, tag: passkey.keyTag) else {
+    guard let signature = sign(data: authData + clientDataHash, passkey: passkey) else {
       return nil
     }
 
@@ -174,8 +187,12 @@ enum KlarkeyPasskeyStore {
     return (item as! SecKey)
   }
 
-  private static func sign(data: Data, tag: Data) -> Data? {
-    guard let key = privateKey(tag: tag) else {
+  private static func sign(data: Data, passkey: KlarkeyStoredPasskey) -> Data? {
+    if let jwk = passkey.privateKeyJwk {
+      return sign(data: data, jwk: jwk)
+    }
+
+    guard let key = privateKey(tag: passkey.keyTag) else {
       return nil
     }
 
@@ -183,10 +200,34 @@ enum KlarkeyPasskeyStore {
     return SecKeyCreateSignature(key, .ecdsaSignatureMessageX962SHA256, data as CFData, &error) as Data?
   }
 
-  private static func coseKey(from publicKey: SecKey) -> Data? {
-    var error: Unmanaged<CFError>?
-    guard let external = SecKeyCopyExternalRepresentation(publicKey, &error) as Data?,
-      external.count == 65,
+  private static func sign(data: Data, jwk: SyncedPasskeyJwk) -> Data? {
+    guard let privateKeyData = Data(base64URLString: jwk.d),
+      let privateKey = try? P256.Signing.PrivateKey(rawRepresentation: privateKeyData),
+      let signature = try? privateKey.signature(for: data)
+    else {
+      return nil
+    }
+
+    return signature.derRepresentation
+  }
+
+  private static func jwk(privateKey: P256.Signing.PrivateKey) -> SyncedPasskeyJwk {
+    let publicKey = privateKey.publicKey.x963Representation
+    let x = publicKey.subdata(in: 1..<33)
+    let y = publicKey.subdata(in: 33..<65)
+    return SyncedPasskeyJwk(
+      kty: "EC",
+      crv: "P-256",
+      x: x.base64URLEncodedString(),
+      y: y.base64URLEncodedString(),
+      d: privateKey.rawRepresentation.base64URLEncodedString(),
+      ext: true
+    )
+  }
+
+  private static func coseKey(from publicKey: P256.Signing.PublicKey) -> Data? {
+    let external = publicKey.x963Representation
+    guard external.count == 65,
       external.first == 0x04
     else {
       return nil
@@ -210,7 +251,7 @@ enum KlarkeyPasskeyStore {
     coseKey: Data
   ) -> Data {
     var data = Data(SHA256.hash(data: Data(relyingParty.utf8)))
-    data.append(0x45)
+    data.append(0x5d)
     data.append(uint32Data(0))
     data.append(Data(repeating: 0, count: 16))
     data.append(UInt8((credentialId.count >> 8) & 0xff))
@@ -222,7 +263,7 @@ enum KlarkeyPasskeyStore {
 
   private static func assertionAuthenticatorData(relyingParty: String, signCount: UInt32) -> Data {
     var data = Data(SHA256.hash(data: Data(relyingParty.utf8)))
-    data.append(0x05)
+    data.append(0x1d)
     data.append(uint32Data(signCount))
     return data
   }
@@ -246,6 +287,15 @@ enum KlarkeyPasskeyStore {
 }
 
 private extension Data {
+  init?(base64URLString: String) {
+    var value = base64URLString
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    let padding = (4 - value.count % 4) % 4
+    value += String(repeating: "=", count: padding)
+    self.init(base64Encoded: value)
+  }
+
   func base64URLEncodedString() -> String {
     base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")

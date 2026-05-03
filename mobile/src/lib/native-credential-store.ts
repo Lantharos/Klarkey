@@ -5,6 +5,7 @@ import { createProviderSavedLogin, normalizeMobilePasskey, type MobilePasskey, t
 
 interface KlarkeyCredentialStoreModule {
   replaceCredentials: (payload: string, unlockedUntil: number) => Promise<void>;
+  replacePasskeys?: (payload: string) => Promise<void>;
   getProviderCredentials?: () => Promise<string>;
   getProviderPasskeys?: () => Promise<string>;
   deleteProviderItem?: (itemId: string, passkeyIdsPayload: string) => Promise<void>;
@@ -56,6 +57,10 @@ export function isProviderBackedPasskeyForItem(passkey: MobilePasskey, item: Mob
   return !host || passkey.rpId === host;
 }
 
+function passkeyBelongsToItem(passkey: MobilePasskey, item: MobileVaultItem) {
+  return passkey.itemId === item.id || isProviderBackedPasskeyForItem(passkey, item);
+}
+
 export async function syncNativeCredentialStore(vault: MobileVaultState) {
   const store = credentialStoreModule();
   if ((Platform.OS !== "android" && Platform.OS !== "ios") || !store?.replaceCredentials) {
@@ -77,12 +82,31 @@ export async function syncNativeCredentialStore(vault: MobileVaultState) {
         otpCode: item.otpCode,
         hasPassword: Boolean(item.password),
         hasOtp: Boolean(item.otpCode),
-        hasPasskey: vault.passkeys.some((passkey) => isProviderBackedPasskeyForItem(passkey, item)),
+        hasPasskey: vault.passkeys.some((passkey) => passkeyBelongsToItem(passkey, item)),
         lastUsedAt: item.lastUsedAt ?? item.updatedAt ?? item.createdAt ?? item.id,
       };
     });
 
   await store.replaceCredentials(JSON.stringify(payload), Date.now() + unlockWindowMs);
+  if (store.replacePasskeys) {
+    const passkeys = vault.passkeys
+      .filter((passkey) => passkey.privateKeyJwk && passkey.itemId)
+      .map((passkey) => ({
+        id: passkey.id,
+        rpId: passkey.rpId,
+        username: passkey.username,
+        userHandle: passkey.userHandle,
+        itemId: passkey.itemId,
+        transports: passkey.transports ?? ["internal"],
+        privateKeyJwk: passkey.privateKeyJwk,
+        signCount: 0,
+        createdAt: passkey.createdAt,
+        lastUsedAt: passkey.lastUsedAt,
+        syncedCounter: true,
+        providerBacked: false,
+      }));
+    await store.replacePasskeys(JSON.stringify(passkeys));
+  }
 }
 
 export async function lockNativeCredentialStore() {
@@ -124,6 +148,6 @@ export async function loadNativeProviderPasskeys(): Promise<MobilePasskey[]> {
   const passkeys = JSON.parse(payload) as MobilePasskey[];
   return passkeys.map((passkey) => normalizeMobilePasskey({
     ...passkey,
-    providerBacked: true,
+    providerBacked: !passkey.privateKeyJwk,
   }));
 }
