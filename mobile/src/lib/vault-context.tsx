@@ -1,16 +1,20 @@
-import * as Clipboard from "expo-clipboard";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as ScreenCapture from "expo-screen-capture";
 import * as SecureStore from "expo-secure-store";
 import { AppState } from "react-native";
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
+import { MobileClipboardClearer } from "@/lib/clipboard-clear";
 import {
   deleteNativeProviderItem,
   isProviderBackedPasskeyForItem,
+  loadNativeProviderCredentialIndex,
   loadNativeProviderCredentials,
+  loadNativeProviderPasskeyIndex,
   loadNativeProviderPasskeys,
   lockNativeCredentialStore,
   syncNativeCredentialStore,
+  unlockNativeCredentialStore,
 } from "@/lib/native-credential-store";
 import {
   createVaultItem,
@@ -18,6 +22,7 @@ import {
   loadVaultSettings,
   saveVaultState,
   saveVaultSettings,
+  clearStoredVaultKeyCache,
   updateVaultItem,
   normalizeMobilePasskey,
   normalizeVaultItem,
@@ -91,6 +96,7 @@ const supportHintKey = "klarkey.mobile.unlock-support.v1";
 const syncSignInUiTimeoutMs = 1600;
 const syncCallbackUiTimeoutMs = 5000;
 const automaticSyncCooldownMs = 30000;
+const screenCaptureProtectionKey = "klarkey-mobile-vault";
 
 type SyncReason = "foreground" | "remote" | "local" | "manual";
 
@@ -137,9 +143,20 @@ function mergeSyncReason(current: SyncReason | undefined, next: SyncReason) {
   return current;
 }
 
+const sensitiveSyncErrorPattern = /(access_token|authorization|ciphertext|id_token|passcode|password|private|recovery|refresh_token|secret|token)/i;
+const urlSyncErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i;
+
 function syncErrorMessage(error: unknown, fallback: string) {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
-  if (message.length > 180 || message.includes("Convex's supported types") || message.includes("Uint8Array") || message.includes("[fromParts]")) {
+  const message = (error instanceof Error ? error.message : typeof error === "string" ? error : "").trim();
+  if (
+    !message ||
+    message.length > 180 ||
+    sensitiveSyncErrorPattern.test(message) ||
+    urlSyncErrorPattern.test(message) ||
+    message.includes("Convex's supported types") ||
+    message.includes("Uint8Array") ||
+    message.includes("[fromParts]")
+  ) {
     return fallback;
   }
   return message;
@@ -230,8 +247,10 @@ async function loadSyncedVaultState() {
 }
 
 async function loadLockedVaultIndex() {
-  const { vault } = await loadSyncedVaultState();
-  return redactVaultState(vault);
+  const providerCredentials = await loadNativeProviderCredentialIndex();
+  const providerPasskeys = await loadNativeProviderPasskeyIndex();
+  const items = linkPasskeysToItems(ensurePasskeyItems(providerCredentials, providerPasskeys), providerPasskeys);
+  return redactVaultState({ items, passkeys: providerPasskeys });
 }
 
 async function loadOptionalSyncStatus() {
@@ -255,6 +274,8 @@ function redactVaultState(state: MobileVaultState): MobileVaultState {
     passkeys: state.passkeys.map((passkey) => ({
       ...passkey,
       username: passkey.username,
+      userHandle: undefined,
+      privateKeyJwk: undefined,
     })),
   };
 }
@@ -307,12 +328,14 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
     items: [],
     passkeys: [],
   });
+  const clipboardClearer = useMemo(() => new MobileClipboardClearer(), []);
   const backgroundedAt = useRef<number | undefined>(undefined);
   const syncTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const syncRunning = useRef(false);
   const queuedSyncReason = useRef<SyncReason | undefined>(undefined);
   const scheduledSyncReason = useRef<SyncReason | undefined>(undefined);
   const observedRemoteSequence = useRef(0);
+  const queuedRemoteSequence = useRef(0);
   const lastSyncFinishedAt = useRef(0);
   const vaultRef = useRef(vault);
   const syncStatusRef = useRef(syncStatus);
@@ -335,6 +358,14 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
     if (syncTimer.current) {
       clearTimeout(syncTimer.current);
     }
+    void clipboardClearer.clearCopiedValue();
+  }, [clipboardClearer]);
+
+  useEffect(() => {
+    void ScreenCapture.preventScreenCaptureAsync(screenCaptureProtectionKey).catch(() => undefined);
+    return () => {
+      void ScreenCapture.allowScreenCaptureAsync(screenCaptureProtectionKey).catch(() => undefined);
+    };
   }, []);
 
   useEffect(() => {
@@ -390,14 +421,26 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const lock = useCallback(() => {
+    void clipboardClearer.clearCopiedValue();
+    clearStoredVaultKeyCache();
+    lockedRef.current = true;
+    if (syncTimer.current) {
+      clearTimeout(syncTimer.current);
+      syncTimer.current = undefined;
+      scheduledSyncReason.current = undefined;
+    }
+    queuedSyncReason.current = undefined;
+    const redactedVault = redactVaultState(vaultRef.current);
+    vaultRef.current = redactedVault;
     setLocked(true);
-    setVault((current) => redactVaultState(current));
+    setVault(redactedVault);
     setLastEvent(undefined);
     backgroundedAt.current = undefined;
     void lockNativeCredentialStore();
-  }, []);
+  }, [clipboardClearer]);
 
   const refreshProviderVault = useCallback(async () => {
+    await unlockNativeCredentialStore();
     const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
     if (providerCredentials.length === 0 && providerPasskeys.length === 0) {
       return;
@@ -410,13 +453,13 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const refreshLockedProviderVault = useCallback(async () => {
-    const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
-    if (providerCredentials.length === 0 && providerPasskeys.length === 0) {
+    const nextVault = await loadLockedVaultIndex();
+    if (nextVault.items.length === 0 && nextVault.passkeys.length === 0) {
       return;
     }
 
-    vaultRef.current = redactVaultState(nextVault);
-    setVault(redactVaultState(nextVault));
+    vaultRef.current = nextVault;
+    setVault(nextVault);
   }, []);
 
   useEffect(() => {
@@ -492,6 +535,9 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
       try {
         const previousVault = vaultRef.current;
         const result = await syncMobileVault(previousVault, { fullPull: showEvent });
+        if (lockedRef.current) {
+          return;
+        }
         await deleteNativeProviderRecordsForRemovedItems(previousVault, result.vault);
         vaultRef.current = result.vault;
         syncStatusRef.current = result.status;
@@ -523,8 +569,10 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
         }
 
         const nextReason = queuedSyncReason.current;
-        const shouldRunAgain = completed && Boolean(nextReason);
+        const remoteSequence = queuedRemoteSequence.current;
+        const shouldRunAgain = completed && Boolean(nextReason) && (nextReason !== "remote" || remoteSequence > syncStatusRef.current.serverSequence);
         queuedSyncReason.current = undefined;
+        queuedRemoteSequence.current = 0;
 
         if (shouldRunAgain && nextReason) {
           scheduledSyncReason.current = nextReason;
@@ -585,8 +633,14 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
         if (!active) {
           return;
         }
-        if (remote.sequence > syncStatusRef.current.serverSequence && remote.sequence > observedRemoteSequence.current) {
-          observedRemoteSequence.current = remote.sequence;
+        const remoteSequence = remote.sequence;
+        if (remoteSequence > syncStatusRef.current.serverSequence && remoteSequence > observedRemoteSequence.current) {
+          observedRemoteSequence.current = remoteSequence;
+          if (syncRunning.current) {
+            queuedRemoteSequence.current = Math.max(queuedRemoteSequence.current, remoteSequence);
+            queuedSyncReason.current = mergeSyncReason(queuedSyncReason.current, "remote");
+            return;
+          }
           scheduleSync(150, "remote");
         }
       },
@@ -633,6 +687,7 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
         return;
       }
 
+      await unlockNativeCredentialStore();
       const { vault: nextVault, providerCredentials, providerPasskeys } = await loadSyncedVaultState();
       await syncNativeCredentialStore(nextVault);
       if (providerCredentials.length > 0 || providerPasskeys.length > 0) {
@@ -828,9 +883,9 @@ export function MobileVaultProvider({ children }: { children: React.ReactNode })
       return;
     }
 
-    await Clipboard.setStringAsync(value);
-    setLastEvent(`${label} copied.`);
-  }, []);
+    await clipboardClearer.copy(value);
+    setLastEvent(`${label} copied. Clipboard clears shortly.`);
+  }, [clipboardClearer]);
 
   const value = useMemo(
     () => ({

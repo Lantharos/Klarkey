@@ -154,7 +154,6 @@ export function SettingsPage({
       ? syncStatus.account?.email ?? syncStatus.account?.displayName ?? 'Connected'
       : 'Sign in'
   const syncNowLabel = syncStatus?.syncing ? 'Syncing' : syncStatus?.lastSyncAt ? new Date(syncStatus.lastSyncAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'
-  const conflictLabel = syncStatus?.conflictCount ? `${syncStatus.conflictCount} saved` : 'None'
 
   return (
     <div className="space-y-1 px-2 pb-3 pt-1">
@@ -264,17 +263,10 @@ export function SettingsPage({
             pointerActive={pointerActive}
           />
           <SettingRow
-            label="Conflict copies"
-            value={conflictLabel}
-            selected={selectedIndex === 12}
-            onHover={() => onSelectRow(12)}
-            pointerActive={pointerActive}
-          />
-          <SettingRow
             label="Disconnect sync"
             value="This device"
-            selected={selectedIndex === 13}
-            onHover={() => onSelectRow(13)}
+            selected={selectedIndex === 12}
+            onHover={() => onSelectRow(12)}
             onClick={onSyncSignOut}
             pointerActive={pointerActive}
           />
@@ -284,16 +276,16 @@ export function SettingsPage({
       <SettingRow
         label="Export vault"
         value="Klarkey or CSV"
-        selected={selectedIndex === 14}
-        onHover={() => onSelectRow(14)}
+        selected={selectedIndex === 13}
+        onHover={() => onSelectRow(13)}
         onClick={onExportVault}
         pointerActive={pointerActive}
       />
       <SettingRow
         label="Import vault"
         value="1Password, Bitwarden, etc."
-        selected={selectedIndex === 15}
-        onHover={() => onSelectRow(15)}
+        selected={selectedIndex === 14}
+        onHover={() => onSelectRow(14)}
         onClick={onImportVault}
         pointerActive={pointerActive}
       />

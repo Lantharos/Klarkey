@@ -1,5 +1,5 @@
-import { generateKeyPairSync, randomBytes, sign, createPrivateKey, type KeyObject } from 'node:crypto'
-import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
+import { generateKeyPairSync, randomBytes, sign, createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto'
+import { decodeBase64Url, encodeBase64Url, normalizeCredentialId } from '@/shared/passkey-encoding'
 import type { CreateSitePasskeyInput, GetSitePasskeyInput } from '@/electron/site-passkey/types'
 import {
   AUTH_DATA_AT,
@@ -26,6 +26,36 @@ import {
   validateEs256Support,
 } from '@/electron/site-passkey/webauthn-crypto'
 
+const PASSKEY_CHALLENGE_MIN_BYTES = 16
+const PASSKEY_CHALLENGE_MAX_BYTES = 1024
+const PASSKEY_USER_HANDLE_MAX_BYTES = 64
+
+function normalizeCredentialIds(values: Array<string | undefined>) {
+  return new Set(values.map((value) => normalizeCredentialId(value)).filter((value): value is string => Boolean(value)))
+}
+
+function validatedP256PrivateKey(privateKeyJwk: JsonWebKey) {
+  if (privateKeyJwk.kty !== 'EC' || privateKeyJwk.crv !== 'P-256') {
+    throw new Error('The saved passkey private key is invalid.')
+  }
+
+  decodeRequiredBase64Url(privateKeyJwk.x, 'The saved passkey private key is invalid.', { exactBytes: 32 })
+  decodeRequiredBase64Url(privateKeyJwk.y, 'The saved passkey private key is invalid.', { exactBytes: 32 })
+  decodeRequiredBase64Url(privateKeyJwk.d, 'The saved passkey private key is invalid.', { exactBytes: 32 })
+  let privateKey: KeyObject
+  let publicKeyJwk: JsonWebKey
+  try {
+    privateKey = createPrivateKey({ format: 'jwk', key: privateKeyJwk })
+    publicKeyJwk = createPublicKey(privateKey).export({ format: 'jwk' }) as JsonWebKey
+  } catch {
+    throw new Error('The saved passkey private key is invalid.')
+  }
+  if (publicKeyJwk.x !== privateKeyJwk.x || publicKeyJwk.y !== privateKeyJwk.y) {
+    throw new Error('The saved passkey private key is invalid.')
+  }
+  return privateKey
+}
+
 export const createSitePasskeyCredential = ({
   origin,
   requestDetailsJson,
@@ -35,19 +65,22 @@ export const createSitePasskeyCredential = ({
   const options = parseCreationOptions(requestDetailsJson)
   validateEs256Support(options)
 
-  const excludedCredentialIds = new Set(
-    (options.excludeCredentials ?? [])
-      .map((descriptor) => descriptor.id?.trim())
-      .filter((credentialId): credentialId is string => Boolean(credentialId)),
-  )
+  const excludedCredentialIds = normalizeCredentialIds((options.excludeCredentials ?? []).map((descriptor) => descriptor.id))
 
-  const duplicateCredentialId = existingCredentialIds.find((credentialId) => excludedCredentialIds.has(credentialId))
+  const duplicateCredentialId = Array.from(normalizeCredentialIds(existingCredentialIds)).find((credentialId) =>
+    excludedCredentialIds.has(credentialId))
   if (duplicateCredentialId) {
     throw new Error('This site asked Klarkey not to reuse an existing passkey for this account.')
   }
 
-  const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a passkey challenge.')
-  const userHandle = decodeRequiredBase64Url(options.user?.id, 'The site did not provide a passkey user id.')
+  const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a valid passkey challenge.', {
+    minBytes: PASSKEY_CHALLENGE_MIN_BYTES,
+    maxBytes: PASSKEY_CHALLENGE_MAX_BYTES,
+  })
+  const userHandle = decodeRequiredBase64Url(options.user?.id, 'The site did not provide a valid passkey user id.', {
+    minBytes: 1,
+    maxBytes: PASSKEY_USER_HANDLE_MAX_BYTES,
+  })
   const rpId = resolveRpId(origin, options.rp?.id)
   const credentialId = randomBytes(32)
   const { privateKey, publicKey } = generateKeyPairSync('ec', {
@@ -104,8 +137,18 @@ export const createSitePasskeyCredential = ({
 
 export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey, userVerified = false }: GetSitePasskeyInput) => {
   const options = parseRequestOptions(requestDetailsJson)
-  const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a passkey challenge.')
+  const challenge = decodeRequiredBase64Url(options.challenge, 'The site did not provide a valid passkey challenge.', {
+    minBytes: PASSKEY_CHALLENGE_MIN_BYTES,
+    maxBytes: PASSKEY_CHALLENGE_MAX_BYTES,
+  })
   const rpId = resolveRpId(origin, options.rpId)
+  if (passkey.rpId !== rpId) {
+    throw new Error('The saved passkey does not belong to this relying party.')
+  }
+  const requestedCredentialIds = normalizeCredentialIds((options.allowCredentials ?? []).map((descriptor) => descriptor.id))
+  if (requestedCredentialIds.size > 0 && !requestedCredentialIds.has(passkey.credentialId)) {
+    throw new Error('The site did not request this passkey credential.')
+  }
   const clientDataJSON = buildClientDataJson('webauthn.get', challenge, origin)
   const nextSignCount = 0
   const authenticatorData = buildAuthenticatorData({
@@ -114,7 +157,11 @@ export const getSitePasskeyAssertion = ({ origin, requestDetailsJson, passkey, u
     signCount: nextSignCount,
   })
   const signatureBase = joinBytes(authenticatorData, sha256(clientDataJSON))
-  const signature = sign('sha256', signatureBase, createPrivateKey({ format: 'jwk', key: passkey.privateKeyJwk }))
+  const signature = sign(
+    'sha256',
+    signatureBase,
+    validatedP256PrivateKey(passkey.privateKeyJwk),
+  )
   const userHandle = passkey.userHandle ? decodeBase64Url(passkey.userHandle) : undefined
 
   return {

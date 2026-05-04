@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import type { VaultRepository } from '@/electron/repository'
 import type { ImportOptions, ImportResult } from '@/shared/import-export'
 import { importKlarkeyJson } from '@/electron/import/import-klarkey'
@@ -6,6 +5,14 @@ import { importCsv } from '@/electron/import/import-csv'
 import { import1pux } from '@/electron/import/import-1pux'
 import { importBitwardenJson } from '@/electron/import/import-bitwarden'
 import { importDashlaneJson } from '@/electron/import/import-dashlane'
+import { safeErrorMessage } from '@/electron/security'
+import {
+  isWindowsAlternateDataStreamImportPath,
+  readImportFileText,
+  validateImportFilePath,
+} from '@/electron/import/import-utils'
+
+export { isWindowsAlternateDataStreamImportPath }
 
 function detectFormat(filePath: string): string {
   const lower = filePath.toLowerCase()
@@ -15,7 +22,7 @@ function detectFormat(filePath: string): string {
 
   if (lower.endsWith('.json')) {
     try {
-      const content = readFileSync(filePath, 'utf-8')
+      const content = readImportFileText(filePath)
       const data = JSON.parse(content)
 
       // Klarkey export: has our app marker or versioned items array
@@ -57,29 +64,50 @@ function detectFormat(filePath: string): string {
 }
 
 export async function importVault(repository: VaultRepository, options: ImportOptions): Promise<ImportResult> {
+  const fileError = validateImportFilePath(options.filePath)
+  if (fileError) {
+    return {
+      success: false,
+      importedCount: 0,
+      skippedCount: 0,
+      errorCount: 1,
+      message: fileError,
+    }
+  }
+
   const format = options.format === 'auto' ? detectFormat(options.filePath) : options.format
 
-  switch (format) {
-    case 'klarkey-json':
-      return importKlarkeyJson(repository, options.filePath)
-    case 'csv':
-    case 'lastpass-csv':
-    case 'dashlane-csv':
-    case 'chrome-csv':
-      return importCsv(repository, options.filePath)
-    case '1pux':
-      return import1pux(repository, options.filePath)
-    case 'bitwarden-json':
-      return importBitwardenJson(repository, options.filePath)
-    case 'dashlane-json':
-      return importDashlaneJson(repository, options.filePath)
-    default:
-      return {
-        success: false,
-        importedCount: 0,
-        skippedCount: 0,
-        errorCount: 0,
-        message: `Unsupported import format: ${format}`,
-      }
+  try {
+    switch (format) {
+      case 'klarkey-json':
+        return await importKlarkeyJson(repository, options.filePath)
+      case 'csv':
+      case 'lastpass-csv':
+      case 'dashlane-csv':
+      case 'chrome-csv':
+        return await importCsv(repository, options.filePath)
+      case '1pux':
+        return await import1pux(repository, options.filePath)
+      case 'bitwarden-json':
+        return await importBitwardenJson(repository, options.filePath)
+      case 'dashlane-json':
+        return await importDashlaneJson(repository, options.filePath)
+      default:
+        return {
+          success: false,
+          importedCount: 0,
+          skippedCount: 0,
+          errorCount: 0,
+          message: `Unsupported import format: ${format}`,
+        }
+    }
+  } catch (error) {
+    return {
+      success: false,
+      importedCount: 0,
+      skippedCount: 0,
+      errorCount: 1,
+      message: safeErrorMessage(error, 'Klarkey could not import that vault file.'),
+    }
   }
 }

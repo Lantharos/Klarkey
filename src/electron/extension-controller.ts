@@ -1,49 +1,34 @@
 import { spawn } from 'node:child_process'
 import { KeyManager } from '@/electron/crypto'
-import { readCreateUserVerification, readGetUserVerification } from '@/electron/passkey-user-verification'
 import { createDatabase } from '@/electron/database'
 import { markRuntimeBusy, noteExtensionActivity, readRuntimeState } from '@/electron/runtime-state'
-import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
+import { readTrustedDesktopLockState } from '@/electron/desktop-lock-lease'
+import { getWindowsHelloAvailability } from '@/electron/windows-hello-verifier'
+import { resolveBrowserUserVerification } from '@/electron/browser-user-verification'
+import { BrowserFillGrantStore } from '@/electron/browser-fill-grants'
+import { hasBrowserSiteAccess } from '@/electron/repository/browser-site-matches'
 import { VaultRepository } from '@/electron/repository'
 import { app } from 'electron'
-import { KLARKEY_EXTENSION_PROTOCOL_VERSION, normalizeBrowserHostname, type BrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
-
-const validateOrigin = (origin: string, url: string): string | undefined => {
-  try {
-    const originHostname = new URL(origin).hostname.toLowerCase()
-    const urlHostname = normalizeBrowserHostname(url)
-    if (!urlHostname) {
-      return originHostname
-    }
-    if (originHostname === urlHostname || originHostname.endsWith(`.${urlHostname}`) || urlHostname.endsWith(`.${originHostname}`)) {
-      return originHostname
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
+import { KLARKEY_EXTENSION_PROTOCOL_VERSION, validateBrowserPasskeyOrigin, type BrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
 
 export class BrowserExtensionController {
   private readonly keyManager = new KeyManager()
   private readonly database = createDatabase()
   private readonly repository: VaultRepository
+  private readonly fillGrants = new BrowserFillGrantStore()
   private lastUnlockPromptAt = 0
 
-  private readDesktopLockState(): 'locked' | 'passcode' | 'unlocked' {
-    const row = this.database.db.prepare('SELECT value FROM settings WHERE key = ?').get('vault_lock_state') as { value?: string } | undefined
-    if (row?.value === 'unlocked' || row?.value === 'passcode' || row?.value === 'locked') {
-      return row.value
-    }
-    return 'locked'
+  private readDesktopLockState() {
+    return readTrustedDesktopLockState(this.database.db)
   }
 
   constructor() {
-    if (this.keyManager.isSafeStorageAvailable()) {
+    const lockState = this.readDesktopLockState()
+    if (lockState === 'unlocked' && this.keyManager.isSafeStorageAvailable()) {
       this.keyManager.unlockFromSystem()
     }
 
-    const key = this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
+    const key = lockState === 'unlocked' && this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
     this.repository = new VaultRepository(this.database.db, key)
   }
 
@@ -54,6 +39,9 @@ export class BrowserExtensionController {
   private ensureVaultReady() {
     const lockState = this.readDesktopLockState()
     if (lockState !== 'unlocked') {
+      this.repository.clearKey()
+      this.keyManager.evictKey()
+      this.fillGrants.clear()
       return false
     }
 
@@ -77,6 +65,14 @@ export class BrowserExtensionController {
     } as const
   }
 
+  private isLoginAllowedForUrl(itemId: string, url?: string) {
+    if (!url) {
+      return false
+    }
+
+    return hasBrowserSiteAccess(this.repository.getSnapshot(false), itemId, url)
+  }
+
   private isPassiveRequest(type: BrowserExtensionRequest['type']) {
     return type === 'ping' || type === 'get-settings'
   }
@@ -96,8 +92,8 @@ export class BrowserExtensionController {
 
     const appPath = app.getAppPath()
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette', '--external-unlock']
-      : ['--open-palette', '--external-unlock']
+      ? [appPath, '--open-palette']
+      : ['--open-palette']
 
     try {
       const child = spawn(process.execPath, args, {
@@ -107,92 +103,8 @@ export class BrowserExtensionController {
       })
       child.unref()
     } catch {
-      // ignore spawn failures; extension still gets locked response
+      return
     }
-  }
-
-  private buildWindowsHelloMessage(operation: 'create' | 'get', url: string) {
-    const hostname = (() => {
-      try {
-        return new URL(url).hostname
-      } catch {
-        return 'this site'
-      }
-    })()
-
-    return operation === 'create'
-      ? `Verify with Windows Hello to create a passkey for ${hostname} in Klarkey.`
-      : `Verify with Windows Hello to sign in to ${hostname} with Klarkey.`
-  }
-
-  private async resolveUserVerification(
-    operation: 'create' | 'get',
-    requestDetailsJson: string,
-    url: string,
-  ) {
-    const requestedVerification =
-      operation === 'create' ? readCreateUserVerification(requestDetailsJson) : readGetUserVerification(requestDetailsJson)
-
-    if (requestedVerification === 'discouraged') {
-      return {
-        ok: true,
-        userVerified: false,
-      } as const
-    }
-
-    const availability = await getWindowsHelloAvailability()
-    if (!availability.available) {
-      if (requestedVerification === 'required') {
-        return {
-          ok: false,
-          result: {
-            status: 'error',
-            title: 'Windows Hello required',
-            message: availability.message || 'Klarkey could not reach Windows Hello for this passkey request.',
-          },
-        } as const
-      }
-
-      return {
-        ok: true,
-        userVerified: false,
-      } as const
-    }
-
-    const verification = await verifyWithWindowsHello(this.buildWindowsHelloMessage(operation, url))
-    if (verification.verified) {
-      return {
-        ok: true,
-        userVerified: true,
-      } as const
-    }
-
-    if (verification.canceled) {
-      return {
-        ok: false,
-        result: {
-          status: 'error',
-          title: 'Windows Hello canceled',
-          message: verification.message || 'Windows Hello verification was canceled.',
-        },
-      } as const
-    }
-
-    if (requestedVerification === 'required') {
-      return {
-        ok: false,
-        result: {
-          status: 'error',
-          title: 'Windows Hello required',
-          message: verification.message || 'Windows Hello verification did not complete.',
-        },
-      } as const
-    }
-
-    return {
-      ok: true,
-      userVerified: false,
-    } as const
   }
 
   async handle(request: BrowserExtensionRequest): Promise<BrowserExtensionResponse> {
@@ -276,7 +188,17 @@ export class BrowserExtensionController {
         }
 
       case 'get-login': {
-        const loginVerification = await this.resolveUserVerification('get', '', '')
+        if (!this.isLoginAllowedForUrl(request.itemId, request.url)) {
+          return {
+            id: request.id,
+            ok: true,
+            result: {
+              login: undefined,
+            },
+          }
+        }
+
+        const loginVerification = await resolveBrowserUserVerification('get', '{}', request.url)
         if (!loginVerification.ok) {
           return {
             id: request.id,
@@ -294,7 +216,17 @@ export class BrowserExtensionController {
       }
 
       case 'get-identity': {
-        const identityVerification = await this.resolveUserVerification('get', '', '')
+        if (!this.fillGrants.allows('identity', request.itemId, request.url)) {
+          return {
+            id: request.id,
+            ok: true,
+            result: {
+              identity: undefined,
+            },
+          }
+        }
+
+        const identityVerification = await resolveBrowserUserVerification('get', '{}', request.url)
         if (!identityVerification.ok) {
           return {
             id: request.id,
@@ -312,7 +244,17 @@ export class BrowserExtensionController {
       }
 
       case 'get-card': {
-        const cardVerification = await this.resolveUserVerification('get', '', '')
+        if (!this.fillGrants.allows('card', request.itemId, request.url)) {
+          return {
+            id: request.id,
+            ok: true,
+            result: {
+              card: undefined,
+            },
+          }
+        }
+
+        const cardVerification = await resolveBrowserUserVerification('get', '{}', request.url)
         if (!cardVerification.ok) {
           return {
             id: request.id,
@@ -330,19 +272,16 @@ export class BrowserExtensionController {
       }
 
       case 'list-field-suggestions':
-        return {
-          id: request.id,
-          ok: true,
-          result: {
-            suggestions: this.repository.listBrowserFieldSuggestions(request.field, request.flow, request.url, request.title),
-          },
-        }
-
-      case 'save-login':
-        return {
-          id: request.id,
-          ok: true,
-          result: this.repository.saveBrowserLogin(request.payload),
+        {
+          const suggestions = this.repository.listBrowserFieldSuggestions(request.field, request.flow, request.url, request.title)
+          this.fillGrants.remember(request.url, suggestions)
+          return {
+            id: request.id,
+            ok: true,
+            result: {
+              suggestions,
+            },
+          }
         }
 
       case 'get-settings':
@@ -352,6 +291,13 @@ export class BrowserExtensionController {
           result: {
             settings: this.repository.getSettings(),
           },
+        }
+
+      case 'save-login':
+        return {
+          id: request.id,
+          ok: true,
+          result: this.repository.saveBrowserLogin(request.payload),
         }
 
       case 'passkeys-status':
@@ -382,7 +328,7 @@ export class BrowserExtensionController {
           }
         }
 
-        const validOrigin = validateOrigin(request.origin, request.url)
+        const validOrigin = validateBrowserPasskeyOrigin(request.origin, request.url)
         if (!validOrigin) {
           return {
             id: request.id,
@@ -394,7 +340,7 @@ export class BrowserExtensionController {
           }
         }
 
-        const verification = await this.resolveUserVerification('create', request.requestDetailsJson, request.url)
+        const verification = await resolveBrowserUserVerification('create', request.requestDetailsJson, request.url)
         if (!verification.ok) {
           return {
             id: request.id,
@@ -470,7 +416,7 @@ export class BrowserExtensionController {
           }
         }
 
-        const validOrigin = validateOrigin(request.origin, request.url)
+        const validOrigin = validateBrowserPasskeyOrigin(request.origin, request.url)
         if (!validOrigin) {
           return {
             id: request.id,
@@ -482,7 +428,7 @@ export class BrowserExtensionController {
           }
         }
 
-        const verification = await this.resolveUserVerification('get', request.requestDetailsJson, request.url)
+        const verification = await resolveBrowserUserVerification('get', request.requestDetailsJson, request.url)
         if (!verification.ok) {
           return {
             id: request.id,
@@ -520,14 +466,14 @@ export class BrowserExtensionController {
       default:
         {
           const unsupportedRequest = request as { id: string }
-        return {
-          id: unsupportedRequest.id,
-          ok: false,
-          error: {
-            code: 'unsupported_request',
-            message: 'The requested browser extension action is not supported.',
-          },
-        }
+          return {
+            id: unsupportedRequest.id,
+            ok: false,
+            error: {
+              code: 'unsupported_request',
+              message: 'The requested browser extension action is not supported.',
+            },
+          }
         }
     }
   }

@@ -1,17 +1,136 @@
-import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'node:crypto'
+import { chmodSync, closeSync, constants, existsSync, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app, safeStorage } from 'electron'
 
 const KEY_FILE = 'vault.key'
 const algorithm = 'aes-256-gcm'
 const KEY_FILE_VERSION = 2
-const PBKDF2_ITERATIONS = 600000
-const PBKDF2_KEY_LENGTH = 32
-const PBKDF2_DIGEST = 'sha256'
+const PASSWORD_KEY_FILE_VERSION = 3
+const SCRYPT_N = 32768
+const SCRYPT_R = 8
+const SCRYPT_P = 3
+const SCRYPT_KEY_LENGTH = 32
+const SCRYPT_MAXMEM = 128 * 1024 * 1024
+const SCRYPT_MAX_N = 65536
+const SCRYPT_MAX_P = 8
+const PASSWORD_FILE_MIN_SCRYPT_N = 16384
+const PASSWORD_FILE_MIN_SALT_LENGTH = 16
+const PASSWORD_FILE_MAX_SALT_LENGTH = 64
+const KEY_FILE_MAX_BYTES = 256 * 1024
+const GCM_IV_BYTES = 12
+const GCM_AUTH_TAG_BYTES = 16
+const MAX_ENCRYPTED_VALUE_BYTES = 16 * 1024 * 1024
+const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 const decode = (value: string) => Buffer.from(value, 'base64')
 const encode = (value: Buffer) => value.toString('base64')
+
+function decodeBase64Bytes(value: string, maxBytes: number, label: string) {
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    value.length % 4 !== 0 ||
+    value.length > Math.ceil(maxBytes / 3) * 4 + 4 ||
+    !base64Pattern.test(value)
+  ) {
+    throw new Error(`Invalid Klarkey encrypted ${label}.`)
+  }
+
+  const decoded = decode(value)
+  if (decoded.length > maxBytes) {
+    throw new Error(`Invalid Klarkey encrypted ${label}.`)
+  }
+  return decoded
+}
+
+function expectByteLength(value: Buffer, length: number, label: string) {
+  if (value.length !== length) {
+    value.fill(0)
+    throw new Error(`Invalid Klarkey encrypted ${label}.`)
+  }
+  return value
+}
+
+function assertReadablePrivateFile(filePath: string) {
+  const stats = lstatSync(filePath)
+  if (stats.isSymbolicLink() || !stats.isFile() || stats.size <= 0 || stats.size > KEY_FILE_MAX_BYTES) {
+    throw new Error('Invalid Klarkey key file.')
+  }
+}
+
+function openReadablePrivateFile(filePath: string) {
+  assertReadablePrivateFile(filePath)
+  const noFollow = typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+  const fd = openSync(filePath, constants.O_RDONLY | noFollow)
+  const stats = fstatSync(fd)
+  if (!stats.isFile() || stats.size <= 0 || stats.size > KEY_FILE_MAX_BYTES) {
+    closeSync(fd)
+    throw new Error('Invalid Klarkey key file.')
+  }
+  return fd
+}
+
+function readPrivateFileText(filePath: string) {
+  const fd = openReadablePrivateFile(filePath)
+  try {
+    return readFileSync(fd, 'utf8')
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function writePrivateFile(filePath: string, value: Buffer | string, encoding?: BufferEncoding) {
+  const folder = dirname(filePath)
+  mkdirSync(folder, { recursive: true })
+  const tempPath = join(folder, `.klarkey-${process.pid}-${randomBytes(8).toString('hex')}.tmp`)
+  const fd = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+  try {
+    writeFileSync(fd, value, encoding ? { encoding } : undefined)
+    try {
+      fchmodSync(fd, 0o600)
+    } catch {
+      void 0
+    }
+  } finally {
+    closeSync(fd)
+  }
+
+  try {
+    if (lstatSync(filePath).isSymbolicLink()) {
+      throw new Error('Refusing to replace a linked Klarkey key file.')
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      try {
+        unlinkSync(tempPath)
+      } catch {
+        void 0
+      }
+      throw error
+    }
+  }
+
+  try {
+    renameSync(tempPath, filePath)
+    try {
+      chmodSync(filePath, 0o600)
+    } catch {
+      void 0
+    }
+  } catch (error) {
+    try {
+      unlinkSync(tempPath)
+    } catch {
+      void 0
+    }
+    throw error
+  }
+}
+
+export function writePrivateTextFile(filePath: string, value: string) {
+  writePrivateFile(filePath, value, 'utf8')
+}
 
 export interface EncryptedPayload {
   iv: string
@@ -19,9 +138,78 @@ export interface EncryptedPayload {
   authTag: string
 }
 
+type ScryptPasswordKdf = {
+  name: 'scrypt'
+  N: number
+  r: number
+  p: number
+  keyLength: number
+}
+
 type KeyFileFormat =
   | { version: 2; method: 'safeStorage'; data: string }
-  | { version: 2; method: 'password'; salt: string; keyVerification: string; encryptedKey: EncryptedPayload }
+  | { version: 3; method: 'password'; salt: string; kdf: ScryptPasswordKdf; encryptedKey: EncryptedPayload }
+
+const defaultPasswordKdf = (): ScryptPasswordKdf => ({
+  name: 'scrypt',
+  N: SCRYPT_N,
+  r: SCRYPT_R,
+  p: SCRYPT_P,
+  keyLength: SCRYPT_KEY_LENGTH,
+})
+
+export const encodeVaultKeyForPasswordFile = (key: Buffer) => encode(key)
+
+export const decodeVaultKeyFromPasswordFile = (value: string) => {
+  const decoded = decode(value)
+  if (decoded.length === 32) {
+    return decoded
+  }
+
+  throw new Error('Invalid Klarkey vault key.')
+}
+
+const isPowerOfTwo = (value: number) => value > 1 && (value & (value - 1)) === 0
+const isSafePositiveInteger = (value: unknown): value is number =>
+  Number.isSafeInteger(value) && (value as number) > 0
+
+function assertScryptKdf(kdf: ScryptPasswordKdf) {
+  if (
+    kdf.name !== 'scrypt' ||
+    !isSafePositiveInteger(kdf.N) ||
+    !isSafePositiveInteger(kdf.r) ||
+    !isSafePositiveInteger(kdf.p) ||
+    kdf.keyLength !== SCRYPT_KEY_LENGTH ||
+    !isPowerOfTwo(kdf.N) ||
+    kdf.N > SCRYPT_MAX_N ||
+    kdf.p > SCRYPT_MAX_P ||
+    128 * kdf.N * kdf.r > SCRYPT_MAXMEM
+  ) {
+    throw new Error('Unsupported Klarkey password KDF.')
+  }
+}
+
+function isSupportedPasswordFileScryptKdf(kdf: ScryptPasswordKdf, salt: Buffer) {
+  try {
+    assertScryptKdf(kdf)
+  } catch {
+    return false
+  }
+
+  return kdf.N >= PASSWORD_FILE_MIN_SCRYPT_N &&
+    salt.length >= PASSWORD_FILE_MIN_SALT_LENGTH &&
+    salt.length <= PASSWORD_FILE_MAX_SALT_LENGTH
+}
+
+export const deriveScryptPasswordKey = (password: string, salt: Buffer, kdf: ScryptPasswordKdf = defaultPasswordKdf()) => {
+  assertScryptKdf(kdf)
+  return scryptSync(password, salt, kdf.keyLength, {
+    N: kdf.N,
+    r: kdf.r,
+    p: kdf.p,
+    maxmem: SCRYPT_MAXMEM,
+  })
+}
 
 export class KeyManager {
   private cachedKey: Buffer | null = null
@@ -61,9 +249,9 @@ export class KeyManager {
     }
 
     try {
-      const raw = readFileSync(filePath, 'utf8')
+      const raw = readPrivateFileText(filePath)
       const parsed = JSON.parse(raw)
-      return parsed?.version === KEY_FILE_VERSION && parsed?.method === 'password'
+      return (parsed?.version === KEY_FILE_VERSION || parsed?.version === PASSWORD_KEY_FILE_VERSION) && parsed?.method === 'password'
     } catch {
       return false
     }
@@ -75,32 +263,27 @@ export class KeyManager {
       return false
     }
 
-    const raw = readFileSync(filePath, 'utf8')
-
+    let raw: string
     try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.version === KEY_FILE_VERSION) {
-        if (parsed.method === 'safeStorage') {
-          if (!safeStorage.isEncryptionAvailable()) {
-            return false
-          }
-          const key = decode(safeStorage.decryptString(Buffer.from(parsed.data, 'base64')))
-          if (key.length !== 32) {
-            return false
-          }
-          this.cachedKey = key
-          return true
-        }
-
-        if (parsed.method === 'password') {
-          return false
-        }
-      }
+      raw = readPrivateFileText(filePath)
     } catch {
-      // Not versioned format, try legacy
+      return false
     }
 
-    return this.tryUnlockLegacy(filePath)
+    try {
+      const parsed = JSON.parse(raw) as KeyFileFormat
+      if (parsed.version !== KEY_FILE_VERSION || parsed.method !== 'safeStorage' || !safeStorage.isEncryptionAvailable()) {
+        return false
+      }
+      const key = decode(safeStorage.decryptString(Buffer.from(parsed.data, 'base64')))
+      if (key.length !== 32) {
+        return false
+      }
+      this.cachedKey = key
+      return true
+    } catch {
+      return false
+    }
   }
 
   unlockWithPassword(password: string): boolean {
@@ -109,36 +292,28 @@ export class KeyManager {
       return false
     }
 
-    const raw = readFileSync(filePath, 'utf8')
-
     try {
-      const parsed = JSON.parse(raw)
-      if (parsed?.version === KEY_FILE_VERSION && parsed.method === 'password') {
-        const salt = decode(parsed.salt)
-        const derivedKey = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, PBKDF2_KEY_LENGTH, PBKDF2_DIGEST)
-        const verificationHash = createHash('sha256').update(derivedKey).digest('base64')
-
-        if (verificationHash !== parsed.keyVerification) {
-          derivedKey.fill(0)
-          return false
-        }
-
-        try {
-          const decryptedKey = decryptValue(derivedKey, parsed.encryptedKey)
-          this.cachedKey = Buffer.from(decryptedKey, 'utf8')
-          return this.cachedKey.length === 32
-        } finally {
-          derivedKey.fill(0)
-        }
+      const parsed = JSON.parse(readPrivateFileText(filePath)) as KeyFileFormat
+      const result = this.decryptPasswordProtectedKey(password, parsed)
+      if (!result) {
+        return false
       }
+
+      this.cachedKey = result.key
+      if (result.shouldMigrate) {
+        this.persistKeyWithPassword(result.key, password)
+      }
+      return true
     } catch {
       return false
     }
-
-    return false
   }
 
   setupNewVault(): Buffer {
+    if (this.hasKeyFile()) {
+      throw new Error('A Klarkey vault key already exists.')
+    }
+
     const key = randomBytes(32)
     this.persistKey(key)
     this.cachedKey = key
@@ -147,13 +322,13 @@ export class KeyManager {
 
   setupWithMasterPassword(password: string): Buffer {
     if (this.isKeyInMemory()) {
-      this.migrateToPassword(this.cachedKey!, password)
+      this.persistKeyWithPassword(this.cachedKey!, password)
       return this.cachedKey!
     }
 
     const key = this.hasKeyFile() ? null : randomBytes(32)
     if (!key) {
-      return this.cachedKey!
+      throw new Error('Vault must be unlocked before changing key protection.')
     }
 
     this.persistKeyWithPassword(key, password)
@@ -162,22 +337,22 @@ export class KeyManager {
   }
 
   changeMasterPassword(currentPassword: string, newPassword: string): boolean {
-    const currentSalt = this.readPasswordSalt()
-    const currentDerivedKey = pbkdf2Sync(currentPassword, decode(currentSalt), PBKDF2_ITERATIONS, PBKDF2_KEY_LENGTH, PBKDF2_DIGEST)
-    const verificationHash = createHash('sha256').update(currentDerivedKey).digest('base64')
-
-    if (verificationHash !== this.readPasswordVerification()) {
-      currentDerivedKey.fill(0)
+    const parsed = this.readPasswordKeyFile()
+    if (!parsed) {
       return false
     }
 
-    const actualKey = this.isKeyInMemory()
-      ? this.cachedKey!
-      : Buffer.from(decryptValue(currentDerivedKey, this.readPasswordEncryptedKey()), 'utf8')
+    const decrypted = this.decryptPasswordProtectedKey(currentPassword, parsed)
+    if (!decrypted) {
+      return false
+    }
 
-    currentDerivedKey.fill(0)
+    const actualKey = this.isKeyInMemory() ? this.cachedKey! : decrypted.key
     this.persistKeyWithPassword(actualKey, newPassword)
     this.cachedKey = actualKey
+    if (decrypted.key !== actualKey) {
+      decrypted.key.fill(0)
+    }
     return true
   }
 
@@ -186,22 +361,22 @@ export class KeyManager {
       return false
     }
 
-    const currentSalt = this.readPasswordSalt()
-    const currentDerivedKey = pbkdf2Sync(currentPassword, decode(currentSalt), PBKDF2_ITERATIONS, PBKDF2_KEY_LENGTH, PBKDF2_DIGEST)
-    const verificationHash = createHash('sha256').update(currentDerivedKey).digest('base64')
-
-    if (verificationHash !== this.readPasswordVerification()) {
-      currentDerivedKey.fill(0)
+    const parsed = this.readPasswordKeyFile()
+    if (!parsed) {
       return false
     }
 
-    const actualKey = this.isKeyInMemory()
-      ? this.cachedKey!
-      : Buffer.from(decryptValue(currentDerivedKey, this.readPasswordEncryptedKey()), 'utf8')
+    const decrypted = this.decryptPasswordProtectedKey(currentPassword, parsed)
+    if (!decrypted) {
+      return false
+    }
 
-    currentDerivedKey.fill(0)
+    const actualKey = this.isKeyInMemory() ? this.cachedKey! : decrypted.key
     this.persistKey(actualKey)
     this.cachedKey = actualKey
+    if (decrypted.key !== actualKey) {
+      decrypted.key.fill(0)
+    }
     return true
   }
 
@@ -212,84 +387,41 @@ export class KeyManager {
     }
   }
 
-  private readPasswordSalt(): string {
+  private readPasswordKeyFile(): KeyFileFormat | undefined {
     const filePath = this.getPath()
-    const raw = readFileSync(filePath, 'utf8')
-    const parsed = JSON.parse(raw)
-    return parsed.salt
-  }
-
-  private readPasswordVerification(): string {
-    const filePath = this.getPath()
-    const raw = readFileSync(filePath, 'utf8')
-    const parsed = JSON.parse(raw)
-    return parsed.keyVerification
-  }
-
-  private readPasswordEncryptedKey(): EncryptedPayload {
-    const filePath = this.getPath()
-    const raw = readFileSync(filePath, 'utf8')
-    const parsed = JSON.parse(raw)
-    return parsed.encryptedKey as EncryptedPayload
-  }
-
-  private tryUnlockLegacy(filePath: string): boolean {
-    const stored = readFileSync(filePath)
-
-    if (safeStorage.isEncryptionAvailable()) {
-      try {
-        const key = decode(safeStorage.decryptString(stored))
-        if (key.length === 32) {
-          this.cachedKey = key
-          this.migrateToSafeStorage(key)
-          return true
-        }
-      } catch {
-        const recovered = this.tryRecoverLegacyKey(stored)
-        if (recovered) {
-          this.persistKey(recovered)
-          this.cachedKey = recovered
-          return true
-        }
-
-        copyFileSync(filePath, `${filePath}.corrupt-${Date.now()}`)
-        const rotated = randomBytes(32)
-        this.persistKey(rotated)
-        this.cachedKey = rotated
-        return true
-      }
-    }
-
-    const recovered = this.tryRecoverLegacyKey(stored)
-    if (recovered) {
-      this.persistKey(recovered)
-      this.cachedKey = recovered
-      return true
-    }
-
-    return false
-  }
-
-  private tryRecoverLegacyKey(stored: Buffer): Buffer | undefined {
-    if (stored.length === 32) {
-      return stored
-    }
-
-    const text = stored.toString('utf8').trim()
-    if (!text) {
-      return undefined
-    }
-
     try {
-      const recovered = decode(text)
-      if (recovered.length === 32) {
-        return recovered
-      }
+      return JSON.parse(readPrivateFileText(filePath)) as KeyFileFormat
     } catch {
       return undefined
     }
+  }
 
-    return undefined
+  private decryptPasswordProtectedKey(password: string, parsed: KeyFileFormat): { key: Buffer; shouldMigrate: boolean } | undefined {
+    if (parsed.method !== 'password') {
+      return undefined
+    }
+
+    let derivedKey: Buffer | undefined
+    try {
+      if (parsed.version !== PASSWORD_KEY_FILE_VERSION) {
+        return undefined
+      }
+      const salt = decode(parsed.salt)
+      if (!isSupportedPasswordFileScryptKdf(parsed.kdf, salt)) {
+        return undefined
+      }
+      derivedKey = deriveScryptPasswordKey(password, salt, parsed.kdf)
+
+      const decryptedKey = decryptValue(derivedKey, parsed.encryptedKey)
+      return {
+        key: decodeVaultKeyFromPasswordFile(decryptedKey),
+        shouldMigrate: false,
+      }
+    } catch {
+      return undefined
+    } finally {
+      derivedKey?.fill(0)
+    }
   }
 
   private persistKey(key: Buffer) {
@@ -297,7 +429,7 @@ export class KeyManager {
     mkdirSync(dirname(filePath), { recursive: true })
 
     if (safeStorage.isEncryptionAvailable()) {
-      this.migrateToSafeStorage(key)
+      this.persistKeyWithSafeStorage(key)
       return
     }
 
@@ -311,23 +443,23 @@ export class KeyManager {
     mkdirSync(dirname(filePath), { recursive: true })
 
     const salt = randomBytes(32)
-    const derivedKey = pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, PBKDF2_KEY_LENGTH, PBKDF2_DIGEST)
-    const keyVerification = createHash('sha256').update(derivedKey).digest('base64')
-    const encryptedKey = encryptValue(derivedKey, key.toString('base64'))
+    const kdf = defaultPasswordKdf()
+    const derivedKey = deriveScryptPasswordKey(password, salt, kdf)
+    const encryptedKey = encryptValue(derivedKey, encodeVaultKeyForPasswordFile(key))
     derivedKey.fill(0)
 
     const payload: KeyFileFormat = {
-      version: KEY_FILE_VERSION,
+      version: PASSWORD_KEY_FILE_VERSION,
       method: 'password',
       salt: encode(salt),
-      keyVerification,
+      kdf,
       encryptedKey,
     }
 
-    writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+    writePrivateTextFile(filePath, JSON.stringify(payload, null, 2))
   }
 
-  private migrateToSafeStorage(key: Buffer) {
+  private persistKeyWithSafeStorage(key: Buffer) {
     const filePath = this.getPath()
     mkdirSync(dirname(filePath), { recursive: true })
 
@@ -338,12 +470,9 @@ export class KeyManager {
       data: encryptedData.toString('base64'),
     }
 
-    writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8')
+    writePrivateTextFile(filePath, JSON.stringify(payload, null, 2))
   }
 
-  private migrateToPassword(key: Buffer, password: string) {
-    this.persistKeyWithPassword(key, password)
-  }
 }
 
 export const encryptValue = (key: Buffer, value: string): EncryptedPayload => {
@@ -360,12 +489,19 @@ export const encryptValue = (key: Buffer, value: string): EncryptedPayload => {
 }
 
 export const decryptValue = (key: Buffer, payload: EncryptedPayload) => {
-  const decipher = createDecipheriv(algorithm, key, decode(payload.iv))
-  decipher.setAuthTag(decode(payload.authTag))
-  const plaintext = Buffer.concat([
-    decipher.update(decode(payload.ciphertext)),
-    decipher.final(),
-  ]).toString('utf8')
-
-  return plaintext
+  const iv = expectByteLength(decodeBase64Bytes(payload.iv, GCM_IV_BYTES, 'IV'), GCM_IV_BYTES, 'IV')
+  const authTag = expectByteLength(decodeBase64Bytes(payload.authTag, GCM_AUTH_TAG_BYTES, 'tag'), GCM_AUTH_TAG_BYTES, 'tag')
+  const ciphertext = decodeBase64Bytes(payload.ciphertext, MAX_ENCRYPTED_VALUE_BYTES, 'ciphertext')
+  try {
+    const decipher = createDecipheriv(algorithm, key, iv)
+    decipher.setAuthTag(authTag)
+    return Buffer.concat([
+      decipher.update(ciphertext),
+      decipher.final(),
+    ]).toString('utf8')
+  } finally {
+    iv.fill(0)
+    authTag.fill(0)
+    ciphertext.fill(0)
+  }
 }

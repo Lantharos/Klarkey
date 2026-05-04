@@ -79,12 +79,13 @@ export function VaultLockScreen({
       setError("Enter your master password.");
       return;
     }
-    const result = await onUnlockWithPassword(password);
+    const submittedPassword = password;
+    setPassword("");
+    const result = await onUnlockWithPassword(submittedPassword);
     if (!result.success) {
       setError(result.message || "Unlock failed.");
       return;
     }
-    setPassword("");
     setError("");
   };
 
@@ -240,10 +241,11 @@ export function PasscodeScreen({
 
     void (async () => {
       setIsSubmitting(true);
-      const result = await onVerifyPasscode(passcode);
+      const submittedPasscode = passcode;
+      setPasscode("");
+      const result = await onVerifyPasscode(submittedPasscode);
       if (!result.success) {
         setError(result.message || "Incorrect passcode.");
-        setPasscode("");
         inputRefs.current[0]?.focus();
       }
       setIsSubmitting(false);

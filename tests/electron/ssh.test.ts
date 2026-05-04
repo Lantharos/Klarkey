@@ -11,6 +11,17 @@ const readString = (buffer: Buffer, offset: number) => {
   }
 }
 
+const encodeUint32 = (value: number) => {
+  const buffer = Buffer.alloc(4)
+  buffer.writeUInt32BE(value, 0)
+  return buffer
+}
+
+const encodeSshString = (value: Buffer | string) => {
+  const buffer = typeof value === 'string' ? Buffer.from(value, 'utf8') : value
+  return Buffer.concat([encodeUint32(buffer.length), buffer])
+}
+
 const readSshString = (buf: Buffer, offset: number) => {
   const len = buf.readUInt32BE(offset)
   offset += 4
@@ -120,6 +131,31 @@ describe('ssh helpers', () => {
     const parsed = parseSshPublicKey(prepared.publicKey)
     expect(parsed.algorithm).toBe('ssh-ed25519')
     expect(parsed.blob.length).toBeGreaterThan(16)
+  })
+
+  it('rejects malformed or mismatched SSH public key blobs', () => {
+    expect(() => parseSshPublicKey('ssh-ed25519 not-base64!')).toThrow('base64')
+
+    const mismatchedBlob = Buffer.concat([
+      encodeSshString('ssh-rsa'),
+      encodeSshString(Buffer.from([1, 0, 1])),
+      encodeSshString(Buffer.alloc(256, 1)),
+    ]).toString('base64')
+    expect(() => parseSshPublicKey(`ssh-ed25519 ${mismatchedBlob}`)).toThrow('algorithm')
+
+    const ed25519WithTrailingData = Buffer.concat([
+      encodeSshString('ssh-ed25519'),
+      encodeSshString(Buffer.alloc(32, 1)),
+      Buffer.from([0]),
+    ]).toString('base64')
+    expect(() => parseSshPublicKey(`ssh-ed25519 ${ed25519WithTrailingData}`)).toThrow('Ed25519')
+
+    const shortRsa = Buffer.concat([
+      encodeSshString('ssh-rsa'),
+      encodeSshString(Buffer.from([1, 0, 1])),
+      encodeSshString(Buffer.alloc(32, 1)),
+    ]).toString('base64')
+    expect(() => parseSshPublicKey(`ssh-rsa ${shortRsa}`)).toThrow('RSA')
   })
 
   it('imports an OpenSSH-format ed25519 private key', () => {

@@ -1,5 +1,5 @@
 import { resolveExactBrowserLoginMatch } from '@/electron/repository/browser-passkey-helpers'
-import { normalizeBrowserHostname, primarySiteLabelFromHostname } from '@/shared/browser-extension'
+import { normalizeBrowserHostname, primarySiteLabelFromHostname, toBrowserSiteUrl } from '@/shared/browser-extension'
 import type {
   ActionExecutionResult,
   BrowserSaveLoginInput,
@@ -41,6 +41,7 @@ function deriveItemName(url: string, title?: string): string {
 
 export function saveBrowserLoginWithBridge(bridge: BrowserSaveLoginBridge, input: BrowserSaveLoginInput): ActionExecutionResult {
   const url = input.url.trim()
+  const siteUrl = toBrowserSiteUrl(url) ?? url
   const username = input.username?.trim() || undefined
   const password = input.password?.trim() || undefined
   const ssoProvider = input.ssoProvider?.trim() || undefined
@@ -73,7 +74,7 @@ export function saveBrowserLoginWithBridge(bridge: BrowserSaveLoginBridge, input
         password: current?.password,
         otp: current?.otp?.uri,
         notes: current?.notes,
-        websites: Array.from(new Set([...(current?.websites ?? []), url].filter(Boolean))),
+        websites: Array.from(new Set([...(current?.websites ?? []), siteUrl].filter(Boolean))),
         customFields: current?.customFields,
         ssoProvider,
       })
@@ -85,7 +86,7 @@ export function saveBrowserLoginWithBridge(bridge: BrowserSaveLoginBridge, input
       username: username || '',
       password: '',
       preserveEmptyPassword: true,
-      websites: [url],
+      websites: [siteUrl],
       ssoProvider,
     })
   }
@@ -112,7 +113,7 @@ export function saveBrowserLoginWithBridge(bridge: BrowserSaveLoginBridge, input
       } satisfies ActionExecutionResult
     }
 
-    const nextWebsites = Array.from(new Set([...existing.websites, url].filter(Boolean)))
+    const nextWebsites = Array.from(new Set([...existing.websites, siteUrl].filter(Boolean)))
     return bridge.updateItem({
       itemId: existing.itemId,
       itemType: 'login',
@@ -134,6 +135,6 @@ export function saveBrowserLoginWithBridge(bridge: BrowserSaveLoginBridge, input
     username,
     password,
     preserveEmptyPassword: !password,
-    websites: [url],
+    websites: [siteUrl],
   })
 }

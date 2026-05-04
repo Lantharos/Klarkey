@@ -10,10 +10,12 @@ import {
 } from '@/shared/types'
 import {
   type ItemDataPayload,
+  encryptJsonPayload,
   getOtpFallback,
   id,
   now,
   parseJson,
+  readEncryptedJsonPayload,
   sanitizeItemData,
   slug,
   tryDecrypt,
@@ -75,11 +77,13 @@ export function insertIdentity(db: Database.Database, key: Buffer, input: Create
     itemType,
     itemName,
     username,
-    input.email?.trim() || (itemType === 'login' && !isSso ? `${username}@klarkey.local` : null),
+    itemType === 'login'
+      ? input.email?.trim() || (!isSso ? `${username}@klarkey.local` : null)
+      : null,
     JSON.stringify(input.websites ?? []),
-    input.notes ?? null,
-    JSON.stringify(input.customFields ?? []),
-    JSON.stringify(itemData),
+    null,
+    null,
+    encryptJsonPayload(key, itemData),
     password ? JSON.stringify(encryptValue(key, password)) : null,
     otp ? JSON.stringify(encryptValue(key, JSON.stringify(otp))) : null,
     0,
@@ -160,8 +164,13 @@ export function updateIdentity(db: Database.Database, key: Buffer, input: Update
             ),
           )
         : null
+  const currentItemData = {
+    ...readEncryptedJsonPayload<ItemDataPayload>(key, current.itemData, {}),
+    ...(current.notes ? { notes: current.notes } : {}),
+    ...(current.customFields ? { customFields: parseJson(current.customFields, []) } : {}),
+  }
   const mergedItemData = {
-    ...parseJson<ItemDataPayload>(current.itemData, {}),
+    ...currentItemData,
     ...sanitizeItemData(itemType, input),
   } satisfies ItemDataPayload
 
@@ -200,11 +209,13 @@ export function updateIdentity(db: Database.Database, key: Buffer, input: Update
     itemType,
     itemName,
     username,
-    input.email?.trim() || (itemType === 'login' ? `${username}@klarkey.local` : current.email ?? null),
+    itemType === 'login'
+      ? input.email?.trim() || current.email || (username ? `${username}@klarkey.local` : null)
+      : null,
     JSON.stringify(input.websites ?? parseJson<string[]>(current.websites, [])),
-    input.notes ?? current.notes ?? null,
-    JSON.stringify(input.customFields ?? parseJson(current.customFields, [])),
-    JSON.stringify(mergedItemData),
+    null,
+    null,
+    encryptJsonPayload(key, mergedItemData),
     password ?? null,
     otp,
     now(),

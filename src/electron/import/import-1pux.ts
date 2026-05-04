@@ -1,136 +1,75 @@
-import { readFileSync } from 'node:fs'
+import { lstatSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdirSync, rmSync } from 'node:fs'
 import extract from 'extract-zip'
-import type { ItemType } from '@/shared/item-types'
 import type { CreateItemInput } from '@/shared/types'
 import type { ImportResult } from '@/shared/import-export'
 import type { VaultRepository } from '@/electron/repository'
-import { importItems } from '@/electron/import/import-utils'
+import { importItems, readImportFileText } from '@/electron/import/import-utils'
+import {
+  CATEGORY_MAP,
+  type OnePuxDetails,
+  type OnePuxExport,
+  type OnePuxItem,
+  type OnePuxLoginField,
+  type OnePuxSection,
+} from '@/electron/import/import-1pux-types'
+const MAX_1PUX_ENTRIES = 2048
+const MAX_1PUX_TOTAL_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+const MAX_1PUX_EXPORT_DATA_BYTES = 32 * 1024 * 1024
+const ZIP_FILE_TYPE_MASK = 0o170000
+const ZIP_FILE_TYPE_SYMLINK = 0o120000
 
-// --- Types for the real 1Password .1pux format ---
-
-interface OnePuxLoginField {
-  value?: string
-  id?: string
-  name?: string
-  fieldType?: 'E' | 'P' | 'T' | 'N' | 'U' | string
-  designation?: 'username' | 'password' | string
+type OnePuxZipEntry = {
+  fileName: string
+  uncompressedSize: number
+  externalFileAttributes?: number
+  isEncrypted?: () => boolean
 }
 
-interface OnePuxSectionField {
-  title?: string
-  id?: string
-  value?: {
-    string?: string
-    totp?: string
-    ssoLogin?: {
-      provider?: string
-      item?: { vaultUuid: string; itemUuid: string }
+function isZipSymlinkEntry(entry: OnePuxZipEntry) {
+  const attributes = typeof entry.externalFileAttributes === 'number' ? entry.externalFileAttributes : 0
+  const mode = (Math.trunc(attributes / 0x10000) & 0xffff)
+  return (mode & ZIP_FILE_TYPE_MASK) === ZIP_FILE_TYPE_SYMLINK
+}
+
+export function createOnePuxEntryValidator() {
+  let entryCount = 0
+  let totalUncompressedBytes = 0
+
+  return (entry: OnePuxZipEntry) => {
+    entryCount += 1
+    if (entryCount > MAX_1PUX_ENTRIES) {
+      throw new Error('The 1Password export contains too many files.')
     }
-    concealed?: string
-    phone?: string
-    menu?: string
-    email?: { email_address?: string; provider?: string }
-    date?: number
-    address?: unknown
-    url?: string
-    monthYear?: number
-    creditCardType?: string
-    creditCardNumber?: string
-    creditCardExpiry?: string
-    bankAccount?: unknown
-    iban?: string
-    routingNumber?: string
+
+    if (entry.isEncrypted?.()) {
+      throw new Error('Encrypted 1Password export archives are not supported.')
+    }
+
+    if (isZipSymlinkEntry(entry)) {
+      throw new Error('The 1Password export contains an unsafe file path.')
+    }
+
+    if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize < 0) {
+      throw new Error('The 1Password export contains an invalid file.')
+    }
+
+    totalUncompressedBytes += entry.uncompressedSize
+    if (totalUncompressedBytes > MAX_1PUX_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new Error('The 1Password export is too large to import safely.')
+    }
+
+    const normalizedName = entry.fileName.replace(/\\/g, '/')
+    const pathSegments = normalizedName.split('/')
+    if (normalizedName.startsWith('/') || pathSegments.includes('..') || /^[a-z]:/i.test(normalizedName)) {
+      throw new Error('The 1Password export contains an unsafe file path.')
+    }
+
+    if (normalizedName === 'export.data' && entry.uncompressedSize > MAX_1PUX_EXPORT_DATA_BYTES) {
+      throw new Error('The 1Password export data file is too large to import safely.')
+    }
   }
-  guarded?: boolean
-  multiline?: boolean
-  dontGenerate?: boolean
-}
-
-interface OnePuxSection {
-  title?: string
-  name?: string
-  fields?: OnePuxSectionField[]
-}
-
-interface OnePuxUrl {
-  label?: string
-  url?: string
-  mode?: string
-}
-
-interface OnePuxOverview {
-  title?: string
-  subtitle?: string
-  ainfo?: string
-  url?: string
-  urls?: OnePuxUrl[]
-}
-
-interface OnePuxDetails {
-  loginFields?: OnePuxLoginField[]
-  fields?: OnePuxLoginField[]
-  sections?: OnePuxSection[]
-  passwordHistory?: unknown[]
-  notesPlain?: string
-  // Card
-  ccnum?: string
-  ccexp_m?: string
-  ccexp_y?: string
-  cvv?: string
-  cardholder?: string
-  // Identity
-  firstname?: string
-  initial?: string
-  lastname?: string
-  company?: string
-  jobTitle?: string
-  birthday?: string
-  gender?: string
-  street?: string
-  city?: string
-  country?: string
-  zip?: string
-  phone?: string
-  email?: string
-  username?: string
-}
-
-interface OnePuxItem {
-  uuid?: string
-  templateUuid?: string
-  categoryUuid?: string
-  trashed?: string | boolean
-  state?: string
-  createdAt?: number
-  updatedAt?: number
-  overview?: OnePuxOverview
-  details?: OnePuxDetails
-}
-
-interface OnePuxVault {
-  attrs?: { uuid?: string; name?: string; type?: string }
-  items?: OnePuxItem[]
-}
-
-interface OnePuxAccount {
-  attrs?: { accountName?: string; email?: string; uuid?: string }
-  vaults?: OnePuxVault[]
-}
-
-interface OnePuxExport {
-  accounts?: OnePuxAccount[]
-}
-
-const CATEGORY_MAP: Record<string, ItemType> = {
-  '001': 'login',
-  '002': 'card',
-  '003': 'identity',
-  '004': 'note',
-  '005': 'login', // Password (no username)
-  '006': 'note', // Document
 }
 
 function isTrashed(item: OnePuxItem): boolean {
@@ -318,13 +257,16 @@ function extractNotes(details: OnePuxDetails | undefined, sections: OnePuxSectio
 }
 
 export async function import1pux(repository: VaultRepository, filePath: string): Promise<ImportResult> {
-  const extractDir = join(tmpdir(), `klarkey-1pux-${Date.now()}`)
-  mkdirSync(extractDir, { recursive: true })
+  const extractDir = mkdtempSync(join(tmpdir(), 'klarkey-1pux-'))
 
   try {
-    await extract(filePath, { dir: extractDir })
+    await extract(filePath, { dir: extractDir, onEntry: createOnePuxEntryValidator() })
     const dataPath = join(extractDir, 'export.data')
-    const content = readFileSync(dataPath, 'utf-8')
+    const dataStats = lstatSync(dataPath)
+    if (!dataStats.isFile() || dataStats.isSymbolicLink() || dataStats.size > MAX_1PUX_EXPORT_DATA_BYTES) {
+      throw new Error('The 1Password export data file is invalid.')
+    }
+    const content = readImportFileText(dataPath, MAX_1PUX_EXPORT_DATA_BYTES)
     const data = JSON.parse(content) as OnePuxExport
 
     const inputs: CreateItemInput[] = []

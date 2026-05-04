@@ -262,7 +262,7 @@ class KlarkeyAutofillService : AutofillService() {
       return Dataset.Builder(presentations(title, subtitle, inlineSpec))
     }
 
-    return legacyDatasetBuilder(title, subtitle, inlineSpec)
+    return datasetBuilder(title, subtitle, inlineSpec)
   }
 
   private fun setTextValue(dataset: Dataset.Builder, id: AutofillId, value: String, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
@@ -278,7 +278,7 @@ class KlarkeyAutofillService : AutofillService() {
       return
     }
 
-    legacySetTextValue(dataset, id, autofillValue, title, subtitle, inlineSpec)
+    setTextValue(dataset, id, autofillValue, title, subtitle, inlineSpec)
   }
 
   private fun setLockedValue(dataset: Dataset.Builder, id: AutofillId, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
@@ -292,11 +292,11 @@ class KlarkeyAutofillService : AutofillService() {
       return
     }
 
-    legacySetLockedValue(dataset, id, title, subtitle, inlineSpec)
+    setLockedValue(dataset, id, title, subtitle, inlineSpec)
   }
 
   @Suppress("DEPRECATION")
-  private fun legacyDatasetBuilder(title: String, subtitle: String, inlineSpec: InlinePresentationSpec?): Dataset.Builder {
+  private fun datasetBuilder(title: String, subtitle: String, inlineSpec: InlinePresentationSpec?): Dataset.Builder {
     val dataset = Dataset.Builder(presentation(title, subtitle))
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       inlinePresentation(title, subtitle, inlineSpec)?.let { inline ->
@@ -307,7 +307,7 @@ class KlarkeyAutofillService : AutofillService() {
   }
 
   @Suppress("DEPRECATION")
-  private fun legacySetTextValue(dataset: Dataset.Builder, id: AutofillId, value: AutofillValue, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
+  private fun setTextValue(dataset: Dataset.Builder, id: AutofillId, value: AutofillValue, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       inlinePresentation(title, subtitle, inlineSpec)?.let { inline ->
         dataset.setValue(id, value, presentation(title, subtitle), inline)
@@ -319,7 +319,7 @@ class KlarkeyAutofillService : AutofillService() {
   }
 
   @Suppress("DEPRECATION")
-  private fun legacySetLockedValue(dataset: Dataset.Builder, id: AutofillId, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
+  private fun setLockedValue(dataset: Dataset.Builder, id: AutofillId, title: String, subtitle: String, inlineSpec: InlinePresentationSpec?) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
       inlinePresentation(title, subtitle, inlineSpec)?.let { inline ->
         dataset.setValue(id, null, presentation(title, subtitle), inline)
@@ -405,7 +405,7 @@ class KlarkeyAutofillService : AutofillService() {
     }
 
     val targetPackage = normalizeHost(appPackage)
-    return credentialDomains.any { domain -> domainsMatch(domain, targetPackage) }
+    return credentialDomains.any { domain -> packageMatches(domain, targetPackage) }
   }
 
   private fun domainsMatch(candidate: String?, target: String?): Boolean {
@@ -413,7 +413,15 @@ class KlarkeyAutofillService : AutofillService() {
       return false
     }
 
-    return candidate == target || candidate.endsWith("." + target) || target.endsWith("." + candidate)
+    return candidate == target || (isSubdomainMatchAllowed(candidate) && target.endsWith("." + candidate))
+  }
+
+  private fun packageMatches(candidate: String?, target: String?): Boolean {
+    return !candidate.isNullOrBlank() && candidate == target
+  }
+
+  private fun isSubdomainMatchAllowed(candidate: String): Boolean {
+    return candidate.contains(".") && !candidate.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) && !candidate.startsWith("[")
   }
 
   private fun normalizeHost(value: String?): String? {

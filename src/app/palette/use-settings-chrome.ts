@@ -69,10 +69,9 @@ export function useSettingsChrome(
           ? 'Enter syncs encrypted vault changes now.'
           : 'Enter connects Klarkey sync through Ave.',
       11: 'Enter pushes and pulls encrypted vault changes.',
-      12: 'Conflict copies are saved as separate items so nothing disappears.',
-      13: 'Enter disconnects this device from cloud sync.',
-      14: 'Enter exports your vault to a file.',
-      15: 'Enter imports items from another password manager.',
+      12: 'Enter disconnects this device from cloud sync.',
+      13: 'Enter exports your vault to a file.',
+      14: 'Enter imports items from another password manager.',
     }
     return {
       barClass: '',
@@ -157,7 +156,7 @@ export function useSettingsChrome(
         return
       }
 
-      if (index === 13) {
+      if (index === 12) {
         if (!usePaletteStore.getState().syncStatus?.signedIn) {
           return
         }
@@ -165,12 +164,12 @@ export function useSettingsChrome(
         return
       }
 
-      if (index === 14) {
+      if (index === 13) {
         usePaletteStore.getState().openExportPage()
         return
       }
 
-      if (index === 15) {
+      if (index === 14) {
         usePaletteStore.getState().openImportPage()
         return
       }

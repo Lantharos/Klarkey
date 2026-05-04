@@ -111,10 +111,20 @@ export function RecoveryCodesPage({
       return
     }
 
-    void navigator.clipboard.writeText(code).then(() => {
-      markUsed(index, true)
-      showStatus('Copied!')
-    })
+    const copySecret = window.klarkey?.clipboard.copySecret
+    if (!copySecret) {
+      showStatus('Clipboard unavailable.')
+      return
+    }
+
+    void copySecret(code)
+      .then((result) => {
+        if (result?.copied) {
+          markUsed(index, true)
+        }
+        showStatus(result?.message || 'Clipboard unavailable.')
+      })
+      .catch(() => showStatus('Clipboard unavailable.'))
   }, [codes, markUsed, showStatus])
 
   const toggleUsed = useCallback((index: number) => {

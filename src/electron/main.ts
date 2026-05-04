@@ -1,4 +1,4 @@
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rmSync } from 'node:fs'
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -15,19 +15,52 @@ import {
   protocol,
   screen,
   session,
+  shell,
   Tray,
 } from 'electron'
 import { ensureNativeMessagingHostRegistration } from '@/electron/browser-host-registration'
 import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
-import { readNativeMessageSync, runNativeMessagingHost } from '@/electron/native-host'
+import { resolveRuntimeMode } from '@/electron/app-mode'
+import { ImportExportPathGrants } from '@/electron/import-export-access'
+import {
+  sanitizeActionExecutionRequest,
+  sanitizeClipboardSecret,
+  sanitizeCommandRaw,
+  sanitizeCreateItemInput,
+  sanitizeCreateVaultPasskeyInput,
+  sanitizeCredentialId,
+  sanitizeExportFormat,
+  sanitizeImportFormat,
+  sanitizeItemId,
+  sanitizePasscode,
+  sanitizePassword,
+  sanitizeSearchRequest,
+  sanitizeSettingsUpdate,
+  sanitizeUpdateItemInput,
+} from '@/electron/ipc-validation'
+import {
+  isExternalBrowserUrl,
+  resolveRendererAssetPath,
+  rendererSecurityHeaderEntries,
+  safeErrorMessage,
+  safeRendererLoadFailureDetails,
+  safeRendererProcessGoneDetails,
+  isTrustedPermissionRequest,
+  isTrustedRendererUrl,
+  shouldAllowDisplayMediaRequest,
+  type PermissionDetailsLike,
+} from '@/electron/security'
+import { runNativeMessagingHost } from '@/electron/native-host'
 import { readPasskeyProviderMessageSync, runPasskeyProviderBridgeHost } from '@/electron/passkey-provider-host'
 import { markRuntimeBusy, noteDesktopActivity, notePaletteOpen, resetRuntimeStateForAppStart } from '@/electron/runtime-state'
 import { runSshAgentHost } from '@/electron/ssh-agent-host'
 import { KlarkeyUpdater } from '@/electron/updater'
+import { hasAllowedNativeMessagingHostCaller, hasAllowedPasskeyProviderBridgeCaller, hasAllowedSshAgentHostCaller } from '@/electron/process-parent'
+import { createExternalUnlockToken, EXTERNAL_UNLOCK_TOKEN_ENV, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
-
-const ALLOWED_SENDER_PROTOCOLS = [PASSKEY_SCHEME, 'http', 'https']
+import { hasAllowedNativeMessagingCaller } from '@/shared/browser-extension'
+import { isAveOAuthCallbackUrl } from '@/shared/ave-oauth'
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -47,22 +80,32 @@ let controllerRef: KlarkeyController | null = null
 let sshAgentHostProcess: ChildProcess | null = null
 let updaterRef: KlarkeyUpdater | null = null
 let isQuitting = false
+const importExportPathGrants = new ImportExportPathGrants()
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
+const runtimeMode = resolveRuntimeMode({
+  isPackaged: app.isPackaged,
+  argv: process.argv,
+  env: process.env,
+})
+const externalUnlockToken = createExternalUnlockToken()
+const isDevMode = runtimeMode.isDevMode
 const shouldOpenPaletteOnStart = process.argv.includes('--open-palette')
-const shouldAutoUnlockOnStart = process.argv.includes('--external-unlock')
-const isNativeMessagingHostMode = process.argv.includes('--native-messaging-host')
-const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge')
-const isSshAgentHostMode = process.argv.includes('--ssh-agent-host')
-const initialNativeHostRequest = isNativeMessagingHostMode ? readNativeMessageSync() : undefined
+const shouldAutoUnlockOnStart = hasTrustedExternalUnlockArgs(process.argv, externalUnlockToken)
+const isNativeMessagingHostMode = hasAllowedNativeMessagingCaller(process.argv) && hasAllowedNativeMessagingHostCaller({ isPackaged: app.isPackaged })
+const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge') && hasAllowedPasskeyProviderBridgeCaller({ isPackaged: app.isPackaged })
+const isSshAgentHostMode = process.argv.includes('--ssh-agent-host') && hasAllowedSshAgentHostCaller({ executablePath: process.execPath })
 const initialPasskeyProviderRequest = isPasskeyProviderBridgeMode ? readPasskeyProviderMessageSync() : undefined
 const rendererDistPath = () => join(app.getAppPath(), 'dist')
-const devServerUrl = () => process.env.VITE_DEV_SERVER_URL ?? (isDevMode ? 'http://127.0.0.1:5173' : undefined)
+const devServerUrl = () => runtimeMode.devServerUrl
+const rendererTrustOptions = () => ({
+  isDevMode,
+  devServerUrl: devServerUrl(),
+})
 const appIconPath = () =>
   isDevMode ? join(app.getAppPath(), 'public', 'klarkey.png') : join(app.getAppPath(), 'dist', 'klarkey.png')
 const appIcon = () => nativeImage.createFromPath(appIconPath())
 const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode || isSshAgentHostMode ? true : app.requestSingleInstanceLock()
-const findOAuthCallbackUrl = (argv: string[]) => argv.find((arg) => arg.startsWith('klarkey://oauth/callback'))
+const findOAuthCallbackUrl = (argv: string[]) => argv.find(isAveOAuthCallbackUrl)
 
 const spawnBackgroundHost = (modeFlag: '--ssh-agent-host') => {
   const appPath = app.getAppPath()
@@ -72,6 +115,10 @@ const spawnBackgroundHost = (modeFlag: '--ssh-agent-host') => {
 
   return spawn(process.execPath, args, {
     detached: false,
+    env: {
+      ...process.env,
+      [EXTERNAL_UNLOCK_TOKEN_ENV]: externalUnlockToken,
+    },
     stdio: 'ignore',
     windowsHide: true,
   })
@@ -126,23 +173,32 @@ if (!hasSingleInstanceLock) {
   app.quit()
 }
 
-const resolveAppAssetPath = (pathname: string) => {
-  const distPath = rendererDistPath()
-  const requestedPath = pathname === '/' ? '/index.html' : pathname
-  const normalizedPath = /\.[a-z0-9]+$/i.test(requestedPath) ? requestedPath : '/index.html'
-  const resolvedPath = resolve(distPath, `.${decodeURIComponent(normalizedPath)}`)
+const resolveAppAssetPath = (pathname: string) => resolveRendererAssetPath(rendererDistPath(), pathname)
 
-  return resolvedPath.startsWith(distPath) ? resolvedPath : resolve(distPath, 'index.html')
+const withRendererSecurityHeaders = (response: Response) => {
+  const headers = new Headers(response.headers)
+  for (const [name, value] of rendererSecurityHeaderEntries) {
+    headers.set(name, value)
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
 }
 
 const registerAppProtocol = () => {
-  protocol.handle(PASSKEY_SCHEME, (request) => {
-    const url = new URL(request.url)
-    if (url.host !== PASSKEY_HOST) {
-      return new Response('Not found', { status: 404 })
+  protocol.handle(PASSKEY_SCHEME, async (request) => {
+    if (request.method !== 'GET') {
+      return withRendererSecurityHeaders(new Response('Method not allowed', { status: 405 }))
     }
 
-    return net.fetch(pathToFileURL(resolveAppAssetPath(url.pathname)).toString())
+    const url = new URL(request.url)
+    if (url.host !== PASSKEY_HOST) {
+      return withRendererSecurityHeaders(new Response('Not found', { status: 404 }))
+    }
+
+    return withRendererSecurityHeaders(await net.fetch(pathToFileURL(resolveAppAssetPath(url.pathname)).toString()))
   })
 }
 
@@ -166,25 +222,38 @@ const handleOAuthCallbackUrl = (url: string) => {
       openPalette()
     })
     .catch((error) => {
-      console.error('Ave sync sign-in failed', error)
+      console.error('Ave sync sign-in failed:', safeErrorMessage(error, 'Sync sign-in failed.'))
       openPalette()
     })
 }
 
 const validateIpcSender = (event: Electron.IpcMainInvokeEvent) => {
   const frameUrl = event.senderFrame?.url
-  if (!frameUrl) {
+  if (!isTrustedRendererUrl(frameUrl, rendererTrustOptions())) {
     throw new Error('Unauthorized IPC sender')
   }
+}
 
-  if (isDevMode && frameUrl.startsWith('http://')) {
-    return
+const openExternalBrowserUrl = (url: string) => {
+  if (isExternalBrowserUrl(url, rendererTrustOptions())) {
+    void shell.openExternal(url)
   }
+}
 
-  const senderProtocol = new URL(frameUrl).protocol.replace(':', '')
-  if (!ALLOWED_SENDER_PROTOCOLS.includes(senderProtocol as typeof ALLOWED_SENDER_PROTOCOLS[number])) {
-    throw new Error('Unauthorized IPC sender')
-  }
+const bindWindowSecurity = (window: BrowserWindow) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalBrowserUrl(url)
+    return { action: 'deny' }
+  })
+
+  window.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (isTrustedRendererUrl(navigationUrl, rendererTrustOptions())) {
+      return
+    }
+
+    event.preventDefault()
+    openExternalBrowserUrl(navigationUrl)
+  })
 }
 
 const createWindow = async () => {
@@ -211,9 +280,15 @@ const createWindow = async () => {
       preload: join(__dirname, 'preload.mjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
       spellcheck: false,
     },
   })
+
+  bindWindowSecurity(window)
 
   window.on('close', (event) => {
     if (!isQuitting) {
@@ -239,11 +314,11 @@ const createWindow = async () => {
   })
 
   window.webContents.on('did-fail-load', (_, code, description) => {
-    console.error('Klarkey renderer failed to load', code, description)
+    console.error('Klarkey renderer failed to load', safeRendererLoadFailureDetails(code, description))
   })
 
   window.webContents.on('render-process-gone', (_, details) => {
-    console.error('Klarkey renderer crashed', details)
+    console.error('Klarkey renderer crashed', safeRendererProcessGoneDetails(details))
   })
 
   window.setBackgroundMaterial?.('acrylic')
@@ -265,7 +340,7 @@ const createWindow = async () => {
   })
 }
 
-const shouldAutoUnlockFromArgs = (argv: string[]) => argv.includes('--external-unlock')
+const shouldAutoUnlockFromArgs = (argv: string[]) => hasTrustedExternalUnlockArgs(argv, externalUnlockToken)
 
 const openPalette = (options?: { externalUnlock?: boolean }) => {
   if (!windowRef || !controllerRef) {
@@ -338,6 +413,7 @@ const bindIpc = () => {
     title: 'Vault locked',
     message: 'Unlock the vault to continue.',
   } as const
+  const vaultOperationLockedResult = { success: false, message: 'Vault locked' } as const
 
   const withVaultUnlocked = <TArgs extends unknown[], TResult>(
     lockedFallback: TResult,
@@ -349,6 +425,7 @@ const bindIpc = () => {
       if (state !== 'unlocked') {
         return lockedFallback
       }
+      controllerRef?.recordActivity()
       return handler(event, ...args)
     }
   }
@@ -360,6 +437,7 @@ const bindIpc = () => {
     return async (event: Electron.IpcMainInvokeEvent, ...args: TArgs) => {
       validateIpcSender(event)
       noteDesktopOperation(busyMs)
+      controllerRef?.recordActivity()
       try {
         return await handler(event, ...args)
       } finally {
@@ -378,28 +456,36 @@ const bindIpc = () => {
   })
   ipcMain.handle(IPC_CHANNELS.commandParse, (event, raw) => {
     validateIpcSender(event)
-    return controllerRef?.parseCommand(event, raw)
+    return controllerRef?.parseCommand(event, sanitizeCommandRaw(raw))
   })
   ipcMain.handle(IPC_CHANNELS.searchResolve, (event, query) => {
     validateIpcSender(event)
-    return controllerRef?.resolve(event, query)
+    return controllerRef?.resolve(event, sanitizeSearchRequest(query))
   })
   ipcMain.handle(
     IPC_CHANNELS.actionExecute,
-    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (event, actionId, modifier) => controllerRef?.execute(event, actionId, modifier) ?? vaultLockedResult)),
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (event, actionId, modifier) => {
+      const request = sanitizeActionExecutionRequest(actionId, modifier)
+      return controllerRef?.execute(event, request.actionId, request.modifier) ?? vaultLockedResult
+    })),
   )
-  ipcMain.handle(IPC_CHANNELS.itemGet, withVaultUnlocked(undefined, (_event, itemId) => controllerRef?.getItem(itemId)))
+  ipcMain.handle(
+    IPC_CHANNELS.clipboardCopySecret,
+    withDesktopInteraction(15_000, withVaultUnlocked(vaultLockedResult, (_event, value) =>
+      controllerRef?.copySecret(sanitizeClipboardSecret(value)) ?? vaultLockedResult)),
+  )
+  ipcMain.handle(IPC_CHANNELS.itemGet, withVaultUnlocked(undefined, (_event, itemId) => controllerRef?.getItem(sanitizeItemId(itemId))))
   ipcMain.handle(
     IPC_CHANNELS.itemCreate,
-    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createItem(input) ?? vaultLockedResult)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createItem(sanitizeCreateItemInput(input)) ?? vaultLockedResult)),
   )
   ipcMain.handle(
     IPC_CHANNELS.itemUpdate,
-    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.updateItem(input) ?? vaultLockedResult)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.updateItem(sanitizeUpdateItemInput(input)) ?? vaultLockedResult)),
   )
   ipcMain.handle(
     IPC_CHANNELS.itemDelete,
-    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, itemId) => controllerRef?.deleteItem(itemId) ?? vaultLockedResult)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, itemId) => controllerRef?.deleteItem(sanitizeItemId(itemId)) ?? vaultLockedResult)),
   )
   ipcMain.handle(IPC_CHANNELS.vaultUnlock, withDesktopInteraction(30_000, () => controllerRef?.unlock()))
   ipcMain.handle(IPC_CHANNELS.vaultLockState, (event) => {
@@ -416,20 +502,36 @@ const bindIpc = () => {
       windowRef?.setAlwaysOnTop(wasAlwaysOnTop)
     }
   }))
-  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, withDesktopInteraction(30_000, (_event, password: string) => controllerRef?.unlockWithPassword(password)))
+  ipcMain.handle(IPC_CHANNELS.vaultUnlockWithPassword, withDesktopInteraction(30_000, (_event, password: string) => controllerRef?.unlockWithPassword(sanitizePassword(password))))
   ipcMain.handle(IPC_CHANNELS.vaultLock, withDesktopInteraction(15_000, () => {
     controllerRef?.lock()
   }))
-  ipcMain.handle(IPC_CHANNELS.vaultSetupMasterPassword, withDesktopInteraction(60_000, (_event, password: string) => controllerRef?.setupMasterPassword(password)))
+  ipcMain.handle(
+    IPC_CHANNELS.vaultSetupMasterPassword,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultOperationLockedResult, (_event, password: string) => controllerRef?.setupMasterPassword(sanitizePassword(password)) ?? vaultOperationLockedResult)),
+  )
   ipcMain.handle(
     IPC_CHANNELS.vaultChangeMasterPassword,
-    withDesktopInteraction(60_000, (_event, currentPassword: string, newPassword: string) => controllerRef?.changeMasterPassword(currentPassword, newPassword)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultOperationLockedResult, (_event, currentPassword: string, newPassword: string) =>
+      controllerRef?.changeMasterPassword(sanitizePassword(currentPassword), sanitizePassword(newPassword)) ?? vaultOperationLockedResult)),
   )
-  ipcMain.handle(IPC_CHANNELS.vaultRemoveMasterPassword, withDesktopInteraction(60_000, (_event, currentPassword: string) => controllerRef?.removeMasterPassword(currentPassword)))
-  ipcMain.handle(IPC_CHANNELS.vaultSetPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.setPasscode(passcode)))
-  ipcMain.handle(IPC_CHANNELS.vaultRemovePasscode, withDesktopInteraction(45_000, () => controllerRef?.removePasscode()))
-  ipcMain.handle(IPC_CHANNELS.vaultConfirmPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.confirmPasscode(passcode)))
-  ipcMain.handle(IPC_CHANNELS.vaultVerifyPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.verifyPasscode(passcode)))
+  ipcMain.handle(
+    IPC_CHANNELS.vaultRemoveMasterPassword,
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultOperationLockedResult, (_event, currentPassword: string) => controllerRef?.removeMasterPassword(sanitizePassword(currentPassword)) ?? vaultOperationLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.vaultSetPasscode,
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultOperationLockedResult, (_event, passcode: string) => controllerRef?.setPasscode(sanitizePasscode(passcode)) ?? vaultOperationLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.vaultRemovePasscode,
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultOperationLockedResult, () => controllerRef?.removePasscode() ?? vaultOperationLockedResult)),
+  )
+  ipcMain.handle(
+    IPC_CHANNELS.vaultConfirmPasscode,
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultOperationLockedResult, (_event, passcode: string) => controllerRef?.confirmPasscode(sanitizePasscode(passcode)) ?? vaultOperationLockedResult)),
+  )
+  ipcMain.handle(IPC_CHANNELS.vaultVerifyPasscode, withDesktopInteraction(45_000, (_event, passcode: string) => controllerRef?.verifyPasscode(sanitizePasscode(passcode))))
   ipcMain.handle(IPC_CHANNELS.settingsGet, (event) => {
     validateIpcSender(event)
     return controllerRef?.getSettings()
@@ -438,7 +540,8 @@ const bindIpc = () => {
     validateIpcSender(event)
     return controllerRef?.getExternalWindowContext()
   })
-  ipcMain.handle(IPC_CHANNELS.settingsSet, withDesktopInteraction(15_000, (_event, update) => {
+  ipcMain.handle(IPC_CHANNELS.settingsSet, withDesktopInteraction(15_000, withVaultUnlocked(undefined, (_event, unsafeUpdate) => {
+    const update = sanitizeSettingsUpdate(unsafeUpdate)
     const previous = controllerRef?.getSettings()
     if (!previous) {
       return undefined
@@ -458,7 +561,7 @@ const bindIpc = () => {
     const nextSettings = controllerRef?.updateSettings(update)
     syncSshAgentHost()
     return nextSettings
-  }))
+  })))
   ipcMain.handle(IPC_CHANNELS.syncStatus, (event) => {
     validateIpcSender(event)
     return controllerRef?.getSyncStatus()
@@ -473,15 +576,15 @@ const bindIpc = () => {
   ipcMain.handle(IPC_CHANNELS.passkeyList, withVaultUnlocked([], () => controllerRef?.listVaultPasskeys() ?? []))
   ipcMain.handle(
     IPC_CHANNELS.passkeyCreate,
-    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(input) ?? vaultLockedResult)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, input) => controllerRef?.createVaultPasskey(sanitizeCreateVaultPasskeyInput(input)) ?? vaultLockedResult)),
   )
   ipcMain.handle(
     IPC_CHANNELS.passkeyAuthenticate,
-    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(credentialId) ?? vaultLockedResult)),
+    withDesktopInteraction(60_000, withVaultUnlocked(vaultLockedResult, (_event, credentialId) => controllerRef?.authenticateVaultPasskey(sanitizeCredentialId(credentialId)) ?? vaultLockedResult)),
   )
   ipcMain.handle(
     IPC_CHANNELS.passkeyDelete,
-    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(passkeyId) ?? vaultLockedResult)),
+    withDesktopInteraction(45_000, withVaultUnlocked(vaultLockedResult, (_event, passkeyId) => controllerRef?.deleteVaultPasskey(sanitizeItemId(passkeyId)) ?? vaultLockedResult)),
   )
   const exportLockedResult = { success: false, exportedCount: 0, message: 'Vault locked' } as const
   const importLockedResult = { success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Vault locked' } as const
@@ -489,24 +592,41 @@ const bindIpc = () => {
     if (controllerRef?.getLockInfo().state !== 'unlocked') {
       return exportLockedResult
     }
+    if (!importExportPathGrants.consumeExportPath(options)) {
+      return {
+        success: false,
+        exportedCount: 0,
+        message: 'Choose an export location from Klarkey before exporting.',
+      }
+    }
     return controllerRef?.exportVault(options) ?? exportLockedResult
   }))
   ipcMain.handle(IPC_CHANNELS.importVault, withDesktopInteraction(300_000, async (_event, options) => {
     if (controllerRef?.getLockInfo().state !== 'unlocked') {
       return importLockedResult
     }
+    if (!importExportPathGrants.consumeImportPath(options)) {
+      return {
+        success: false,
+        importedCount: 0,
+        skippedCount: 0,
+        errorCount: 0,
+        message: 'Choose an import file from Klarkey before importing.',
+      }
+    }
     return controllerRef?.importVault(options) ?? importLockedResult
   }))
   ipcMain.handle(IPC_CHANNELS.pickImportFile, async (event, format: string) => {
     validateIpcSender(event)
+    const safeFormat = sanitizeImportFormat(format)
     const filters: Electron.FileFilter[] = []
-    if (format === '1pux') {
+    if (safeFormat === '1pux') {
       filters.push({ name: '1Password Export', extensions: ['1pux'] })
-    } else if (format === 'bitwarden-json') {
+    } else if (safeFormat === 'bitwarden-json') {
       filters.push({ name: 'Bitwarden JSON', extensions: ['json'] })
-    } else if (format === 'dashlane-json') {
+    } else if (safeFormat === 'dashlane-json') {
       filters.push({ name: 'Dashlane JSON', extensions: ['json'] })
-    } else if (format === 'klarkey-json') {
+    } else if (safeFormat === 'klarkey-json') {
       filters.push({ name: 'Klarkey JSON', extensions: ['json'] })
     } else {
       filters.push({ name: 'Supported files', extensions: ['csv', 'json', '1pux'] })
@@ -514,19 +634,20 @@ const bindIpc = () => {
     filters.push({ name: 'All files', extensions: ['*'] })
 
     const result = await dialog.showOpenDialog(windowRef!, { filters, properties: ['openFile'] })
-    return result.canceled ? undefined : result.filePaths[0]
+    return result.canceled || !result.filePaths[0] ? undefined : importExportPathGrants.grantImportPath(result.filePaths[0], safeFormat)
   })
   ipcMain.handle(IPC_CHANNELS.pickExportFile, async (event, format: string) => {
     validateIpcSender(event)
+    const safeFormat = sanitizeExportFormat(format)
     const filters: Electron.FileFilter[] = []
-    if (format === 'klarkey-json') {
+    if (safeFormat === 'klarkey-json') {
       filters.push({ name: 'Klarkey JSON', extensions: ['json'] })
     } else {
       filters.push({ name: 'CSV', extensions: ['csv'] })
     }
 
     const result = await dialog.showSaveDialog(windowRef!, { filters, properties: ['createDirectory', 'showOverwriteConfirmation'] })
-    return result.canceled ? undefined : result.filePath
+    return result.canceled || !result.filePath ? undefined : importExportPathGrants.grantExportPath(result.filePath, safeFormat)
   })
 
   if (isDevMode) {
@@ -605,10 +726,16 @@ const bindIpc = () => {
   }
 }
 
+app.on('web-contents-created', (_event, contents) => {
+  contents.on('will-attach-webview', (event) => {
+    event.preventDefault()
+  })
+})
+
 app.whenReady()
   .then(async () => {
     if (isNativeMessagingHostMode) {
-      await runNativeMessagingHost(initialNativeHostRequest)
+      await runNativeMessagingHost()
       app.quit()
       return
     }
@@ -625,8 +752,30 @@ app.whenReady()
       return
     }
 
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+      const permissionName = String(permission)
+      const isTrustedRequest = isTrustedPermissionRequest(undefined, details as PermissionDetailsLike | undefined, rendererTrustOptions())
+      callback(permissionName === 'display-capture' && isTrustedRequest)
+    })
+    session.defaultSession.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+      const permissionName = String(permission)
+      const isTrustedRequest = isTrustedPermissionRequest(requestingOrigin, details as PermissionDetailsLike | undefined, rendererTrustOptions())
+      return permissionName === 'display-capture' && isTrustedRequest
+    })
+    session.defaultSession.setDevicePermissionHandler(() => false)
     session.defaultSession.setDisplayMediaRequestHandler(
       async (_, callback) => {
+        if (!shouldAllowDisplayMediaRequest({
+          securityOrigin: _.securityOrigin,
+          frameUrl: _.frame?.url,
+          videoRequested: _.videoRequested,
+          audioRequested: _.audioRequested,
+          userGesture: _.userGesture,
+        }, rendererTrustOptions())) {
+          callback({})
+          return
+        }
+
         const sources = await desktopCapturer.getSources({
           types: ['screen', 'window'],
           thumbnailSize: { width: 0, height: 0 },
@@ -647,7 +796,7 @@ app.whenReady()
     try {
       ensureNativeMessagingHostRegistration()
     } catch (error) {
-      console.error('Failed to register the browser native host', error)
+      console.error('Failed to register the browser native host:', safeErrorMessage(error))
     }
     await createWindow()
     const callbackUrl = findOAuthCallbackUrl(process.argv)
@@ -664,7 +813,7 @@ app.whenReady()
     updaterRef.start()
   })
   .catch((error) => {
-    console.error('Failed to initialize Klarkey', error)
+    console.error('Failed to initialize Klarkey:', safeErrorMessage(error))
   })
 
 app.on('second-instance', (_event, argv) => {
@@ -679,7 +828,7 @@ app.on('second-instance', (_event, argv) => {
 
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  if (url.startsWith('klarkey://oauth/callback')) {
+  if (isAveOAuthCallbackUrl(url)) {
     handleOAuthCallbackUrl(url)
   }
 })

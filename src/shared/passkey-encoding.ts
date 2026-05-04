@@ -19,13 +19,28 @@ const fromBase64 = (value: string) => {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0))
 }
 
+const base64UrlLikePattern = /^[A-Za-z0-9+/_-]+={0,2}$/
+
+function assertBase64UrlLike(value: string) {
+  const trimmed = value.trim()
+  const paddingIndex = trimmed.indexOf('=')
+  const hasOnlyTrailingPadding = paddingIndex === -1 || /^=+$/.test(trimmed.slice(paddingIndex))
+  const unpadded = trimmed.replace(/=+$/g, '')
+
+  if (!trimmed || !base64UrlLikePattern.test(trimmed) || !hasOnlyTrailingPadding || unpadded.length % 4 === 1) {
+    throw new Error('Invalid base64url value')
+  }
+
+  return trimmed
+}
+
 export const encodeBase64Url = (input: ArrayBuffer | Uint8Array) => {
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
   return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
 }
 
 export const decodeBase64Url = (input: string) => {
-  const normalized = input.trim().replace(/-/g, '+').replace(/_/g, '/')
+  const normalized = assertBase64UrlLike(input).replace(/-/g, '+').replace(/_/g, '/')
   const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
   return fromBase64(padded)
 }

@@ -25,7 +25,19 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func prepareCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
-    guard let credential = passwordCredential(for: serviceIdentifiers) else {
+    guard KlarkeyCredentialStore.isUnlocked() else {
+      render(
+        title: "Unlock Klarkey",
+        message: "Open Klarkey before filling a password.",
+        primaryTitle: "Open Klarkey",
+        primaryAction: { [weak self] in self?.requireInteraction() },
+        secondaryTitle: "Cancel",
+        secondaryAction: { [weak self] in self?.cancelForUser() }
+      )
+      return
+    }
+
+    guard let credential = KlarkeyCredentialStore.passwordCredential(for: serviceIdentifiers) else {
       render(
         title: "No saved password",
         message: "Open Klarkey and save a login before filling this app.",
@@ -51,6 +63,18 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     for serviceIdentifiers: [ASCredentialServiceIdentifier],
     requestParameters: ASPasskeyCredentialRequestParameters
   ) {
+    guard KlarkeyCredentialStore.isUnlocked() else {
+      render(
+        title: "Unlock Klarkey",
+        message: "Open Klarkey before filling a passkey.",
+        primaryTitle: "Open Klarkey",
+        primaryAction: { [weak self] in self?.requireInteraction() },
+        secondaryTitle: "Cancel",
+        secondaryAction: { [weak self] in self?.cancelForUser() }
+      )
+      return
+    }
+
     if let passkey = KlarkeyPasskeyStore.firstPasskey(
       relyingParty: requestParameters.relyingPartyIdentifier,
       allowedCredentials: requestParameters.allowedCredentials
@@ -77,6 +101,18 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func prepareOneTimeCodeCredentialList(for serviceIdentifiers: [ASCredentialServiceIdentifier]) {
+    guard KlarkeyCredentialStore.isUnlocked() else {
+      render(
+        title: "Unlock Klarkey",
+        message: "Open Klarkey before filling a one-time code.",
+        primaryTitle: "Open Klarkey",
+        primaryAction: { [weak self] in self?.requireInteraction() },
+        secondaryTitle: "Cancel",
+        secondaryAction: { [weak self] in self?.cancelForUser() }
+      )
+      return
+    }
+
     let credential = KlarkeyCredentialStore.oneTimeCodeCredential(for: serviceIdentifiers)
     render(
       title: credential?.serviceTitle ?? "Choose a code",
@@ -112,6 +148,22 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func prepareInterfaceToProvideCredential(for credentialRequest: any ASCredentialRequest) {
+    let needsUnlockedVault = credentialRequest is ASPasskeyCredentialRequest
+      || credentialRequest is ASPasswordCredentialRequest
+      || credentialRequest is ASOneTimeCodeCredentialRequest
+
+    if !KlarkeyCredentialStore.isUnlocked() && needsUnlockedVault {
+      render(
+        title: "Unlock Klarkey",
+        message: "Open Klarkey before filling this credential.",
+        primaryTitle: "Open Klarkey",
+        primaryAction: { [weak self] in self?.requireInteraction() },
+        secondaryTitle: "Cancel",
+        secondaryAction: { [weak self] in self?.cancelForUser() }
+      )
+      return
+    }
+
     if let passkeyRequest = credentialRequest as? ASPasskeyCredentialRequest,
       let identity = passkeyRequest.credentialIdentity as? ASPasskeyCredentialIdentity,
       let passkey = KlarkeyPasskeyStore.passkey(for: identity) {
@@ -128,7 +180,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     if let passwordRequest = credentialRequest as? ASPasswordCredentialRequest {
       let identity = passwordRequest.credentialIdentity as? ASPasswordCredentialIdentity
-      guard let credential = identity.flatMap({ KlarkeyCredentialStore.passwordCredential(for: $0) }) ?? fallbackPasswordCredential() else {
+      guard let credential = identity.flatMap({ KlarkeyCredentialStore.passwordCredential(for: $0) }) else {
         requireInteraction()
         return
       }
@@ -145,7 +197,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     if let oneTimeCodeRequest = credentialRequest as? ASOneTimeCodeCredentialRequest {
       let identity = oneTimeCodeRequest.credentialIdentity as? ASOneTimeCodeCredentialIdentity
-      guard let credential = identity.flatMap({ KlarkeyCredentialStore.oneTimeCodeCredential(for: $0) }) ?? KlarkeyCredentialStore.fallbackOneTimeCodeCredential() else {
+      guard let credential = identity.flatMap({ KlarkeyCredentialStore.oneTimeCodeCredential(for: $0) }) else {
         requireInteraction()
         return
       }
@@ -172,6 +224,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func provideCredentialWithoutUserInteraction(for credentialRequest: any ASCredentialRequest) {
+    if credentialRequest is ASPasskeyCredentialRequest && !KlarkeyCredentialStore.isUnlocked() {
+      requireInteraction()
+      return
+    }
+
     if let passkeyRequest = credentialRequest as? ASPasskeyCredentialRequest,
       let identity = passkeyRequest.credentialIdentity as? ASPasskeyCredentialIdentity,
       let passkey = KlarkeyPasskeyStore.passkey(for: identity) {
@@ -181,7 +238,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     if let passwordRequest = credentialRequest as? ASPasswordCredentialRequest {
       let identity = passwordRequest.credentialIdentity as? ASPasswordCredentialIdentity
-      guard let credential = identity.flatMap({ KlarkeyCredentialStore.passwordCredential(for: $0) }) ?? fallbackPasswordCredential() else {
+      guard let credential = identity.flatMap({ KlarkeyCredentialStore.passwordCredential(for: $0) }) else {
         requireInteraction()
         return
       }
@@ -191,7 +248,7 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
 
     if let oneTimeCodeRequest = credentialRequest as? ASOneTimeCodeCredentialRequest {
       let identity = oneTimeCodeRequest.credentialIdentity as? ASOneTimeCodeCredentialIdentity
-      guard let credential = identity.flatMap({ KlarkeyCredentialStore.oneTimeCodeCredential(for: $0) }) ?? KlarkeyCredentialStore.fallbackOneTimeCodeCredential() else {
+      guard let credential = identity.flatMap({ KlarkeyCredentialStore.oneTimeCodeCredential(for: $0) }) else {
         requireInteraction()
         return
       }
@@ -203,6 +260,18 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func prepareInterface(forPasskeyRegistration registrationRequest: any ASCredentialRequest) {
+    guard KlarkeyCredentialStore.isUnlocked() else {
+      render(
+        title: "Unlock Klarkey",
+        message: "Open Klarkey before saving a passkey.",
+        primaryTitle: "Open Klarkey",
+        primaryAction: { [weak self] in self?.requireInteraction() },
+        secondaryTitle: "Cancel",
+        secondaryAction: { [weak self] in self?.cancelForUser() }
+      )
+      return
+    }
+
     if let request = registrationRequest as? ASPasskeyCredentialRequest,
       request.credentialIdentity is ASPasskeyCredentialIdentity {
       render(
@@ -227,6 +296,11 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
   }
 
   override func performWithoutUserInteractionIfPossible(passkeyRegistration registrationRequest: ASPasskeyCredentialRequest) {
+    guard KlarkeyCredentialStore.isUnlocked() else {
+      requireInteraction()
+      return
+    }
+
     completePasskeyRegistration(registrationRequest)
   }
 
@@ -284,14 +358,6 @@ final class CredentialProviderViewController: ASCredentialProviderViewController
     secondaryButton.isHidden = secondaryTitle == nil
     self.primaryAction = primaryAction ?? { [weak self] in self?.requireInteraction() }
     self.secondaryAction = secondaryAction
-  }
-
-  private func passwordCredential(for serviceIdentifiers: [ASCredentialServiceIdentifier]) -> KlarkeyPasswordCredential? {
-    KlarkeyCredentialStore.passwordCredential(for: serviceIdentifiers) ?? fallbackPasswordCredential()
-  }
-
-  private func fallbackPasswordCredential() -> KlarkeyPasswordCredential? {
-    KlarkeyCredentialStore.fallbackPasswordCredential()
   }
 
   private func completePasswordCredential(_ credential: KlarkeyPasswordCredential) {

@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
@@ -61,12 +61,53 @@ function resetLegacySchema(db: Database.Database) {
   db.exec('DROP TABLE IF EXISTS services')
 }
 
+function protectDatabaseFiles(dbPath: string) {
+  for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      chmodSync(path, 0o600)
+    } catch {
+      void 0
+    }
+  }
+}
+
+function ensureDatabaseDirectory(directoryPath: string) {
+  mkdirSync(directoryPath, { recursive: true, mode: 0o700 })
+  const stats = lstatSync(directoryPath)
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error('Klarkey database directory must be a normal directory.')
+  }
+
+  try {
+    chmodSync(directoryPath, 0o700)
+  } catch {
+    void 0
+  }
+}
+
+function validateDatabasePath(dbPath: string) {
+  if (!existsSync(dbPath)) {
+    return
+  }
+
+  const stats = lstatSync(dbPath)
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw new Error('Klarkey database path must be a normal file.')
+  }
+}
+
 export function createDatabase(): DatabaseHandle {
   const dbPath = join(app.getPath('userData'), 'klarkey.sqlite')
-  mkdirSync(dirname(dbPath), { recursive: true })
+  ensureDatabaseDirectory(dirname(dbPath))
+  validateDatabasePath(dbPath)
   const db = new BetterSqlite3(dbPath)
+  protectDatabaseFiles(dbPath)
   db.pragma('journal_mode = WAL')
+  protectDatabaseFiles(dbPath)
   db.pragma('foreign_keys = ON')
+  db.pragma('secure_delete = ON')
+  db.pragma('temp_store = MEMORY')
+  db.pragma('trusted_schema = OFF')
   resetLegacySchema(db)
 
   db.exec(`
@@ -138,6 +179,9 @@ export function createDatabase(): DatabaseHandle {
 
     CREATE TABLE IF NOT EXISTS sync_record_state (
       recordId TEXT PRIMARY KEY,
+      kind TEXT,
+      itemId TEXT,
+      credentialId TEXT,
       revision INTEGER NOT NULL DEFAULT 0,
       contentHash TEXT NOT NULL DEFAULT '',
       serverSequence INTEGER NOT NULL DEFAULT 0,
@@ -182,6 +226,9 @@ export function createDatabase(): DatabaseHandle {
   ensureColumn(db, 'passkeys', 'privateKeyPayload', 'TEXT')
   ensureColumn(db, 'passkeys', 'userHandle', 'TEXT')
   ensureColumn(db, 'passkeys', 'signCount', 'INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(db, 'sync_record_state', 'kind', 'TEXT')
+  ensureColumn(db, 'sync_record_state', 'itemId', 'TEXT')
+  ensureColumn(db, 'sync_record_state', 'credentialId', 'TEXT')
   dedupePasskeysByItem(db)
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS passkeys_credential_id_idx ON passkeys(credentialId) WHERE credentialId IS NOT NULL')
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS passkeys_item_id_idx ON passkeys(itemId)')

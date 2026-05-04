@@ -18,6 +18,7 @@ import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
 import androidx.credentials.provider.BeginGetPasswordOption
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
+import androidx.credentials.provider.CallingAppInfo
 import androidx.credentials.provider.CreateEntry
 import androidx.credentials.provider.CredentialProviderService
 import androidx.credentials.provider.PasswordCredentialEntry
@@ -33,9 +34,10 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
   ) {
     val builder = BeginGetCredentialResponse.Builder()
     val entries = KlarkeyCredentialStore.loadCredentials(this)
-    val passkeys = KlarkeyCredentialStore.loadPasskeys(this)
+    val passkeys = KlarkeyCredentialStore.loadPasskeys(this, includeSecrets = false)
+    val callingPackageName = request.callingAppInfo?.packageName
     val addedEntries = request.beginGetCredentialOptions
-      .map { option -> addEntriesForOption(builder, option, entries, passkeys) }
+      .map { option -> addEntriesForOption(builder, option, entries, passkeys, callingPackageName, request.callingAppInfo) }
       .any { added -> added }
 
     builder.addAction(
@@ -88,13 +90,17 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
     builder: BeginGetCredentialResponse.Builder,
     option: BeginGetCredentialOption,
     entries: List<ProviderCredential>,
-    passkeys: List<ProviderPasskey>
+    passkeys: List<ProviderPasskey>,
+    callingPackageName: String?,
+    callingAppInfo: CallingAppInfo?
   ): Boolean {
     var added = false
 
     when (option) {
       is BeginGetPasswordOption -> {
-        entries.filter { item -> item.hasPassword && !item.password.isNullOrEmpty() }.forEach { item ->
+        entries
+          .filter { item -> item.hasPassword && KlarkeyCredentialStore.matchesCallingPackage(item, callingPackageName) }
+          .forEach { item ->
           builder.addCredentialEntry(
             PasswordCredentialEntry(
               context = this,
@@ -115,6 +121,9 @@ class KlarkeyCredentialProviderService : CredentialProviderService() {
 
       is BeginGetPublicKeyCredentialOption -> {
         val rpId = KlarkeyPasskeys.rpIdFromRequestJson(option.requestJson) ?: return false
+        if (!KlarkeyPasskeys.rpIdMatchesCaller(option.requestJson, callingAppInfo)) {
+          return false
+        }
         passkeys.filter { item -> item.rpId == rpId }.forEach { item ->
           val linkedCredential = entries.firstOrNull { credential -> credential.id == item.itemId }
           builder.addCredentialEntry(

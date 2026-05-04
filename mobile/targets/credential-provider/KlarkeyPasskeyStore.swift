@@ -22,11 +22,38 @@ struct SyncedPasskeyJwk: Codable {
   let y: String
   let d: String
   let ext: Bool
+
+  var isP256PrivateKey: Bool {
+    guard kty == "EC",
+      crv == "P-256",
+      let xData = Data(base64URLString: x),
+      let yData = Data(base64URLString: y),
+      xData.count == 32,
+      yData.count == 32,
+      let privateKey
+    else {
+      return false
+    }
+
+    let publicKey = privateKey.publicKey.x963Representation
+    return publicKey.count == 65 &&
+      publicKey.subdata(in: 1..<33) == xData &&
+      publicKey.subdata(in: 33..<65) == yData
+  }
+
+  var privateKey: P256.Signing.PrivateKey? {
+    guard let privateKeyData = Data(base64URLString: d),
+      privateKeyData.count == 32
+    else {
+      return nil
+    }
+    return try? P256.Signing.PrivateKey(rawRepresentation: privateKeyData)
+  }
 }
 
 enum KlarkeyPasskeyStore {
   private static let suiteName = "group.com.lantharos.klarkey"
-  private static let passkeysKey = "klarkey.ios.provider.passkeys.v1"
+  private static let passkeysKey = "klarkey.ios.provider.passkeys.v2"
   private static let keyPrefix = "com.lantharos.klarkey.passkey."
 
   static func firstPasskey(
@@ -52,7 +79,9 @@ enum KlarkeyPasskeyStore {
       return nil
     }
 
-    let credentialId = randomData(32)
+    guard let credentialId = randomData(32) else {
+      return nil
+    }
     let keyTag = Data((keyPrefix + credentialId.base64URLEncodedString()).utf8)
     let privateKey = P256.Signing.PrivateKey()
     guard let coseKey = coseKey(from: privateKey.publicKey)
@@ -83,7 +112,9 @@ enum KlarkeyPasskeyStore {
       signCount: 0,
       lastUsedAt: Date()
     )
-    save(passkey)
+    guard save(passkey) else {
+      return nil
+    }
     saveIdentity(for: passkey)
 
     return ASPasskeyRegistrationCredential(
@@ -107,7 +138,9 @@ enum KlarkeyPasskeyStore {
     var nextPasskey = passkey
     nextPasskey.signCount = nextCount
     nextPasskey.lastUsedAt = Date()
-    save(nextPasskey)
+    guard save(nextPasskey) else {
+      return nil
+    }
 
     return ASPasskeyAssertionCredential(
       userHandle: passkey.userHandle,
@@ -120,18 +153,30 @@ enum KlarkeyPasskeyStore {
   }
 
   private static func loadPasskeys() -> [KlarkeyStoredPasskey] {
-    guard let data = defaults().data(forKey: passkeysKey) else {
+    guard KlarkeyCredentialStore.isUnlocked(),
+      let store = defaults(),
+      let data = KlarkeyProviderCrypto.readData(
+      defaults: store,
+      key: passkeysKey
+    ) else {
       return []
     }
     return (try? JSONDecoder().decode([KlarkeyStoredPasskey].self, from: data)) ?? []
   }
 
-  private static func save(_ passkey: KlarkeyStoredPasskey) {
+  private static func save(_ passkey: KlarkeyStoredPasskey) -> Bool {
+    guard KlarkeyCredentialStore.isUnlocked(),
+      let store = defaults()
+    else {
+      return false
+    }
+
     var passkeys = loadPasskeys().filter { existing in existing.id != passkey.id }
     passkeys.insert(passkey, at: 0)
     if let data = try? JSONEncoder().encode(passkeys) {
-      defaults().set(data, forKey: passkeysKey)
+      return KlarkeyProviderCrypto.writeData(data, defaults: store, key: passkeysKey)
     }
+    return false
   }
 
   private static func saveIdentity(for passkey: KlarkeyStoredPasskey) {
@@ -145,8 +190,8 @@ enum KlarkeyPasskeyStore {
     ASCredentialIdentityStore.shared.saveCredentialIdentities([identity], completion: nil)
   }
 
-  private static func defaults() -> UserDefaults {
-    UserDefaults(suiteName: suiteName) ?? .standard
+  private static func defaults() -> UserDefaults? {
+    UserDefaults(suiteName: suiteName)
   }
 
   private static func createPrivateKey(tag: Data, secureEnclave: Bool) -> SecKey? {
@@ -156,7 +201,7 @@ enum KlarkeyPasskeyStore {
       kSecPrivateKeyAttrs as String: [
         kSecAttrIsPermanent as String: true,
         kSecAttrApplicationTag as String: tag,
-        kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
       ]
     ]
     if secureEnclave {
@@ -201,8 +246,8 @@ enum KlarkeyPasskeyStore {
   }
 
   private static func sign(data: Data, jwk: SyncedPasskeyJwk) -> Data? {
-    guard let privateKeyData = Data(base64URLString: jwk.d),
-      let privateKey = try? P256.Signing.PrivateKey(rawRepresentation: privateKeyData),
+    guard jwk.isP256PrivateKey,
+      let privateKey = jwk.privateKey,
       let signature = try? privateKey.signature(for: data)
     else {
       return nil
@@ -277,10 +322,13 @@ enum KlarkeyPasskeyStore {
     ])
   }
 
-  private static func randomData(_ byteCount: Int) -> Data {
+  private static func randomData(_ byteCount: Int) -> Data? {
     var data = Data(count: byteCount)
-    _ = data.withUnsafeMutableBytes { buffer in
+    let status = data.withUnsafeMutableBytes { buffer in
       SecRandomCopyBytes(kSecRandomDefault, byteCount, buffer.baseAddress!)
+    }
+    guard status == errSecSuccess else {
+      return nil
     }
     return data
   }

@@ -37,6 +37,14 @@ function bundleExtensionSources() {
 bundleExtensionSources()
 const iconPath = join(root, 'public', 'klarkey.png')
 const browsers = ['chromium', 'firefox']
+const sharedRuntimeFiles = [
+  'background.js',
+  'content.js',
+  'page-bridge.js',
+  'popup.css',
+  'popup.html',
+  'popup.js',
+]
 
 mkdirSync(distRoot, { recursive: true })
 
@@ -44,7 +52,9 @@ for (const browser of browsers) {
   const targetRoot = join(distRoot, browser)
   safeRemove(targetRoot)
   mkdirSync(join(targetRoot, 'icons'), { recursive: true })
-  cpSync(sharedRoot, targetRoot, { recursive: true, force: true })
+  for (const file of sharedRuntimeFiles) {
+    cpSync(join(sharedRoot, file), join(targetRoot, file), { force: true })
+  }
   cpSync(join(extensionRoot, browser, 'manifest.json'), join(targetRoot, 'manifest.json'), { force: true })
   cpSync(iconPath, join(targetRoot, 'icons', 'klarkey-128.png'), { force: true })
 }
@@ -74,7 +84,7 @@ writeFileSync(
   join(nativeHostStagingRoot, 'klarkey-native-host.cmd'),
   `@echo off
 setlocal
-"%~dp0\\Klarkey.NativeHostLauncher.exe"
+"%~dp0\\Klarkey.NativeHostLauncher.exe" %*
 `,
 )
 
@@ -83,7 +93,7 @@ writeFileSync(
   `#!/usr/bin/env bash
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-"$ROOT/node_modules/.bin/electron" "$ROOT" --native-messaging-host
+"$ROOT/node_modules/.bin/electron" "$ROOT" --native-messaging-host "$@"
 `,
 )
 chmodSync(join(nativeHostStagingRoot, 'klarkey-native-host.sh'), 0o755)

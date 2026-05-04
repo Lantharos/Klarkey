@@ -4,8 +4,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { app } from 'electron'
+import { resolveRuntimeMode } from '@/electron/app-mode'
 
-const isDevMode = process.argv.includes('--dev') || Boolean(process.env.VITE_DEV_SERVER_URL)
+const isDevMode = resolveRuntimeMode({
+  isPackaged: app?.isPackaged ?? true,
+  argv: process.argv,
+  env: process.env,
+}).isDevMode
 
 type WindowsHelloHelperResponse = {
   status?: string
@@ -26,6 +31,7 @@ type WindowsHelloVerification = {
 const HELPER_PROJECT_NAME = 'Klarkey.WindowsHelloVerifier.exe'
 const HELPER_TARGET_FRAMEWORK = 'net9.0-windows10.0.26100.0'
 const AVAILABILITY_CACHE_MS = 60_000
+const helperSensitiveMessagePattern = /(access_token|authorization|ciphertext|client_secret|credential|file:\/\/|id_token|passcode|password|private|recovery|refresh_token|secret|token|vault|[a-z]:\\|\\\\|https?:\/\/)/i
 
 let availabilityCache:
   | {
@@ -78,6 +84,15 @@ const listHelperCandidates = () => {
 }
 
 const resolveHelperPath = () => listHelperCandidates().find((candidate) => existsSync(candidate))
+
+const safeHelperMessage = (message: string | undefined, fallback: string) => {
+  const text = message?.trim()
+  if (!text || text.length > 180 || helperSensitiveMessagePattern.test(text)) {
+    return fallback
+  }
+
+  return text
+}
 
 const runHelper = async (mode: 'check-availability' | 'verify-user', message?: string) => {
   if (process.platform !== 'win32') {
@@ -151,7 +166,7 @@ export const getWindowsHelloAvailability = async (): Promise<WindowsHelloAvailab
       ? { available: true }
       : {
           available: false,
-          message: response.message || 'Windows Hello verification is unavailable.',
+          message: safeHelperMessage(response.message, 'Windows Hello verification is unavailable.'),
         }
 
   availabilityCache = {
@@ -175,13 +190,13 @@ export const verifyWithWindowsHello = async (message: string): Promise<WindowsHe
     return {
       verified: false,
       canceled: true,
-      message: response.message || 'Windows Hello verification was canceled.',
+      message: safeHelperMessage(response.message, 'Windows Hello verification was canceled.'),
     }
   }
 
   return {
     verified: false,
     canceled: false,
-    message: response.message || 'Windows Hello verification failed.',
+    message: safeHelperMessage(response.message, 'Windows Hello verification failed.'),
   }
 }

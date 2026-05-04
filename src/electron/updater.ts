@@ -1,6 +1,8 @@
+import { randomInt } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { app, powerMonitor } from 'electron'
 import { mutateRuntimeState, readRuntimeState } from '@/electron/runtime-state'
+import { safeErrorMessage } from '@/electron/security'
 
 type ElectronUpdaterModule = typeof import('electron-updater')
 
@@ -24,7 +26,9 @@ const FORCE_INSTALL_AFTER_MS = 24 * 60 * 60 * 1000
 const INSTALL_RETRY_AFTER_SECONDS = 60
 
 const toTargetVersion = (info?: UpdateInfo | UpdateDownloadedEvent) =>
-  typeof info?.version === 'string' && info.version.trim() ? info.version : undefined
+  typeof info?.version === 'string' && /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(info.version.trim())
+    ? info.version.trim()
+    : undefined
 
 type UpdaterOptions = {
   isPaletteVisible: () => boolean
@@ -51,6 +55,8 @@ export class KlarkeyUpdater {
     this.started = true
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = false
+    autoUpdater.allowDowngrade = false
+    autoUpdater.allowPrerelease = false
 
     autoUpdater.on('checking-for-update', () => {
       mutateRuntimeState((state) => {
@@ -89,7 +95,7 @@ export class KlarkeyUpdater {
       })
 
       void autoUpdater.downloadUpdate().catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'Update download failed.'
+        const message = safeErrorMessage(error, 'Update download failed.')
         mutateRuntimeState((state) => {
           state.update.phase = 'error'
           state.update.availability = 'online'
@@ -123,7 +129,7 @@ export class KlarkeyUpdater {
     })
 
     autoUpdater.on('error', (error) => {
-      const message = error?.message || 'Update check failed.'
+      const message = safeErrorMessage(error, 'Update check failed.')
       mutateRuntimeState((state) => {
         if (state.update.phase === 'installing') {
           state.update.phase = 'downloaded'
@@ -189,7 +195,7 @@ export class KlarkeyUpdater {
   }
 
   private scheduleRecurringCheck() {
-    const jitter = Math.round(Math.random() * UPDATE_CHECK_JITTER_MS)
+    const jitter = randomInt(0, UPDATE_CHECK_JITTER_MS + 1)
     this.scheduleUpdateCheck(UPDATE_CHECK_INTERVAL_MS + jitter)
   }
 
@@ -202,7 +208,7 @@ export class KlarkeyUpdater {
     try {
       await autoUpdater.checkForUpdates()
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Update check failed.'
+      const message = safeErrorMessage(error, 'Update check failed.')
       mutateRuntimeState((state) => {
         if (state.update.phase !== 'downloaded' && state.update.phase !== 'installing') {
           state.update.phase = 'error'

@@ -7,6 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="*" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
   </ItemGroup>
 </Project>

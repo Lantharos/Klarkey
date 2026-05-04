@@ -8,6 +8,21 @@ import type {
   VaultSnapshot,
 } from '@/shared/types'
 
+const maxBrowserFieldSuggestions = 30
+
+const maskCardSuggestionValue = (field: BrowserSuggestionField, value: string) => {
+  if (field === 'cardNumber') {
+    const lastFour = value.replace(/\D/g, '').slice(-4)
+    return lastFour ? `Card ending ${lastFour}` : 'Card number'
+  }
+
+  if (field === 'cardCvc') {
+    return 'Security code'
+  }
+
+  return value
+}
+
 export function buildBrowserFieldSuggestions(
   ctx: {
     getSnapshot: () => VaultSnapshot
@@ -55,17 +70,20 @@ export function buildBrowserFieldSuggestions(
       return
     }
 
-    const key = nextValue.toLowerCase()
+    const displayValue = source === 'card' ? maskCardSuggestionValue(field, nextValue) : nextValue
+    const key = source === 'card' && (field === 'cardNumber' || field === 'cardCvc')
+      ? `${itemId}:${source}:${field}`
+      : nextValue.toLowerCase()
     const current = suggestions.get(key)
     if (current && (current.score > score || (current.score === score && current.priority <= priority))) {
       return
     }
 
     suggestions.set(key, {
-      id: `${itemId}:${source}:${key}`,
+      id: `${itemId}:${source}:${field}`,
       itemId,
       itemName,
-      value: nextValue,
+      value: displayValue,
       field,
       source,
       lastUsedAt,
@@ -208,6 +226,7 @@ export function buildBrowserFieldSuggestions(
 
       return left.value.localeCompare(right.value)
     })
+    .slice(0, maxBrowserFieldSuggestions)
     .map((suggestion) => ({
       id: suggestion.id,
       itemId: suggestion.itemId,

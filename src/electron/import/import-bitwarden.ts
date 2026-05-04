@@ -1,9 +1,8 @@
-import { readFileSync } from 'node:fs'
 import type { ItemType } from '@/shared/item-types'
 import type { CreateItemInput } from '@/shared/types'
 import type { ImportResult } from '@/shared/import-export'
 import type { VaultRepository } from '@/electron/repository'
-import { importItems } from '@/electron/import/import-utils'
+import { importItems, MAX_IMPORT_ITEMS, readImportFileText, tooManyImportItemsResult } from '@/electron/import/import-utils'
 
 interface BitwardenUri {
   uri?: string
@@ -72,7 +71,7 @@ const BW_TYPE_MAP: Record<number, ItemType> = {
 }
 
 export async function importBitwardenJson(repository: VaultRepository, filePath: string): Promise<ImportResult> {
-  const content = readFileSync(filePath, 'utf-8')
+  const content = readImportFileText(filePath)
   const data = JSON.parse(content) as BitwardenExport
 
   if (data.encrypted) {
@@ -83,6 +82,10 @@ export async function importBitwardenJson(repository: VaultRepository, filePath:
       errorCount: 0,
       message: 'Encrypted Bitwarden exports are not supported. Please export as unencrypted JSON.',
     }
+  }
+
+  if ((data.items ?? []).length > MAX_IMPORT_ITEMS) {
+    return tooManyImportItemsResult()
   }
 
   const inputs: CreateItemInput[] = (data.items ?? []).map(convertBitwardenItem).filter((input): input is CreateItemInput => Boolean(input?.itemName))

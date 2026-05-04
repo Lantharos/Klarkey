@@ -32,6 +32,12 @@ const PEM_PRIVATE_KEY_PATTERN = /^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/m
 type JwkOkp = { kty: 'OKP'; crv: string; x: string }
 type JwkRsa = { kty: 'RSA'; e: string; n: string }
 
+const MAX_SSH_STRING_BYTES = 256 * 1024
+const MAX_SSH_PUBLIC_KEY_BLOB_BYTES = 16 * 1024
+const MAX_RSA_EXPONENT_BYTES = 8
+const MAX_RSA_MODULUS_BYTES = 1024
+const standardBase64Pattern = /^[A-Za-z0-9+/]+={0,2}$/
+
 const encodeUint32 = (value: number) => {
   const buffer = Buffer.alloc(4)
   buffer.writeUInt32BE(value >>> 0, 0)
@@ -82,9 +88,36 @@ const OPENSSH_MAGIC = Buffer.from('openssh-key-v1\u0000', 'ascii')
 const isOpenSshPrivateKey = (pem: string) => pem.trim().startsWith('-----BEGIN OPENSSH PRIVATE KEY-----')
 
 const readSshString = (buf: Buffer, offset: number): [Buffer, number] => {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 4 > buf.length) {
+    throw new Error('Malformed SSH key.')
+  }
   const len = buf.readUInt32BE(offset)
   offset += 4
+  if (len > MAX_SSH_STRING_BYTES || offset + len > buf.length) {
+    throw new Error('Malformed SSH key.')
+  }
   return [buf.subarray(offset, offset + len), offset + len]
+}
+
+const decodeSshPublicKeyBlob = (encodedBlob: string) => {
+  const normalized = encodedBlob.trim().replace(/=+$/g, '')
+  if (
+    !normalized ||
+    normalized.length > Math.ceil(MAX_SSH_PUBLIC_KEY_BLOB_BYTES / 3) * 4 ||
+    normalized.length % 4 === 1 ||
+    !standardBase64Pattern.test(encodedBlob)
+  ) {
+    throw new Error('SSH public key blob is not valid base64.')
+  }
+
+  const decoded = Buffer.from(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='), 'base64')
+  if (decoded.length === 0 || decoded.length > MAX_SSH_PUBLIC_KEY_BLOB_BYTES) {
+    throw new Error('SSH public key blob is out of range.')
+  }
+  if (decoded.toString('base64').replace(/=+$/g, '') !== normalized) {
+    throw new Error('SSH public key blob is not valid base64.')
+  }
+  return decoded
 }
 
 const parseOpenSshPrivateKey = (pem: string) => {
@@ -285,9 +318,34 @@ export const parseSshPublicKey = (value: string) => {
     throw new Error('Only Ed25519 and RSA SSH public keys are supported right now.')
   }
 
+  const blob = decodeSshPublicKeyBlob(encodedBlob)
+  const [innerAlgorithm, offset] = readSshString(blob, 0)
+  if (innerAlgorithm.toString('ascii') !== algorithm) {
+    throw new Error('SSH public key algorithm does not match its key blob.')
+  }
+
+  if (algorithm === 'ssh-ed25519') {
+    const [publicKey, nextOffset] = readSshString(blob, offset)
+    if (publicKey.length !== 32 || nextOffset !== blob.length) {
+      throw new Error('SSH Ed25519 public key blob is invalid.')
+    }
+  } else {
+    const [exponent, nextOffset] = readSshString(blob, offset)
+    const [modulus, finalOffset] = readSshString(blob, nextOffset)
+    if (
+      exponent.length < 1 ||
+      exponent.length > MAX_RSA_EXPONENT_BYTES ||
+      modulus.length < 128 ||
+      modulus.length > MAX_RSA_MODULUS_BYTES ||
+      finalOffset !== blob.length
+    ) {
+      throw new Error('SSH RSA public key blob is invalid.')
+    }
+  }
+
   return {
     algorithm,
-    blob: Buffer.from(encodedBlob, 'base64'),
+    blob,
   } as const
 }
 

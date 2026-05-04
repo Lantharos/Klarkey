@@ -2,6 +2,7 @@ import { clipboard } from 'electron'
 
 export class ClipboardManager {
   private clearTimer?: NodeJS.Timeout
+  private pendingClearValue?: string
 
   copy(value: string, timeoutSeconds: number) {
     clipboard.writeText(value)
@@ -13,6 +14,7 @@ export class ClipboardManager {
       clearTimeout(this.clearTimer)
       this.clearTimer = undefined
     }
+    this.pendingClearValue = undefined
     clipboard.clear()
   }
 
@@ -21,13 +23,19 @@ export class ClipboardManager {
       clearTimeout(this.clearTimer)
       this.clearTimer = undefined
     }
+    this.pendingClearValue = clipboard.readText()
 
     if (timeoutSeconds <= 0) {
+      this.pendingClearValue = undefined
       return
     }
 
     this.clearTimer = setTimeout(() => {
-      clipboard.clear()
+      if (this.pendingClearValue !== undefined && clipboard.readText() === this.pendingClearValue) {
+        clipboard.clear()
+      }
+      this.pendingClearValue = undefined
+      this.clearTimer = undefined
     }, timeoutSeconds * 1000)
   }
 }

@@ -7,6 +7,7 @@ import {
   joinIdentityAddress,
   joinIdentityFullName,
   parseJson,
+  readEncryptedJsonPayload,
   tryDecrypt,
 } from '@/electron/repository/helpers'
 import { parseStoredTotp } from '@/shared/totp'
@@ -55,7 +56,11 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
       lastUsedAt?: string
     }>
 
-  const itemData = parseJson<ItemDataPayload>(row.itemData, {})
+  const itemData = {
+    ...readEncryptedJsonPayload<ItemDataPayload>(key, row.itemData, {}),
+    ...(row.notes ? { notes: row.notes } : {}),
+    ...(row.customFields ? { customFields: parseJson(row.customFields, []) } : {}),
+  }
   const fullName = joinIdentityFullName(itemData)
   const address = joinIdentityAddress(itemData)
   const cardExpiry = joinCardExpiry(itemData)
@@ -79,7 +84,7 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
     company: itemData.company,
     jobTitle: itemData.jobTitle,
     birthDate: itemData.birthDate,
-    email: row.email ?? undefined,
+    email: itemData.email ?? row.email ?? undefined,
     phone: itemData.phone,
     address,
     addressLine1: itemData.addressLine1,
@@ -103,9 +108,9 @@ export function loadItemDetails(db: Database.Database, key: Buffer, itemId: stri
     sshPrivateKey: decryptPrivateKeyPayload(key, itemData.sshPrivateKeyPayload),
     sshComment: itemData.sshComment,
     content: itemData.content,
-    notes: row.notes ?? undefined,
+    notes: itemData.notes ?? row.notes ?? undefined,
     websites: parseJson<string[]>(row.websites, []),
-    customFields: parseJson<Array<{ id: string; label: string; value: string }>>(row.customFields, []),
+    customFields: itemData.customFields ?? parseJson<Array<{ id: string; label: string; value: string }>>(row.customFields, []),
     recoveryCodes: itemData.recoveryCodes ?? [],
     ssoProvider: itemData.ssoProvider,
     passkeys,

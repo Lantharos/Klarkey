@@ -4,14 +4,18 @@ import { app } from 'electron'
 import koffi from 'koffi'
 import { createDatabase } from '@/electron/database'
 import { KeyManager } from '@/electron/crypto'
+import { readTrustedDesktopLockState } from '@/electron/desktop-lock-lease'
 import { markRuntimeBusy, noteSshActivity, readRuntimeState } from '@/electron/runtime-state'
 import { VaultRepository } from '@/electron/repository'
+import { EXTERNAL_UNLOCK_TOKEN_ENV, externalUnlockArgs } from '@/electron/external-unlock'
 import {
   parseSshPublicKey,
   signSshPayload,
   type SshIdentityRecord,
 } from '@/electron/ssh'
 import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
+
+type SshClientContext = { processId?: number; processPath?: string }
 
 const SSH_AGENT_PIPE = '\\\\.\\pipe\\openssh-ssh-agent'
 const PIPE_ACCESS_DUPLEX = 0x00000003
@@ -26,12 +30,14 @@ const BUFFER_SIZE = 64 * 1024
 const MAX_PACKET_LENGTH = 1024 * 1024
 const UNLOCK_WAIT_TIMEOUT_MS = 120_000
 const UNLOCK_WAIT_INTERVAL_MS = 350
+const SSH_APPROVAL_TTL_MS = 5 * 60 * 1000
 
 const SSH_AGENT_FAILURE = 5
 const SSH_AGENTC_REQUEST_IDENTITIES = 11
 const SSH_AGENT_IDENTITIES_ANSWER = 12
 const SSH_AGENTC_SIGN_REQUEST = 13
 const SSH_AGENT_SIGN_RESPONSE = 14
+const SSH_AGENT_KNOWN_SIGN_FLAGS = 0x00000002 | 0x00000004
 
 const kernel32 = process.platform === 'win32' ? koffi.load('kernel32.dll') : undefined
 const CreateNamedPipeW = kernel32?.func('void* __stdcall CreateNamedPipeW(const char16_t* lpName, uint32 dwOpenMode, uint32 dwPipeMode, uint32 nMaxInstances, uint32 nOutBufferSize, uint32 nInBufferSize, uint32 nDefaultTimeOut, void* lpSecurityAttributes)')
@@ -57,10 +63,16 @@ const encodeString = (value: Buffer | string) => {
   return Buffer.concat([encodeUint32(bytes.length), bytes])
 }
 
-const readUint32 = (buffer: Buffer, offset: number) => ({
-  value: buffer.readUInt32BE(offset),
-  nextOffset: offset + 4,
-})
+const readUint32 = (buffer: Buffer, offset: number) => {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset + 4 > buffer.length) {
+    throw new Error('Malformed SSH agent message.')
+  }
+
+  return {
+    value: buffer.readUInt32BE(offset),
+    nextOffset: offset + 4,
+  }
+}
 
 const readString = (buffer: Buffer, offset: number) => {
   const { value: length, nextOffset } = readUint32(buffer, offset)
@@ -109,15 +121,16 @@ class SshAgentController {
   private readonly keyManager = new KeyManager()
   private readonly database = createDatabase()
   private readonly repository: VaultRepository
-  private readonly approvals = new Set<string>()
+  private readonly approvals = new Map<string, number>()
   private lastUnlockPromptAt = 0
 
   constructor() {
-    if (this.keyManager.isSafeStorageAvailable()) {
+    const lockState = this.readDesktopLockState()
+    if (lockState === 'unlocked' && this.keyManager.isSafeStorageAvailable()) {
       this.keyManager.unlockFromSystem()
     }
 
-    const key = this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
+    const key = lockState === 'unlocked' && this.keyManager.isKeyInMemory() ? this.keyManager.getKey() : Buffer.alloc(0)
     this.repository = new VaultRepository(this.database.db, key)
   }
 
@@ -130,9 +143,10 @@ class SshAgentController {
     this.lastUnlockPromptAt = now
 
     const appPath = app.getAppPath()
+    const unlockArgs = externalUnlockArgs(process.env[EXTERNAL_UNLOCK_TOKEN_ENV])
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette', '--external-unlock']
-      : ['--open-palette', '--external-unlock']
+      ? [appPath, '--open-palette', ...unlockArgs]
+      : ['--open-palette', ...unlockArgs]
 
     try {
       const child = spawn(process.execPath, args, {
@@ -155,12 +169,16 @@ class SshAgentController {
     return row?.value
   }
 
+  private readDesktopLockState(): 'locked' | 'passcode' | 'unlocked' {
+    return readTrustedDesktopLockState(this.database.db)
+  }
+
   isEnabled() {
     return this.readSetting('sshAgentEnabled') === 'true'
   }
 
   private isVaultUnlocked() {
-    return this.readSetting('vault_lock_state') === 'unlocked'
+    return this.readDesktopLockState() === 'unlocked'
   }
 
   private isVaultReady() {
@@ -184,6 +202,8 @@ class SshAgentController {
   private ensureVaultReady() {
     if (!this.isVaultUnlocked()) {
       this.approvals.clear()
+      this.repository.clearKey()
+      this.keyManager.evictKey()
       return false
     }
 
@@ -200,11 +220,38 @@ class SshAgentController {
   }
 
   listIdentities() {
+    if (!this.isVaultReady()) {
+      return []
+    }
+
     return this.repository.listSshPublicIdentities()
   }
 
+  private hasClientContext(context: SshClientContext) {
+    return Boolean(context.processPath)
+  }
+
+  private identityAnswer(identities: SshIdentityRecord[]) {
+    const identityParts: Buffer[] = []
+    for (const identity of identities) {
+      try {
+        const { blob } = parseSshPublicKey(identity.publicKey)
+        identityParts.push(encodeString(blob))
+        identityParts.push(encodeString(identity.comment || identity.itemName))
+      } catch {
+        continue
+      }
+    }
+
+    return encodePacket(Buffer.concat([
+      Buffer.from([SSH_AGENT_IDENTITIES_ANSWER]),
+      encodeUint32(identityParts.length / 2),
+      ...identityParts,
+    ]))
+  }
+
   private approvalKey(identity: SshIdentityRecord, processPath?: string, processId?: number) {
-    return `${identity.itemId}::${processPath ?? `pid:${processId ?? 0}`}`
+    return `${identity.itemId}::${processPath ?? 'unknown'}::pid:${processId ?? 0}`
   }
 
   private formatFingerprint(fingerprint: string) {
@@ -212,9 +259,23 @@ class SshAgentController {
     return withoutPrefix.length > 16 ? `${withoutPrefix.slice(0, 16)}…` : withoutPrefix
   }
 
+  private pruneApprovals(now = Date.now()) {
+    for (const [key, expiresAt] of this.approvals) {
+      if (expiresAt <= now) {
+        this.approvals.delete(key)
+      }
+    }
+  }
+
   private async authorize(identity: SshIdentityRecord, processPath?: string, processId?: number) {
+    if (!processPath) {
+      return false
+    }
+
     const cacheKey = this.approvalKey(identity, processPath, processId)
-    if (this.approvals.has(cacheKey)) {
+    const now = Date.now()
+    this.pruneApprovals(now)
+    if ((this.approvals.get(cacheKey) ?? 0) > now) {
       return true
     }
 
@@ -233,11 +294,25 @@ class SshAgentController {
       return false
     }
 
-    this.approvals.add(cacheKey)
+    this.approvals.set(cacheKey, Date.now() + SSH_APPROVAL_TTL_MS)
     return true
   }
 
-  async handlePacket(packet: Buffer, context: { processId?: number; processPath?: string }) {
+  private findIdentityByKeyBlob(keyBlob: Buffer) {
+    for (const identity of this.repository.listSshIdentities()) {
+      try {
+        if (parseSshPublicKey(identity.publicKey).blob.equals(keyBlob)) {
+          return identity
+        }
+      } catch {
+        continue
+      }
+    }
+
+    return undefined
+  }
+
+  async handlePacket(packet: Buffer, context: SshClientContext) {
     const messageType = packet[0]
     const payload = packet.subarray(1)
 
@@ -249,17 +324,28 @@ class SshAgentController {
     }
 
     if (messageType === SSH_AGENTC_REQUEST_IDENTITIES) {
-      const identities = this.listIdentities()
-      const parts = [Buffer.from([SSH_AGENT_IDENTITIES_ANSWER]), encodeUint32(identities.length)]
-      for (const identity of identities) {
-        const { blob } = parseSshPublicKey(identity.publicKey)
-        parts.push(encodeString(blob))
-        parts.push(encodeString(identity.comment || identity.itemName))
+      if (!this.hasClientContext(context)) {
+        return this.identityAnswer([])
       }
-      return encodePacket(Buffer.concat(parts))
+
+      return this.identityAnswer(this.listIdentities())
     }
 
     if (messageType === SSH_AGENTC_SIGN_REQUEST) {
+      let keyBlob: ReturnType<typeof readString>
+      let signPayload: ReturnType<typeof readString>
+      let flags: ReturnType<typeof readUint32>
+      try {
+        keyBlob = readString(payload, 0)
+        signPayload = readString(payload, keyBlob.nextOffset)
+        flags = readUint32(payload, signPayload.nextOffset)
+      } catch {
+        return writeFailure()
+      }
+      if (flags.nextOffset !== payload.length || (flags.value & ~SSH_AGENT_KNOWN_SIGN_FLAGS) !== 0) {
+        return writeFailure()
+      }
+
       const needsUnlock = !this.isVaultReady()
       if (needsUnlock) {
         this.promptDesktopUnlock()
@@ -269,16 +355,12 @@ class SshAgentController {
         }
       }
 
-      const keyBlob = readString(payload, 0)
-      const signPayload = readString(payload, keyBlob.nextOffset)
-      const flags = readUint32(payload, signPayload.nextOffset)
-      const identities = this.repository.listSshIdentities()
-      const identity = identities.find((candidate) => parseSshPublicKey(candidate.publicKey).blob.equals(keyBlob.value))
+      const identity = this.findIdentityByKeyBlob(keyBlob.value)
       if (!identity) {
         return writeFailure()
       }
 
-      const authorized = needsUnlock || await this.authorize(identity, context.processPath, context.processId)
+      const authorized = await this.authorize(identity, context.processPath, context.processId)
       if (!authorized) {
         return writeFailure()
       }

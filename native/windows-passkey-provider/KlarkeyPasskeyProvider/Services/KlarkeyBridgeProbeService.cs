@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Klarkey.PasskeyProviderBridge;
@@ -9,6 +10,16 @@ namespace KlarkeyPasskeyProvider.Services;
 
 internal sealed class KlarkeyBridgeProbeService
 {
+    private const string GenericBridgeDiagnosticMessage = "Klarkey provider bridge failed.";
+    private static readonly Regex SensitiveBridgeDiagnosticPattern = new(
+        @"(?i)(token|secret|password|passkey|credential|private|jwt|bearer|cookie|authorization|client_secret|refresh_token|id_token|access_token|app_key|vault)",
+        RegexOptions.CultureInvariant
+    );
+    private static readonly Regex PathBridgeDiagnosticPattern = new(
+        @"(?i)\b(?:https?://|file://|[a-z]:\\|\\\\)",
+        RegexOptions.CultureInvariant
+    );
+
     internal (string ExecutablePath, string AppPath) CreateDefaults()
     {
         var repoRoot = FindRepositoryRoot();
@@ -59,7 +70,7 @@ internal sealed class KlarkeyBridgeProbeService
             {
                 return CreateError(
                     "BridgePingFailed",
-                    response.Error?.Message ?? AppResources.GetString("BridgeUnknownError")
+                    SafeBridgeDiagnosticMessage(response.Error?.Message)
                 );
             }
 
@@ -76,9 +87,9 @@ internal sealed class KlarkeyBridgeProbeService
                 true
             );
         }
-        catch (Exception exception)
+        catch (Exception error)
         {
-            return CreateError("BridgePingException", exception.Message);
+            return CreateError("BridgePingException", SafeBridgeDiagnosticMessage(error));
         }
     }
 
@@ -105,5 +116,24 @@ internal sealed class KlarkeyBridgeProbeService
             : string.Format(CultureInfo.CurrentCulture, AppResources.GetString($"{titleKey}Message"), formatArgs);
 
         return new BridgeProbeResult(title, message, string.Empty, false);
+    }
+
+    private static string SafeBridgeDiagnosticMessage(Exception error) =>
+        SafeBridgeDiagnosticMessage(error.Message);
+
+    private static string SafeBridgeDiagnosticMessage(string? value)
+    {
+        var message = value?.Trim() ?? string.Empty;
+        if (
+            message.Length == 0 ||
+            message.Length > 200 ||
+            SensitiveBridgeDiagnosticPattern.IsMatch(message) ||
+            PathBridgeDiagnosticPattern.IsMatch(message)
+        )
+        {
+            return GenericBridgeDiagnosticMessage;
+        }
+
+        return message;
     }
 }

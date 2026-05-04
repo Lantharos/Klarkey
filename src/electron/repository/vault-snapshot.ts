@@ -6,10 +6,11 @@ import {
   joinIdentityAddress,
   joinIdentityFullName,
   parseJson,
+  readEncryptedJsonPayload,
 } from '@/electron/repository/helpers'
 import type { ItemProfile, RecentAction, VaultSnapshot } from '@/shared/types'
 
-export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
+export function buildVaultSnapshot(db: Database.Database, key?: Buffer): VaultSnapshot {
   const items = db
     .prepare('SELECT * FROM identities ORDER BY COALESCE(lastUsedAt, updatedAt) DESC, itemName ASC')
     .all() as Array<{
@@ -35,7 +36,7 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
 
   return {
     items: items.map((item) => {
-      const itemData = parseJson<ItemDataPayload>(item.itemData, {})
+      const itemData = readEncryptedJsonPayload<ItemDataPayload>(key, item.itemData, {})
       const fullName = joinIdentityFullName(itemData)
       const address = joinIdentityAddress(itemData)
       const cardExpiry = joinCardExpiry(itemData)
@@ -53,7 +54,7 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
         company: itemData.company,
         jobTitle: itemData.jobTitle,
         birthDate: itemData.birthDate,
-        email: item.email,
+        email: itemData.email ?? (key ? item.email : undefined),
         phone: itemData.phone,
         address,
         addressLine1: itemData.addressLine1,
@@ -77,8 +78,8 @@ export function buildVaultSnapshot(db: Database.Database): VaultSnapshot {
         sshComment: itemData.sshComment,
         content: itemData.content,
         websites: parseJson<string[]>(item.websites, []),
-        notes: item.notes,
-        customFields: parseJson<Array<{ id: string; label: string; value: string }>>(item.customFields, []),
+        notes: itemData.notes,
+        customFields: itemData.customFields ?? [],
         hasPassword: Boolean(item.passwordPayload),
         hasOtp: Boolean(item.otpPayload),
         hasPasskey: passkeyItemIds.has(item.id),

@@ -9,6 +9,7 @@ import {
   getBrowserSitePasskeyResult,
   getPasskeysForBrowserRequestPayload,
   listBrowserPasskeyChoicesForSite,
+  pendingBrowserPasskeyCutoffIso,
   prepareBrowserSitePasskey as runPrepareBrowserSitePasskey,
   rememberSitePasskeyAssertionResult,
   savePreparedBrowserSitePasskey as runSavePreparedBrowserSitePasskey,
@@ -19,7 +20,7 @@ import {
 import { computeBrowserPasskeyStatus } from '@/electron/repository/browser-site-passkey-status'
 import { insertIdentity, updateIdentity } from '@/electron/repository/identity-crud'
 import { loadItemDetails } from '@/electron/repository/item-details'
-import { id, now, tryDecrypt } from '@/electron/repository/helpers'
+import { hasVaultKey, id, now, tryDecrypt } from '@/electron/repository/helpers'
 import { mergeVaultSettings, readVaultSettings } from '@/electron/repository/vault-settings'
 import { buildVaultSnapshot } from '@/electron/repository/vault-snapshot'
 import { applyPlainVaultRecord, buildPlainVaultRecords, createConflictCopy } from '@/electron/repository/sync-records'
@@ -56,12 +57,12 @@ export class VaultRepository {
     key: Buffer,
   ) {
     this.db = db
-    this.key = key
+    this.key = Buffer.from(key)
     this.prunePendingPasskeys()
   }
 
   setKey(key: Buffer) {
-    this.key = key
+    this.key = Buffer.from(key)
   }
 
   clearKey() {
@@ -69,6 +70,7 @@ export class VaultRepository {
       this.key.fill(0)
     }
     this.key = Buffer.alloc(0)
+    this.clearPendingPasskeys()
   }
 
   isLocked(): boolean {
@@ -76,8 +78,11 @@ export class VaultRepository {
   }
 
   private prunePendingPasskeys() {
-    const cutoff = new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString()
-    this.db.prepare('DELETE FROM pending_passkeys WHERE createdAt < ?').run(cutoff)
+    this.db.prepare('DELETE FROM pending_passkeys WHERE createdAt < ?').run(pendingBrowserPasskeyCutoffIso())
+  }
+
+  private clearPendingPasskeys() {
+    this.db.prepare('DELETE FROM pending_passkeys').run()
   }
 
   private syncItemPasskeyState(itemId: string) {
@@ -102,8 +107,8 @@ export class VaultRepository {
     return mergeVaultSettings(this.db, update)
   }
 
-  getSnapshot(): VaultSnapshot {
-    return buildVaultSnapshot(this.db)
+  getSnapshot(includeSensitive = true): VaultSnapshot {
+    return buildVaultSnapshot(this.db, includeSensitive && hasVaultKey(this.key) ? this.key : undefined)
   }
 
   getSyncRecords(): PlainVaultRecord[] {

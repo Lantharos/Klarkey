@@ -1,5 +1,6 @@
 import type { CommandIntent, CommandQuery, CommandToken, CredentialKind } from '@/shared/types'
 import { parseItemType } from '@/shared/item-types'
+import { randomId } from '@/shared/random-id'
 
 const INTENT_SYNONYMS: Record<string, CommandIntent> = {
   create: 'create',
@@ -31,7 +32,7 @@ const IDENTITY_CONNECTORS = new Set(['as', 'using'])
 const slug = (value: string) => value.toLowerCase().trim()
 
 const createToken = (kind: CommandToken['kind'], value: string): CommandToken => ({
-  id: `${kind}:${value}:${Math.random().toString(16).slice(2, 8)}`,
+  id: `${kind}:${value}:${randomId('token')}`,
   kind,
   label: value,
   value,

@@ -41,6 +41,123 @@ describe('site passkey authenticator', () => {
     expect(response.response.publicKeyAlgorithm).toBe(-7)
   })
 
+  it('allows an origin to use a parent-domain relying party id', () => {
+    const result = createSitePasskeyCredential({
+      origin: 'https://login.example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+
+    expect(result.rpId).toBe('example.com')
+  })
+
+  it('rejects cross-site relying party ids during registration', () => {
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://evil.test',
+        requestDetailsJson: JSON.stringify(createOptions),
+      }),
+    ).toThrow('does not match')
+  })
+
+  it('rejects public suffix relying party ids', () => {
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://example.co.uk',
+        requestDetailsJson: JSON.stringify({
+          ...createOptions,
+          rp: {
+            id: 'co.uk',
+            name: 'Bad RP',
+          },
+        }),
+      }),
+    ).toThrow('public suffix')
+
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://project.github.io',
+        requestDetailsJson: JSON.stringify({
+          ...createOptions,
+          rp: {
+            id: 'github.io',
+            name: 'Bad RP',
+          },
+        }),
+      }),
+    ).toThrow('public suffix')
+  })
+
+  it('rejects cross-site relying party ids during authentication', () => {
+    const created = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+
+    expect(() =>
+      getSitePasskeyAssertion({
+        origin: 'https://evil.test',
+        requestDetailsJson: JSON.stringify({
+          challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+          rpId: 'example.com',
+        }),
+        passkey: {
+          credentialId: created.credentialId,
+          rpId: created.rpId,
+          userHandle: created.userHandle,
+          signCount: 0,
+          privateKeyJwk: created.privateKeyJwk,
+        },
+      }),
+    ).toThrow('does not match')
+  })
+
+  it('rejects malformed or undersized passkey challenges', () => {
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          ...createOptions,
+          challenge: 'abc',
+        }),
+      }),
+    ).toThrow('valid passkey challenge')
+  })
+
+  it('rejects oversized user handles during registration', () => {
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          ...createOptions,
+          user: {
+            ...createOptions.user,
+            id: Buffer.alloc(65, 1).toString('base64url'),
+          },
+        }),
+      }),
+    ).toThrow('valid passkey user id')
+  })
+
+  it('honors excluded credentials during registration', () => {
+    const existingCredentialId = Buffer.alloc(32, 6).toString('base64url')
+
+    expect(() =>
+      createSitePasskeyCredential({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          ...createOptions,
+          excludeCredentials: [
+            {
+              id: existingCredentialId,
+              type: 'public-key',
+            },
+          ],
+        }),
+        existingCredentialIds: [existingCredentialId],
+      }),
+    ).toThrow('not to reuse')
+  })
+
   it('encodes attestation authData and COSE keys as plain CBOR byte strings', () => {
     const result = createSitePasskeyCredential({
       origin: 'https://example.com',
@@ -165,6 +282,107 @@ describe('site passkey authenticator', () => {
     expect(response.id).toBe(created.credentialId)
     expect(response.response.signature).toBeTruthy()
     expect(response.response.userHandle).toBe(created.userHandle)
+  })
+
+  it('rejects assertions when the saved relying party id differs from the request', () => {
+    const created = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+
+    expect(() =>
+      getSitePasskeyAssertion({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+          rpId: 'example.com',
+        }),
+        passkey: {
+          credentialId: created.credentialId,
+          rpId: 'login.example.com',
+          userHandle: created.userHandle,
+          signCount: 0,
+          privateKeyJwk: created.privateKeyJwk,
+        },
+      }),
+    ).toThrow('does not belong')
+  })
+
+  it('rejects assertions when allowCredentials does not include the selected passkey', () => {
+    const created = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+
+    expect(() =>
+      getSitePasskeyAssertion({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+          rpId: 'example.com',
+          allowCredentials: [
+            {
+              id: Buffer.alloc(32, 9).toString('base64url'),
+              type: 'public-key',
+            },
+          ],
+        }),
+        passkey: {
+          credentialId: created.credentialId,
+          rpId: created.rpId,
+          userHandle: created.userHandle,
+          signCount: 0,
+          privateKeyJwk: created.privateKeyJwk,
+        },
+      }),
+    ).toThrow('did not request')
+  })
+
+  it('rejects saved passkey private keys that are not P-256 private JWKs', () => {
+    const created = createSitePasskeyCredential({
+      origin: 'https://example.com',
+      requestDetailsJson: JSON.stringify(createOptions),
+    })
+
+    expect(() =>
+      getSitePasskeyAssertion({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+          rpId: 'example.com',
+        }),
+        passkey: {
+          credentialId: created.credentialId,
+          rpId: created.rpId,
+          userHandle: created.userHandle,
+          signCount: 0,
+          privateKeyJwk: {
+            ...created.privateKeyJwk,
+            d: Buffer.alloc(31, 3).toString('base64url'),
+          },
+        },
+      }),
+    ).toThrow('private key is invalid')
+
+    expect(() =>
+      getSitePasskeyAssertion({
+        origin: 'https://example.com',
+        requestDetailsJson: JSON.stringify({
+          challenge: 'EA8ODQwLCgkIBwYFBAMCAQ',
+          rpId: 'example.com',
+        }),
+        passkey: {
+          credentialId: created.credentialId,
+          rpId: created.rpId,
+          userHandle: created.userHandle,
+          signCount: 0,
+          privateKeyJwk: {
+            ...created.privateKeyJwk,
+            x: Buffer.alloc(32, 9).toString('base64url'),
+          },
+        },
+      }),
+    ).toThrow('private key is invalid')
   })
 
   it('only sets the UV flag on assertions after native verification succeeds', () => {

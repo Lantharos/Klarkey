@@ -123,7 +123,7 @@ class KlarkeyCredentialProviderActivity : Activity() {
 
     val providerRequest = PendingIntentHandler.retrieveProviderCreateCredentialRequest(intent)
     when (val request = providerRequest?.callingRequest) {
-      is CreatePasswordRequest -> finishCreatePassword(request)
+      is CreatePasswordRequest -> finishCreatePassword(request, providerRequest.callingAppInfo)
       is CreatePublicKeyCredentialRequest -> finishCreatePasskey(request, providerRequest.callingAppInfo)
       else -> {
         openKlarkey("save")
@@ -133,8 +133,13 @@ class KlarkeyCredentialProviderActivity : Activity() {
     }
   }
 
-  private fun finishCreatePassword(request: CreatePasswordRequest) {
-    KlarkeyCredentialStore.savePasswordCredential(this, request.id, request.password, request.origin)
+  private fun finishCreatePassword(request: CreatePasswordRequest, callingAppInfo: CallingAppInfo?) {
+    val saveDomain = KlarkeyPasskeys.trustedCredentialSaveDomain(callingAppInfo)
+    if (saveDomain == null) {
+      finishCanceled()
+      return
+    }
+    KlarkeyCredentialStore.savePasswordCredential(this, request.id, request.password, saveDomain)
     val result = Intent()
     PendingIntentHandler.setCreateCredentialResponse(result, CreatePasswordResponse())
     setResult(RESULT_OK, result)

@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { normalizeCredentialId } from '@/shared/passkey-encoding'
+import { toBrowserSiteUrl } from '@/shared/browser-extension'
 import {
   buildBrowserPasskeySavePlan,
   filterUsableBrowserPasskeys,
@@ -25,6 +25,21 @@ import type {
   CreateItemInput,
   ItemDetails,
 } from '@/shared/types'
+
+const maxBrowserPasskeyChoices = 20
+const pendingBrowserPasskeyTtlMs = 10 * 60 * 1000
+
+const browserSiteUrlForStorage = (url: string) => toBrowserSiteUrl(url) ?? url
+
+export const pendingBrowserPasskeyCutoffIso = () => new Date(Date.now() - pendingBrowserPasskeyTtlMs).toISOString()
+
+export function isPendingBrowserPasskeyFresh(createdAt: string) {
+  const createdAtMs = Date.parse(createdAt)
+  if (!Number.isFinite(createdAtMs)) {
+    return false
+  }
+  return createdAtMs >= Date.now() - pendingBrowserPasskeyTtlMs && createdAtMs <= Date.now() + 60_000
+}
 
 export type BrowserPasskeyBridge = {
   listBrowserSiteMatches: (url: string, title?: string) => BrowserSiteMatch[]
@@ -62,6 +77,14 @@ export function resolveBrowserPasskeyItem(
     url,
     requestDetailsJson,
   )
+  if (pendingPasskey.rpId && pendingPasskey.rpId !== plan.rpId) {
+    return {
+      status: 'error',
+      title: 'Passkey site changed',
+      message: 'Klarkey will not save a passkey outside the site that created it.',
+    } satisfies ActionExecutionResult
+  }
+
   const itemId = createNew ? undefined : itemIdOverride ?? existingItemId ?? plan.suggestedMatch?.itemId
 
   if (itemId) {
@@ -85,7 +108,7 @@ export function resolveBrowserPasskeyItem(
     itemName: pendingPasskey.label || plan.itemName,
     username: pendingPasskey.userName || plan.userName,
     preserveEmptyPassword: true,
-    websites: [url],
+    websites: [browserSiteUrlForStorage(url)],
   })
 
   if (!createdItem.itemId) {
@@ -176,6 +199,14 @@ export function savePreparedBrowserSitePasskey(
       message: 'Klarkey could not find the pending passkey to save.',
     } satisfies ActionExecutionResult
   }
+  if (!isPendingBrowserPasskeyFresh(pendingPasskey.createdAt)) {
+    db.prepare('DELETE FROM pending_passkeys WHERE id = ?').run(pendingPasskeyId)
+    return {
+      status: 'error',
+      title: 'Passkey expired',
+      message: 'Create the passkey again before saving it in Klarkey.',
+    } satisfies ActionExecutionResult
+  }
 
   const existing = db
     .prepare('SELECT id, itemId FROM passkeys WHERE credentialId = ?')
@@ -244,7 +275,7 @@ export function savePreparedBrowserSitePasskey(
   }
 
   const details = bridge.getItemDetails(itemId)
-  const websites = Array.from(new Set([...(details?.websites ?? []), url]))
+  const websites = Array.from(new Set([...(details?.websites ?? []), browserSiteUrlForStorage(url)]))
   db.prepare('UPDATE identities SET websites = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(websites), now(), itemId)
   mutations.syncItemPasskeyState(itemId)
   if (previousItemId && previousItemId !== itemId) {
@@ -284,20 +315,22 @@ export function listBrowserPasskeyChoicesForSite(
   requestDetailsJson: string,
   getItemDetails: (itemId: string) => ItemDetails | undefined,
 ): BrowserPasskeyChoice[] {
-  return listUsableSitePasskeys(db, url, requestDetailsJson, getItemDetails).flatMap((passkey) =>
-    passkey.credentialId
-      ? [
-          {
-            credentialId: passkey.credentialId,
-            itemId: passkey.itemId,
-            itemName: passkey.label,
-            userName: passkey.userName,
-            rpId: passkey.rpId,
-            lastUsedAt: passkey.lastUsedAt,
-          } satisfies BrowserPasskeyChoice,
-        ]
-      : [],
-  )
+  return listUsableSitePasskeys(db, url, requestDetailsJson, getItemDetails)
+    .slice(0, maxBrowserPasskeyChoices)
+    .flatMap((passkey) =>
+      passkey.credentialId
+        ? [
+            {
+              credentialId: passkey.credentialId,
+              itemId: passkey.itemId,
+              itemName: passkey.label,
+              userName: passkey.userName,
+              rpId: passkey.rpId,
+              lastUsedAt: passkey.lastUsedAt,
+            } satisfies BrowserPasskeyChoice,
+          ]
+        : [],
+    )
 }
 
 export function getPasskeysForBrowserRequestPayload(
@@ -309,7 +342,7 @@ export function getPasskeysForBrowserRequestPayload(
   | ActionExecutionResult
   | { requestDetailsJson: string; selectedCredentialIds: string[] } {
   const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
-  const filtered = listUsableSitePasskeys(db, url, requestDetailsJson, getItemDetails)
+  const filtered = listUsableSitePasskeys(db, url, requestDetailsJson, getItemDetails).slice(0, maxBrowserPasskeyChoices)
   if (!filtered.length) {
     return {
       status: 'error',
@@ -402,144 +435,7 @@ export function getBrowserSitePasskeyResult(
   } satisfies ActionExecutionResult
 }
 
-export function saveSitePasskeyFromBrowser(
-  db: Database.Database,
-  mutations: BrowserPasskeyMutations,
-  bridge: BrowserPasskeyBridge,
-  url: string,
-  requestDetailsJson: string,
-  responseJson: string,
-  itemIdOverride?: string,
-  createNew?: boolean,
-): ActionExecutionResult {
-  const response = parseJson<{ id?: unknown; rawId?: unknown; response?: { transports?: string[] } }>(responseJson, {})
-  const credentialId = normalizeCredentialId(response.id ?? response.rawId)
-  const plan = buildBrowserPasskeySavePlan(
-    bridge.listBrowserSiteMatches,
-    bridge.getItemDetails,
-    url,
-    requestDetailsJson,
-  )
-  if (!credentialId) {
-    return {
-      status: 'error',
-      title: 'Passkey missing',
-      message: 'The browser did not return a passkey credential id.',
-    } satisfies ActionExecutionResult
-  }
-
-  const existing = db
-    .prepare('SELECT id, itemId FROM passkeys WHERE credentialId = ?')
-    .get(credentialId) as { id: string; itemId: string } | undefined
-  let itemId = createNew ? undefined : itemIdOverride ?? plan.suggestedMatch?.itemId ?? existing?.itemId
-
-  if (!itemId) {
-    const createdItem = bridge.createItem({
-      itemType: 'login',
-      itemName: plan.itemName,
-      username: plan.userName,
-      preserveEmptyPassword: true,
-      websites: [url],
-    })
-
-    if (!createdItem.itemId) {
-      return createdItem
-    }
-
-    itemId = createdItem.itemId
-  }
-
-  const previousItemId = existing?.itemId
-
-  if (existing) {
-    mutations.replaceItemPasskey(itemId, existing.id)
-    db.prepare(
-      `
-          UPDATE passkeys
-          SET identityId = ?, itemId = ?, label = ?, rpId = ?, userName = ?, transports = ?, lastUsedAt = ?
-          WHERE id = ?
-        `,
-    ).run(
-      itemId,
-      itemId,
-      plan.itemName,
-      plan.rpId,
-      plan.userName ?? null,
-      JSON.stringify(response.response?.transports ?? []),
-      now(),
-      existing.id,
-    )
-  } else {
-    mutations.replaceItemPasskey(itemId)
-    db.prepare(
-      `
-          INSERT INTO passkeys(id, identityId, itemId, label, credentialId, rpId, userName, transports, lastUsedAt, createdAt)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-    ).run(
-      id('passkey'),
-      itemId,
-      itemId,
-      plan.itemName,
-      credentialId,
-      plan.rpId,
-      plan.userName ?? null,
-      JSON.stringify(response.response?.transports ?? []),
-      now(),
-      now(),
-    )
-  }
-
-  const details = bridge.getItemDetails(itemId)
-  const websites = Array.from(new Set([...(details?.websites ?? []), url]))
-  db.prepare('UPDATE identities SET websites = ?, updatedAt = ? WHERE id = ?').run(JSON.stringify(websites), now(), itemId)
-  mutations.syncItemPasskeyState(itemId)
-  if (previousItemId && previousItemId !== itemId) {
-    mutations.syncItemPasskeyState(previousItemId)
-  }
-
-  return {
-    status: 'success',
-    title: 'Passkey saved',
-    message: `${plan.itemName} is now linked to this site in Klarkey.`,
-    itemId,
-  } satisfies ActionExecutionResult
-}
-
-export function rememberSitePasskeyAssertionResult(
-  db: Database.Database,
-  mutations: BrowserPasskeyMutations,
-  credentialId: string,
-): ActionExecutionResult {
-  const normalizedCredentialId = normalizeCredentialId(credentialId)
-  if (!normalizedCredentialId) {
-    return {
-      status: 'error',
-      title: 'Passkey missing',
-      message: 'The selected passkey id is invalid.',
-    } satisfies ActionExecutionResult
-  }
-
-  const current = db
-    .prepare('SELECT itemId, label FROM passkeys WHERE credentialId = ?')
-    .get(normalizedCredentialId) as { itemId: string; label: string } | undefined
-
-  if (!current) {
-    return {
-      status: 'error',
-      title: 'Passkey missing',
-      message: 'The selected passkey is not known to Klarkey.',
-    } satisfies ActionExecutionResult
-  }
-
-  db.prepare('UPDATE passkeys SET lastUsedAt = ? WHERE credentialId = ?').run(now(), normalizedCredentialId)
-  db.prepare('UPDATE identities SET lastUsedAt = ?, updatedAt = ? WHERE id = ?').run(now(), now(), current.itemId)
-  mutations.remember(`passkey:${normalizedCredentialId}`, current.label, current.itemId)
-
-  return {
-    status: 'success',
-    title: 'Passkey approved',
-    message: `${current.label} was used through the browser bridge.`,
-    itemId: current.itemId,
-  } satisfies ActionExecutionResult
-}
+export {
+  rememberSitePasskeyAssertionResult,
+  saveSitePasskeyFromBrowser,
+} from '@/electron/repository/browser-site-passkey-save'

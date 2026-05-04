@@ -1,6 +1,6 @@
 export const runtimeApi = globalThis.browser ?? globalThis.chrome
 export const nativeHostName = 'app.klarkey.desktop'
-export const isChromium = Boolean(globalThis.chrome?.webAuthenticationProxy)
+export const isChromium = Boolean(globalThis.chrome && !globalThis.browser)
 export const browserKind = globalThis.browser ? 'firefox' : isChromium ? 'chromium' : 'other'
 
 let nativePort
@@ -11,6 +11,7 @@ let lastKnownUnlockedAt = 0
 let heartbeatTimer
 let reconnectTimer
 let heartbeatInFlight = false
+let requestCounter = 0
 
 let desktopState = {
   connected: false,
@@ -26,8 +27,11 @@ export const HOST_TIMEOUT_MS = 15000
 export const UNLOCK_RETRY_WAIT_MS = 15000
 export const UNLOCK_POLL_INTERVAL_MS = 350
 export const UNLOCK_GRACE_MS = 20000
+export const MAX_NATIVE_REQUEST_BYTES = 10 * 1024 * 1024
 const DESKTOP_HEARTBEAT_MS = 5000
 const DESKTOP_RECONNECT_MS = 10000
+const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
+const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
 const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
   'list-logins',
   'list-field-suggestions',
@@ -41,8 +45,42 @@ const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
   'passkey-get-credential',
 ])
 
+const randomRequestSuffix = () => {
+  const bytes = new Uint8Array(6)
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  requestCounter = (requestCounter + 1) % 1_000_000
+  return `${Date.now().toString(36)}${requestCounter.toString(36)}`
+}
+
 export const createRequestId = () =>
-  `req_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
+  `req_${Date.now().toString(36)}_${randomRequestSuffix()}`
+
+export const nativeRequestByteLength = (payload) => {
+  try {
+    const serialized = JSON.stringify(payload)
+    return typeof serialized === 'string'
+      ? new TextEncoder().encode(serialized).byteLength
+      : Number.POSITIVE_INFINITY
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+export const isNativeRequestSizeAllowed = (payload) =>
+  nativeRequestByteLength(payload) <= MAX_NATIVE_REQUEST_BYTES
+
+export const safeExtensionErrorMessage = (error, fallback = 'Klarkey desktop is not connected.') => {
+  const message = (error instanceof Error ? error.message : typeof error === 'string' ? error : '').trim()
+  if (!message || message.length > 180 || sensitiveErrorPattern.test(message) || urlErrorPattern.test(message)) {
+    return fallback
+  }
+
+  return message
+}
 
 export const withTimeout = (promise, message, timeoutMs = OPERATION_TIMEOUT_MS) =>
   Promise.race([
@@ -57,7 +95,7 @@ const withCallback = (fn, ...args) =>
     fn(...args, (result) => {
       const error = globalThis.chrome?.runtime?.lastError
       if (error) {
-        reject(new Error(error.message))
+        reject(new Error(safeExtensionErrorMessage(error.message, 'Browser request failed.')))
         return
       }
 
@@ -226,7 +264,7 @@ const attachNativePortListeners = (port, generation) => {
       return
     }
 
-    const message = runtimeApi.runtime.lastError?.message || 'Klarkey desktop is not connected.'
+    const message = safeExtensionErrorMessage(runtimeApi.runtime.lastError?.message)
     const pendingMessage = desktopState.availability === 'updating'
       ? desktopState.lastError || buildUpdatingMessage(desktopState.targetVersion)
       : message
@@ -263,7 +301,7 @@ export const ensureNativePort = async () => {
       return port
     })
     .catch((error) => {
-      const message = error instanceof Error ? error.message : 'Klarkey desktop is not connected.'
+      const message = safeExtensionErrorMessage(error)
       updateDesktopState({ connected: false, availability: 'offline', lastError: message, retryAfterSeconds: undefined })
       throw new Error(message)
     })
@@ -303,8 +341,17 @@ export async function getPageContext(tab) {
 }
 
 async function sendHostRequest(payload) {
-  const port = await ensureNativePort()
   const id = createRequestId()
+  const nativeRequest = {
+    id,
+    ...payload,
+  }
+
+  if (!isNativeRequestSizeAllowed(nativeRequest)) {
+    throw new Error('The browser request was too large to send safely.')
+  }
+
+  const port = await ensureNativePort()
 
   return withTimeout(
     new Promise((resolve, reject) => {
@@ -321,10 +368,7 @@ async function sendHostRequest(payload) {
       })
 
       try {
-        port.postMessage({
-          id,
-          ...payload,
-        })
+        port.postMessage(nativeRequest)
       } catch (error) {
         nativePortRequests.delete(id)
         globalThis.clearTimeout(timeoutId)
@@ -424,10 +468,11 @@ export async function readDesktopConnectionState() {
   }
 
   const connected = await ensureDesktopConnected().catch((error) => {
+    const message = safeExtensionErrorMessage(error)
     updateDesktopState({
       connected: false,
       availability: 'offline',
-      lastError: error instanceof Error ? error.message : 'Klarkey desktop is not connected.',
+      lastError: message,
     })
     return false
   })

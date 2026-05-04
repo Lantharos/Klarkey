@@ -2,6 +2,7 @@ function buildStoreSource(packageName) {
   return `package ${packageName}.credentialprovider
 
 import android.content.Context
+import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -40,20 +41,31 @@ data class ProviderPasskey(
 )
 
 object KlarkeyCredentialStore {
-  private const val alias = "klarkey_android_provider_store"
+  private const val storeAlias = "klarkey_android_provider_store"
   private const val storeName = "klarkey_android_provider"
   private const val credentialsKey = "credentials"
   private const val passkeysKey = "passkeys"
   private const val unlockedUntilKey = "unlockedUntil"
   private const val transformation = "AES/GCM/NoPadding"
+  private const val redactedPrivateKeyJwk = "__klarkey_redacted_private_jwk__"
+  private const val unlockWindowMs = 5 * 60 * 1000L
+  private const val maxProviderPayloadBytes = 2 * 1024 * 1024
+  private const val maxEncryptedPayloadChars = maxProviderPayloadBytes * 2
+  private const val maxPrivateKeyJwkBytes = 8192
 
   fun replaceCredentials(context: Context, payload: String, unlockedUntil: Long) {
+    if (!safePayload(payload)) {
+      return
+    }
     writeEncrypted(context, credentialsKey, mergeProviderOwnedCredentials(context, payload))
-    prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
+    prefs(context).edit().putLong(unlockedUntilKey, boundedUnlockedUntil(unlockedUntil)).apply()
   }
 
   fun replacePasskeys(context: Context, payload: String) {
-    val incoming = JSONArray(payload)
+    if (!safePayload(payload)) {
+      return
+    }
+    val incoming = jsonArray(payload)
     val incomingIds = mutableSetOf<String>()
     val merged = JSONArray()
 
@@ -63,8 +75,8 @@ object KlarkeyCredentialStore {
       val rpId = item.optString("rpId")
       val username = item.optString("username")
       val userHandle = item.optString("userHandle")
-      val privateKeyJwk = item.opt("privateKeyJwk")?.toString()
-      if (id.isBlank() || rpId.isBlank() || username.isBlank() || userHandle.isBlank() || privateKeyJwk.isNullOrBlank()) {
+      val privateKeyJwk = privateKeyJwkPayload(item.opt("privateKeyJwk"))
+      if (id.isBlank() || rpId.isBlank() || username.isBlank() || userHandle.isBlank() || privateKeyJwk == null) {
         continue
       }
 
@@ -84,7 +96,7 @@ object KlarkeyCredentialStore {
       ))
     }
 
-    val existing = JSONArray(readEncrypted(context, passkeysKey) ?: "[]")
+    val existing = jsonArray(readEncrypted(context, passkeysKey))
     for (index in 0 until existing.length()) {
       val item = existing.optJSONObject(index) ?: continue
       val id = item.optString("id")
@@ -106,7 +118,7 @@ object KlarkeyCredentialStore {
   }
 
   fun unlock(context: Context, unlockedUntil: Long) {
-    prefs(context).edit().putLong(unlockedUntilKey, unlockedUntil).apply()
+    prefs(context).edit().putLong(unlockedUntilKey, boundedUnlockedUntil(unlockedUntil)).apply()
   }
 
   fun isUnlocked(context: Context): Boolean {
@@ -115,7 +127,8 @@ object KlarkeyCredentialStore {
 
   fun loadCredentials(context: Context): List<ProviderCredential> {
     val payload = readEncrypted(context, credentialsKey) ?: return emptyList()
-    val items = JSONArray(payload)
+    val includeSecrets = isUnlocked(context)
+    val items = jsonArray(payload)
     val credentials = mutableListOf<ProviderCredential>()
 
     for (index in 0 until items.length()) {
@@ -126,7 +139,9 @@ object KlarkeyCredentialStore {
         continue
       }
 
-      val password = item.optString("password").takeIf { value -> value.isNotBlank() }
+      val storedPassword = item.optString("password").takeIf { value -> value.isNotBlank() }
+      val password = storedPassword.takeIf { includeSecrets }
+      val hasPassword = item.optBoolean("hasPassword", false) || storedPassword != null
       val domains = credentialDomains(item)
       credentials.add(
         ProviderCredential(
@@ -136,7 +151,7 @@ object KlarkeyCredentialStore {
           domain = domains.firstOrNull(),
           domains = domains,
           password = password,
-          hasPassword = item.optBoolean("hasPassword", false) && password != null,
+          hasPassword = hasPassword,
           hasPasskey = item.optBoolean("hasPasskey", false),
           lastUsedTime = Instant.ofEpochMilli(item.optLong("lastUsedAt", System.currentTimeMillis()))
         )
@@ -148,7 +163,7 @@ object KlarkeyCredentialStore {
 
   fun savePasswordCredential(context: Context, username: String, password: String, domain: String?) {
     val host = normalizeHost(domain)
-    val items = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val items = jsonArray(readEncrypted(context, credentialsKey))
     val next = JSONArray()
     val fallbackId = "password:" + (host ?: "app") + ":" + username
     var replaced = false
@@ -197,9 +212,9 @@ object KlarkeyCredentialStore {
     writeEncrypted(context, credentialsKey, next.toString())
   }
 
-  fun loadPasskeys(context: Context): List<ProviderPasskey> {
+  fun loadPasskeys(context: Context, includeSecrets: Boolean = true): List<ProviderPasskey> {
     val payload = readEncrypted(context, passkeysKey) ?: return emptyList()
-    val items = JSONArray(payload)
+    val items = jsonArray(payload)
     val passkeys = mutableListOf<ProviderPasskey>()
 
     for (index in 0 until items.length()) {
@@ -209,20 +224,23 @@ object KlarkeyCredentialStore {
       val rpId = item.optString("rpId")
       val username = item.optString("username")
       val userHandle = item.optString("userHandle")
-      val privateKeyJwk = item.optString("privateKeyJwk").takeIf { value -> value.isNotBlank() }
-      if (id.isBlank() || (alias.isBlank() && privateKeyJwk == null) || rpId.isBlank() || username.isBlank() || userHandle.isBlank()) {
+      val privateKeyJwk = privateKeyJwkPayload(item.opt("privateKeyJwk"))
+      if (id.isBlank() || rpId.isBlank() || username.isBlank() || userHandle.isBlank()) {
+        continue
+      }
+      if (includeSecrets && alias.isBlank() && privateKeyJwk == null) {
         continue
       }
 
       passkeys.add(
         ProviderPasskey(
           id = id,
-          alias = alias,
+          alias = alias.takeIf { includeSecrets } ?: "",
           rpId = rpId,
           username = username,
           userHandle = userHandle,
           itemId = item.optString("itemId").takeIf { value -> value.isNotBlank() },
-          privateKeyJwk = privateKeyJwk,
+          privateKeyJwk = privateKeyJwk?.takeIf { includeSecrets } ?: if (privateKeyJwk != null) redactedPrivateKeyJwk else null,
           signCount = item.optInt("signCount", 0),
           lastUsedTime = Instant.ofEpochMilli(item.optLong("lastUsedAt", System.currentTimeMillis()))
         )
@@ -233,7 +251,7 @@ object KlarkeyCredentialStore {
   }
 
   fun savePasskey(context: Context, passkey: ProviderPasskey) {
-    val items = JSONArray(readEncrypted(context, passkeysKey) ?: "[]")
+    val items = jsonArray(readEncrypted(context, passkeysKey))
     val next = JSONArray()
     var replaced = false
 
@@ -263,7 +281,7 @@ object KlarkeyCredentialStore {
   }
 
   fun passkeyById(context: Context, id: String?): ProviderPasskey? {
-    if (id.isNullOrBlank()) {
+    if (id.isNullOrBlank() || !isUnlocked(context)) {
       return null
     }
 
@@ -272,7 +290,8 @@ object KlarkeyCredentialStore {
 
   fun passkeysPayload(context: Context): String {
     val items = JSONArray()
-    loadPasskeys(context).forEach { passkey ->
+    val includeSecrets = isUnlocked(context)
+    loadPasskeys(context, includeSecrets = includeSecrets).forEach { passkey ->
       items.put(
         JSONObject()
           .put("id", passkey.id)
@@ -282,9 +301,9 @@ object KlarkeyCredentialStore {
           .put("itemId", passkey.itemId ?: "")
           .put("createdAt", passkey.lastUsedTime.toString().take(10))
           .put("lastUsedAt", if (passkey.privateKeyJwk == null) "Provider" else passkey.lastUsedTime.toString())
-          .put("privateKeyJwk", passkey.privateKeyJwk?.let { value -> JSONObject(value) } ?: "")
-          .put("signCount", 0)
-          .put("syncedCounter", passkey.privateKeyJwk != null)
+          .put("privateKeyJwk", passkey.privateKeyJwk?.takeIf { includeSecrets && it != redactedPrivateKeyJwk }?.let { value -> privateKeyJwkJson(value) } ?: "")
+          .put("signCount", if (includeSecrets) 0 else passkey.signCount)
+          .put("syncedCounter", includeSecrets && passkey.privateKeyJwk != null)
           .put("providerBacked", passkey.privateKeyJwk == null)
       )
     }
@@ -310,9 +329,19 @@ object KlarkeyCredentialStore {
     return items.toString()
   }
 
+  fun matchesCallingPackage(credential: ProviderCredential, packageName: String?): Boolean {
+    val targetPackage = normalizeHost(packageName)
+    if (targetPackage.isNullOrBlank()) {
+      return false
+    }
+
+    return credential.domains.any { domain -> normalizeHost(domain) == targetPackage } ||
+      normalizeHost(credential.domain) == targetPackage
+  }
+
   private fun upsertPasskeyCredential(context: Context, passkey: ProviderPasskey): JSONObject {
     val host = normalizeHost(passkey.rpId) ?: passkey.rpId
-    val items = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val items = jsonArray(readEncrypted(context, credentialsKey))
     val next = JSONArray()
     var credential: JSONObject? = null
 
@@ -405,14 +434,14 @@ object KlarkeyCredentialStore {
   }
 
   private fun mergeProviderOwnedCredentials(context: Context, payload: String): String {
-    val incoming = JSONArray(payload)
+    val incoming = jsonArray(payload)
     val ids = mutableSetOf<String>()
     for (index in 0 until incoming.length()) {
       incoming.optJSONObject(index)?.optString("id")?.takeIf { id -> id.isNotBlank() }?.let { id -> ids.add(id) }
     }
 
-    val merged = JSONArray(payload)
-    val existing = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val merged = jsonArray(payload)
+    val existing = jsonArray(readEncrypted(context, credentialsKey))
     for (index in 0 until existing.length()) {
       val item = existing.optJSONObject(index) ?: continue
       val id = item.optString("id")
@@ -429,7 +458,7 @@ object KlarkeyCredentialStore {
       return
     }
 
-    val existing = JSONArray(readEncrypted(context, credentialsKey) ?: "[]")
+    val existing = jsonArray(readEncrypted(context, credentialsKey))
     val next = JSONArray()
     var changed = false
     for (index in 0 until existing.length()) {
@@ -447,7 +476,7 @@ object KlarkeyCredentialStore {
   }
 
   private fun deletePasskeys(context: Context, itemId: String, passkeyIds: Set<String>) {
-    val existing = JSONArray(readEncrypted(context, passkeysKey) ?: "[]")
+    val existing = jsonArray(readEncrypted(context, passkeysKey))
     val next = JSONArray()
     var changed = false
     for (index in 0 until existing.length()) {
@@ -469,6 +498,9 @@ object KlarkeyCredentialStore {
   }
 
   private fun stringSet(payload: String): Set<String> {
+    if (!safePayload(payload)) {
+      return emptySet()
+    }
     return try {
       val values = JSONArray(payload)
       val ids = mutableSetOf<String>()
@@ -478,6 +510,55 @@ object KlarkeyCredentialStore {
       ids
     } catch (_: Exception) {
       emptySet()
+    }
+  }
+
+  private fun jsonArray(payload: String?): JSONArray {
+    if (payload.isNullOrBlank()) {
+      return JSONArray()
+    }
+    if (!safePayload(payload)) {
+      return JSONArray()
+    }
+    return try {
+      JSONArray(payload)
+    } catch (_: Exception) {
+      JSONArray()
+    }
+  }
+
+  private fun privateKeyJwkPayload(value: Any?): String? {
+    val raw = when (value) {
+      is JSONObject -> value.toString()
+      is String -> value.takeIf { item -> item.isNotBlank() }
+      else -> null
+    } ?: return null
+
+    return raw.takeIf { item -> safePayload(item, maxPrivateKeyJwkBytes) && privateKeyJwkJson(item) != null }
+  }
+
+  private fun privateKeyJwkJson(value: String): JSONObject? {
+    return try {
+      val jwk = JSONObject(value)
+      val isValidP256PrivateKey = jwk.optString("kty") == "EC" &&
+        jwk.optString("crv") == "P-256" &&
+        isP256Coordinate(jwk.optString("x")) &&
+        isP256Coordinate(jwk.optString("y")) &&
+        isP256Coordinate(jwk.optString("d"))
+      if (isValidP256PrivateKey) jwk else null
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  private fun isP256Coordinate(value: String): Boolean {
+    if (value.isBlank()) {
+      return false
+    }
+    return try {
+      Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING).size == 32
+    } catch (_: Exception) {
+      false
     }
   }
 
@@ -506,7 +587,11 @@ object KlarkeyCredentialStore {
       return false
     }
 
-    return candidate == target || candidate.endsWith("." + target) || target.endsWith("." + candidate)
+    return candidate == target || (isSubdomainMatchAllowed(candidate) && target.endsWith("." + candidate))
+  }
+
+  private fun isSubdomainMatchAllowed(candidate: String): Boolean {
+    return candidate.contains(".") && !candidate.matches(Regex("""\\d{1,3}(\\.\\d{1,3}){3}""")) && !candidate.startsWith("[")
   }
 
   private fun normalizeHost(value: String?): String? {
@@ -541,10 +626,22 @@ object KlarkeyCredentialStore {
 
   private fun prefs(context: Context) = context.getSharedPreferences(storeName, Context.MODE_PRIVATE)
 
+  private fun boundedUnlockedUntil(unlockedUntil: Long): Long {
+    val now = System.currentTimeMillis()
+    if (unlockedUntil <= now) {
+      return 0
+    }
+    return minOf(unlockedUntil, now + unlockWindowMs)
+  }
+
   private fun writeEncrypted(context: Context, key: String, value: String) {
+    val plaintext = value.toByteArray(Charsets.UTF_8)
+    if (plaintext.size > maxProviderPayloadBytes) {
+      return
+    }
     val cipher = Cipher.getInstance(transformation)
     cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-    val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+    val encrypted = cipher.doFinal(plaintext)
     val payload = listOf(cipher.iv, encrypted).joinToString(":") { bytes ->
       Base64.encodeToString(bytes, Base64.NO_WRAP)
     }
@@ -553,6 +650,18 @@ object KlarkeyCredentialStore {
 
   private fun readEncrypted(context: Context, key: String): String? {
     val payload = prefs(context).getString(key, null) ?: return null
+    if (payload.length > maxEncryptedPayloadChars) {
+      return null
+    }
+    val secretKey = existingSecretKey() ?: return null
+    return decryptPayload(payload, secretKey)
+  }
+
+  private fun safePayload(value: String, maxBytes: Int = maxProviderPayloadBytes): Boolean {
+    return value.toByteArray(Charsets.UTF_8).size <= maxBytes
+  }
+
+  private fun decryptPayload(payload: String, secretKey: SecretKey): String? {
     val parts = payload.split(":")
     if (parts.size != 2) {
       return null
@@ -562,7 +671,7 @@ object KlarkeyCredentialStore {
       val iv = Base64.decode(parts[0], Base64.NO_WRAP)
       val encrypted = Base64.decode(parts[1], Base64.NO_WRAP)
       val cipher = Cipher.getInstance(transformation)
-      cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, iv))
+      cipher.init(Cipher.DECRYPT_MODE, secretKey, GCMParameterSpec(128, iv))
       String(cipher.doFinal(encrypted), Charsets.UTF_8)
     } catch (_: Exception) {
       null
@@ -570,24 +679,32 @@ object KlarkeyCredentialStore {
   }
 
   private fun secretKey(): SecretKey {
-    val keyStore = KeyStore.getInstance("AndroidKeyStore")
-    keyStore.load(null)
-    val existing = keyStore.getKey(alias, null) as? SecretKey
-    if (existing != null) {
-      return existing
-    }
+    existingSecretKey()?.let { key -> return key }
 
     val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-    val spec = KeyGenParameterSpec.Builder(
-      alias,
+    generator.init(storeKeySpec())
+    return generator.generateKey()
+  }
+
+  private fun existingSecretKey(): SecretKey? {
+    val keyStore = KeyStore.getInstance("AndroidKeyStore")
+    keyStore.load(null)
+    return keyStore.getKey(storeAlias, null) as? SecretKey
+  }
+
+  private fun storeKeySpec(): KeyGenParameterSpec {
+    val builder = KeyGenParameterSpec.Builder(
+      storeAlias,
       KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
     )
       .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
       .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-      .build()
 
-    generator.init(spec)
-    return generator.generateKey()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+      builder.setUnlockedDeviceRequired(true)
+    }
+
+    return builder.build()
   }
 }
 `;

@@ -4,6 +4,11 @@ import type { TotpAlgorithm, TotpDetails } from '@/shared/types'
 type TotpFallback = Partial<Pick<TotpDetails, 'issuer' | 'accountName' | 'digits' | 'period' | 'algorithm'>>
 
 const defaultAlgorithm: TotpAlgorithm = 'SHA1'
+const defaultDigits = 6
+const defaultPeriod = 30
+const maxTotpInputLength = 4096
+const maxTotpSecretLength = 512
+const maxTotpLabelLength = 256
 
 const normalizeAlgorithm = (value?: string): TotpAlgorithm => {
   if (value === 'SHA256' || value === 'SHA512') {
@@ -13,16 +18,31 @@ const normalizeAlgorithm = (value?: string): TotpAlgorithm => {
   return defaultAlgorithm
 }
 
+const normalizeDigits = (value?: number) =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 6 && value <= 8 ? value : defaultDigits
+
+const normalizePeriod = (value?: number) =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 10 && value <= 300 ? value : defaultPeriod
+
+const normalizeLabel = (value: string | undefined, fallback: string) => {
+  const normalized = value?.trim()
+  return normalized ? normalized.slice(0, maxTotpLabelLength) : fallback
+}
+
 export const isTotpUri = (value: string) => /^otpauth:\/\//i.test(value.trim())
 
 export const normalizeTotpSecret = (value: string) => value.replace(/[\s-]+/g, '').toUpperCase()
 
 const canonicalizeTotp = (totp: OTPAuth.TOTP): TotpDetails => {
   const secret = totp.secret.base32
-  const issuer = totp.issuer?.trim() || undefined
-  const accountName = totp.label.trim() || 'OTP'
-  const digits = totp.digits
-  const period = totp.period
+  if (secret.length === 0 || secret.length > maxTotpSecretLength) {
+    throw new Error('The one-time password secret is too large.')
+  }
+
+  const issuer = normalizeLabel(totp.issuer, '') || undefined
+  const accountName = normalizeLabel(totp.label, 'OTP')
+  const digits = normalizeDigits(totp.digits)
+  const period = normalizePeriod(totp.period)
   const algorithm = normalizeAlgorithm(totp.algorithm)
   const uri = new OTPAuth.TOTP({
     issuer: issuer ?? '',
@@ -60,6 +80,9 @@ export function parseTotpInput(rawValue: string | undefined, fallback: TotpFallb
   if (!trimmed) {
     return undefined
   }
+  if (trimmed.length > maxTotpInputLength) {
+    throw new Error('The one-time password input is too large.')
+  }
 
   if (isTotpUri(trimmed)) {
     const parsed = OTPAuth.URI.parse(trimmed)
@@ -71,14 +94,19 @@ export function parseTotpInput(rawValue: string | undefined, fallback: TotpFallb
     return canonicalizeTotp(parsed)
   }
 
-  const secret = OTPAuth.Secret.fromBase32(normalizeTotpSecret(trimmed))
+  const normalizedSecret = normalizeTotpSecret(trimmed)
+  if (normalizedSecret.length > maxTotpSecretLength) {
+    throw new Error('The one-time password secret is too large.')
+  }
+
+  const secret = OTPAuth.Secret.fromBase32(normalizedSecret)
   const totp = new OTPAuth.TOTP({
-    issuer: fallback.issuer ?? '',
-    label: fallback.accountName ?? 'OTP',
+    issuer: normalizeLabel(fallback.issuer, ''),
+    label: normalizeLabel(fallback.accountName, 'OTP'),
     secret,
-    digits: fallback.digits ?? 6,
-    period: fallback.period ?? 30,
-    algorithm: fallback.algorithm ?? defaultAlgorithm,
+    digits: normalizeDigits(fallback.digits),
+    period: normalizePeriod(fallback.period),
+    algorithm: normalizeAlgorithm(fallback.algorithm),
   })
 
   return canonicalizeTotp(totp)
@@ -86,6 +114,9 @@ export function parseTotpInput(rawValue: string | undefined, fallback: TotpFallb
 
 export function parseStoredTotp(value: string | undefined, fallback: TotpFallback = {}) {
   if (!value) {
+    return undefined
+  }
+  if (value.length > maxTotpInputLength) {
     return undefined
   }
 
@@ -101,10 +132,18 @@ export function parseStoredTotp(value: string | undefined, fallback: TotpFallbac
       })
     }
   } catch {
-    return parseTotpInput(value, fallback)
+    try {
+      return parseTotpInput(value, fallback)
+    } catch {
+      return undefined
+    }
   }
 
-  return parseTotpInput(value, fallback)
+  try {
+    return parseTotpInput(value, fallback)
+  } catch {
+    return undefined
+  }
 }
 
 export function getTotpCode(details: TotpDetails, timestamp = Date.now()) {

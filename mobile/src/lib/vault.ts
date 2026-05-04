@@ -1,6 +1,6 @@
 import * as Crypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
-import { loadStoredVaultState, saveStoredVaultState } from "@/lib/vault-storage";
+import { clearStoredVaultKeyCache, loadStoredVaultState, saveStoredVaultState } from "@/lib/vault-storage";
 
 export type MobileItemKind = "login" | "identity" | "card" | "note" | "ssh-key";
 export type AutoLockMinutes = 1 | 5 | 15 | 30 | 60;
@@ -161,6 +161,8 @@ export async function saveVaultState(state: MobileVaultState) {
 
   await saveStoredVaultState(normalizeVaultState(state));
 }
+
+export { clearStoredVaultKeyCache };
 
 export async function loadVaultSettings(): Promise<MobileVaultSettings> {
   if (!(await SecureStore.isAvailableAsync())) {
@@ -327,6 +329,8 @@ export function createProviderSavedLogin(input: {
   domains?: string[];
   password?: string;
   otpCode?: string;
+  hasPassword?: boolean;
+  hasOtp?: boolean;
   hasPasskey?: boolean;
   lastUsedAt?: string;
 }): MobileVaultItem {
@@ -346,8 +350,8 @@ export function createProviderSavedLogin(input: {
     otpCode: input.otpCode,
     website: websites[0],
     websites,
-    hasPassword: Boolean(input.password),
-    hasOtp: Boolean(input.otpCode),
+    hasPassword: Boolean(input.hasPassword || input.password),
+    hasOtp: Boolean(input.hasOtp || input.otpCode),
     hasPasskey: Boolean(input.hasPasskey),
     customFields: [],
     lastUsedAt: input.lastUsedAt ?? "Saved from autofill",
@@ -409,13 +413,39 @@ function normalizePrivateKeyJwk(value: JsonWebKey | string | undefined) {
   if (typeof value === "string") {
     try {
       const parsed = JSON.parse(value) as JsonWebKey;
-      return parsed && typeof parsed === "object" ? parsed : undefined;
+      return isP256PrivateKeyJwk(parsed) ? parsed : undefined;
     } catch {
       return undefined;
     }
   }
 
-  return value;
+  return isP256PrivateKeyJwk(value) ? value : undefined;
+}
+
+function isP256Coordinate(value: unknown) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+={0,2}$/.test(value)) {
+    return false;
+  }
+
+  try {
+    const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+    return atob(padded).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+function isP256PrivateKeyJwk(value: unknown): value is JsonWebKey {
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    (value as JsonWebKey).kty === "EC" &&
+    (value as JsonWebKey).crv === "P-256" &&
+    isP256Coordinate((value as JsonWebKey).x) &&
+    isP256Coordinate((value as JsonWebKey).y) &&
+    isP256Coordinate((value as JsonWebKey).d),
+  );
 }
 
 export function normalizeMobilePasskey(passkey: RawMobilePasskey): MobilePasskey {

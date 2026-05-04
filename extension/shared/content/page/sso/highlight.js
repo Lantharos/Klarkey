@@ -101,7 +101,10 @@ function reconcileSsoHighlights(entries) {
 
     const badge = document.createElement('div')
     badge.className = 'klarkey-sso-badge'
-    badge.innerHTML = `<img src="${runtime.getURL('icons/klarkey-128.png')}" alt="Klarkey" />`
+    const icon = document.createElement('img')
+    icon.src = runtime.getURL('icons/klarkey-128.png')
+    icon.alt = 'Klarkey'
+    badge.appendChild(icon)
     overlay.appendChild(badge)
     overlayRoot.appendChild(overlay)
     ssoHighlightOverlays.set(entry.element, overlay)

@@ -98,7 +98,7 @@ export function buildPlainVaultRecords(db: Database.Database, key: Buffer): Plai
 }
 
 export function applyPlainVaultRecord(db: Database.Database, key: Buffer, record: PlainVaultRecord): ActionExecutionResult {
-  if (record.deletedAt) {
+  if (record.deletedAt !== undefined) {
     return applyTombstone(db, record)
   }
 
@@ -177,7 +177,7 @@ export function applyPlainVaultRecord(db: Database.Database, key: Buffer, record
 }
 
 export function createConflictCopy(db: Database.Database, key: Buffer, record: PlainVaultRecord): ActionExecutionResult | undefined {
-  if (record.kind !== 'item' || record.deletedAt) {
+  if (record.kind !== 'item' || record.deletedAt !== undefined) {
     return undefined
   }
 

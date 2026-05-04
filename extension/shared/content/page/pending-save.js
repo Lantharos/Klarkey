@@ -1,47 +1,45 @@
-import { pendingSaveStorageKey } from './state.js'
+import { clearTransientState, getTransientState, setTransientState } from './transient-state.js'
 
 const getPendingSavePrompt = () => {
-  try {
-    const raw = window.sessionStorage.getItem(pendingSaveStorageKey)
-    if (!raw) {
-      return undefined
-    }
-
-    const parsed = JSON.parse(raw)
-    if ((!parsed?.password && !parsed?.ssoProvider) || !parsed?.createdAt || Date.now() - parsed.createdAt > 30_000) {
-      window.sessionStorage.removeItem(pendingSaveStorageKey)
-      return undefined
-    }
-
-    return parsed
-  } catch {
+  const pending = getTransientState('pending-save')
+  if ((!pending?.password && !pending?.ssoProvider) || !pending?.createdAt || Date.now() - pending.createdAt > 30_000) {
+    clearTransientState('pending-save')
     return undefined
   }
+
+  return pending
 }
 
 const setPendingSavePrompt = (payload) => {
-  try {
-    window.sessionStorage.setItem(
-      pendingSaveStorageKey,
-      JSON.stringify({
-        ...payload,
-        createdAt: Date.now(),
-      }),
-    )
-  } catch {
-    return
-  }
+  setTransientState('pending-save', { ...payload, createdAt: Date.now() }, 30_000)
 }
 
 const clearPendingSavePrompt = () => {
-  try {
-    window.sessionStorage.removeItem(pendingSaveStorageKey)
-  } catch {
-    return
-  }
+  clearTransientState('pending-save')
 }
 
-const savePromptKeyFor = ({ username, password, ssoProvider }) => `${window.location.hostname}|${username || ''}|${password || ''}|${ssoProvider || ''}`
-const passkeyPromptKeyFor = (...parts) => `${window.location.hostname}|${parts.filter(Boolean).join('|')}`
+const promptKeySeed = (() => {
+  const values = new Uint32Array(2)
+  globalThis.crypto?.getRandomValues?.(values)
+  return `${values[0].toString(36)}${values[1].toString(36)}`
+})()
+
+const mixPromptKey = (hash, value) => {
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index)
+    hash = Math.imul(hash, 16_777_619) >>> 0
+  }
+
+  return hash
+}
+
+const promptFingerprintFor = (value) => {
+  const seedHash = mixPromptKey(2_166_136_261, promptKeySeed)
+  return mixPromptKey(mixPromptKey(seedHash, '|'), value || '').toString(36)
+}
+
+const savePromptKeyFor = ({ username, password, ssoProvider }) =>
+  `${window.location.origin}|${username || ''}|${promptFingerprintFor(password)}|${ssoProvider || ''}`
+const passkeyPromptKeyFor = (...parts) => `${window.location.origin}|${parts.filter(Boolean).join('|')}`
 
 export { getPendingSavePrompt, setPendingSavePrompt, clearPendingSavePrompt, savePromptKeyFor, passkeyPromptKeyFor }

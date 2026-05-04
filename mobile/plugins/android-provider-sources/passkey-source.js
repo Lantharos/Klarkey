@@ -29,7 +29,9 @@ import java.security.interfaces.ECPrivateKey
 import java.security.interfaces.ECPublicKey
 import java.security.spec.ECParameterSpec
 import java.security.spec.ECGenParameterSpec
+import java.security.spec.ECPoint
 import java.security.spec.ECPrivateKeySpec
+import java.security.spec.ECPublicKeySpec
 import java.time.Instant
 import org.json.JSONObject
 
@@ -67,8 +69,9 @@ object KlarkeyPasskeys {
   fun rpIdFromRequestJson(requestJson: String): String? {
     return try {
       val request = JSONObject(requestJson)
-      request.optString("rpId").takeIf { value -> value.isNotBlank() }
+      normalizeRpId(request.optString("rpId").takeIf { value -> value.isNotBlank() }
         ?: request.optJSONObject("rp")?.optString("id")?.takeIf { value -> value.isNotBlank() }
+      )
     } catch (_: Exception) {
       null
     }
@@ -82,6 +85,17 @@ object KlarkeyPasskeys {
     }
   }
 
+  fun trustedCredentialSaveDomain(callingAppInfo: CallingAppInfo?): String? {
+    return privilegedWebOrigin(callingAppInfo)
+      ?: callingAppInfo?.packageName?.takeIf { value -> value.isNotBlank() }
+  }
+
+  fun rpIdMatchesCaller(requestJson: String, callingAppInfo: CallingAppInfo?): Boolean {
+    val rpId = rpIdFromRequestJson(requestJson) ?: return false
+    val origin = originFor(callingAppInfo) ?: return false
+    return rpIdMatchesOrigin(rpId, origin.origin)
+  }
+
   fun createRegistration(
     context: Context,
     request: CreatePublicKeyCredentialRequest,
@@ -89,7 +103,7 @@ object KlarkeyPasskeys {
   ): CreatePublicKeyCredentialResponse? {
     return try {
     val options = PublicKeyCredentialCreationOptions(request.requestJson)
-    val rpId = options.rp.id.takeIf { value -> value.isNotBlank() } ?: return null
+    val rpId = normalizeRpId(options.rp.id) ?: return null
     val username = options.user.name.takeIf { value -> value.isNotBlank() }
       ?: options.user.displayName.takeIf { value -> value.isNotBlank() }
       ?: return null
@@ -101,7 +115,10 @@ object KlarkeyPasskeys {
     val publicKey = keyPair.public as ECPublicKey
     val privateKeyJwk = privateKeyJwk(keyPair.private as ECPrivateKey, publicKey)
     val coseKey = cosePublicKey(publicKey)
-    val origin = originFor(request.origin, rpId, callingAppInfo) ?: return null
+    val origin = originFor(callingAppInfo) ?: return null
+    if (!rpIdMatchesOrigin(rpId, origin.origin)) {
+      return null
+    }
     val response = AuthenticatorAttestationResponse(
       options,
       credentialIdBytes,
@@ -150,7 +167,11 @@ object KlarkeyPasskeys {
     }
 
     val requestOptions = PublicKeyCredentialRequestOptions(requestJson)
-    val origin = originFor(null, passkey.rpId, callingAppInfo) ?: return null
+    val origin = originFor(callingAppInfo) ?: return null
+    val requestRpId = rpIdFromRequestJson(requestJson) ?: return null
+    if (requestRpId != passkey.rpId || !rpIdMatchesOrigin(passkey.rpId, origin.origin)) {
+      return null
+    }
     val credentialIdBytes = base64UrlDecode(passkey.id)
     val clientDataHash = clientDataHashForAssertion(callingAppInfo, option.clientDataHash)
     val response = AuthenticatorAssertionResponse(
@@ -254,13 +275,43 @@ object KlarkeyPasskeys {
 
   private fun privateKeyFromJwk(jwk: String): PrivateKey {
     val parsed = JSONObject(jwk)
+    require(parsed.optString("kty") == "EC" && parsed.optString("crv") == "P-256")
     val params = AlgorithmParameters.getInstance("EC")
     params.init(ECGenParameterSpec("secp256r1"))
     val spec = ECPrivateKeySpec(
-      BigInteger(1, base64UrlDecode(parsed.getString("d"))),
+      jwkCoordinate(parsed, "d"),
       params.getParameterSpec(ECParameterSpec::class.java)
     )
-    return KeyFactory.getInstance("EC").generatePrivate(spec)
+    val keyFactory = KeyFactory.getInstance("EC")
+    val privateKey = keyFactory.generatePrivate(spec)
+    val publicKey = keyFactory.generatePublic(ECPublicKeySpec(
+      ECPoint(jwkCoordinate(parsed, "x"), jwkCoordinate(parsed, "y")),
+      params.getParameterSpec(ECParameterSpec::class.java)
+    ))
+    require(keyPairMatches(privateKey, publicKey))
+    return privateKey
+  }
+
+  private fun jwkCoordinate(jwk: JSONObject, key: String): BigInteger {
+    val value = base64UrlDecode(jwk.getString(key))
+    require(value.size == 32)
+    return BigInteger(1, value)
+  }
+
+  private fun keyPairMatches(privateKey: PrivateKey, publicKey: java.security.PublicKey): Boolean {
+    return try {
+      val probe = "klarkey-passkey-jwk-check".toByteArray(Charsets.UTF_8)
+      val signer = Signature.getInstance("SHA256withECDSA")
+      signer.initSign(privateKey, random)
+      signer.update(probe)
+      val signatureBytes = signer.sign()
+      val verifier = Signature.getInstance("SHA256withECDSA")
+      verifier.initVerify(publicKey)
+      verifier.update(probe)
+      verifier.verify(signatureBytes)
+    } catch (_: Exception) {
+      false
+    }
   }
 
   private fun registrationJson(responseJson: String, rpId: String, credentialId: ByteArray, credentialPublicKey: ByteArray, publicKey: ECPublicKey): String {
@@ -304,22 +355,73 @@ object KlarkeyPasskeys {
     }
   }
 
-  private fun originFor(origin: String?, rpId: String, callingAppInfo: CallingAppInfo?): OriginResult? {
-    if (callingAppInfo?.isOriginPopulated() == true) {
-      val privilegedOrigin = try {
-        callingAppInfo.getOrigin(privilegedAllowlist)?.takeIf { value -> value.isNotBlank() }
-      } catch (_: Exception) {
-        null
-      }
-      return privilegedOrigin?.let { value -> OriginResult(normalizeWebOrigin(value), null) }
+  private fun originFor(callingAppInfo: CallingAppInfo?): OriginResult? {
+    val webOrigin = privilegedWebOrigin(callingAppInfo)
+    if (webOrigin != null) {
+      return OriginResult(webOrigin, null)
     }
 
     val appOrigin = callingAppOrigin(callingAppInfo)
-    val requestOrigin = origin?.takeIf { value -> value.isNotBlank() }
     if (appOrigin != null) {
       return OriginResult(appOrigin, callingAppInfo?.packageName)
     }
-    return OriginResult(normalizeWebOrigin(requestOrigin ?: "https://" + rpId), null)
+    return null
+  }
+
+  private fun rpIdMatchesOrigin(rpId: String, origin: String): Boolean {
+    val normalizedRpId = normalizeRpId(rpId) ?: return false
+    if (!isValidRpId(normalizedRpId)) {
+      return false
+    }
+
+    if (origin.startsWith("android:apk-key-hash:")) {
+      return true
+    }
+
+    return try {
+      val parsed = Uri.parse(origin)
+      val scheme = parsed.scheme
+      val host = parsed.host?.lowercase()?.removeSuffix(".") ?: return false
+      val localHttp = scheme == "http" && isLocalHost(host)
+      if (scheme != "https" && !localHttp) {
+        return false
+      }
+      host == normalizedRpId || (!isLocalHost(normalizedRpId) && host.endsWith("." + normalizedRpId))
+    } catch (_: Exception) {
+      false
+    }
+  }
+
+  private fun isValidRpId(value: String): Boolean {
+    if (value.isBlank() || value.startsWith(".") || value.endsWith(".") || value.contains("..")) {
+      return false
+    }
+    if (isLocalHost(value)) {
+      return true
+    }
+    return value.contains(".") && value.matches(Regex("""[a-z0-9.-]+"""))
+  }
+
+  private fun normalizeRpId(value: String?): String? {
+    val normalized = value?.trim()?.lowercase()?.removeSuffix(".") ?: return null
+    return normalized.takeIf { item -> item.isNotBlank() }
+  }
+
+  private fun isLocalHost(value: String): Boolean {
+    return value == "localhost" || value == "127.0.0.1" || value == "::1"
+  }
+
+  private fun privilegedWebOrigin(callingAppInfo: CallingAppInfo?): String? {
+    if (callingAppInfo?.isOriginPopulated() != true) {
+      return null
+    }
+
+    val privilegedOrigin = try {
+      callingAppInfo.getOrigin(privilegedAllowlist)?.takeIf { value -> value.isNotBlank() }
+    } catch (_: Exception) {
+      null
+    }
+    return privilegedOrigin?.let { value -> normalizeWebOrigin(value) }
   }
 
   private fun normalizeWebOrigin(value: String): String {
@@ -330,8 +432,10 @@ object KlarkeyPasskeys {
       val parsed = Uri.parse(value.trim())
       val scheme = parsed.scheme
       val host = parsed.host
-      if ((scheme == "https" || scheme == "http") && !host.isNullOrBlank()) {
-        scheme + "://" + host.lowercase() + (if (parsed.port >= 0) ":" + parsed.port else "")
+      val normalizedHost = host?.lowercase()
+      val localHttp = scheme == "http" && (normalizedHost == "localhost" || normalizedHost == "127.0.0.1" || normalizedHost == "::1")
+      if ((scheme == "https" || localHttp) && !normalizedHost.isNullOrBlank()) {
+        scheme + "://" + normalizedHost + (if (parsed.port >= 0) ":" + parsed.port else "")
       } else {
         value.trimEnd('/')
       }

@@ -33,6 +33,9 @@ export interface KlarkeyApi {
   action: {
     execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>
   }
+  clipboard: {
+    copySecret: (value: string) => Promise<ActionExecutionResult>
+  }
   item: {
     get: (itemId: string) => Promise<ItemDetails | undefined>
     create: (input: CreateItemInput) => Promise<ActionExecutionResult>

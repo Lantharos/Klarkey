@@ -19,9 +19,10 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Local encrypted item storage
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for login, identity, and note items with item-type-specific fields
+- Vault import and export for Klarkey JSON, CSV, and common password-manager exports with bounded import batches and private local export files
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
-- Browser extension foundation for desktop-only native-messaging autofill and save flows
-- Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge and attached to login items
+- Browser extension foundation for desktop-only native-messaging autofill and save flows, with origin-only site matching, public-suffix checks, and click-scoped identity/card fill access
+- Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge, attached to login items, and finalized within a short pending window
 - Windows Hello-backed user verification for browser passkeys on Windows when a site asks for platform verification
 - Ave-authenticated Convex cloud sync foundation with encrypted vault records, per-device metadata, conflict copies, and a future entitlement gate
 - Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
@@ -49,11 +50,13 @@ To build the browser extension bundles:
 bun run build:extension
 ```
 
+The extension build runs a release verifier and writes only the runtime files needed by the Chromium and Firefox manifests.
+
 ## Cloud sync
 
 Cloud sync is optional. Klarkey stays fully usable as a local offline vault when these values are not set or when the user never signs in. Klarkey sync uses Ave for identity and Convex for encrypted record transport. Register a normal Ave app with E2EE enabled, not Quick Ave, and add `klarkey://oauth/callback` as a desktop redirect URI. The app requests `openid profile email offline_access` and sends the Ave `id_token` to Convex.
 
-Set these before running the desktop app:
+Set these before running the desktop app. The Convex URL must be an HTTPS origin, such as `https://your-deployment.convex.cloud`, without a path, query, fragment, or embedded credentials:
 
 ```powershell
 $env:KLARKEY_AVE_CLIENT_ID="ave_app_client_id"
@@ -61,9 +64,9 @@ $env:KLARKEY_CONVEX_URL="https://your-deployment.convex.cloud"
 $env:AVE_CLIENT_ID=$env:KLARKEY_AVE_CLIENT_ID
 ```
 
-The desktop app also reads `.env.local` and `.env` at runtime. `AVE_CLIENT_ID` can stand in for `KLARKEY_AVE_CLIENT_ID`; `CONVEX_URL` can stand in for `KLARKEY_CONVEX_URL`. Convex needs `AVE_CLIENT_ID` for `convex/auth.config.ts`. Run `bunx convex dev` to create the deployment, generate `_generated` files, and push `convex/schema.ts` plus `convex/sync.ts`. Ave sessions refresh with the rotated refresh token before Convex calls, and Convex receives a fresh `id_token`.
+During development, the desktop app also reads `.env.local` and `.env` from the project/runtime roots. Packaged desktop builds do not read dotenv files from the launch directory; use real environment variables or the release configuration instead. `AVE_CLIENT_ID` can stand in for `KLARKEY_AVE_CLIENT_ID`; `CONVEX_URL` can stand in for `KLARKEY_CONVEX_URL`. Convex needs `AVE_CLIENT_ID` for `convex/auth.config.ts`. Run `bunx convex dev` to create the deployment, generate `_generated` files, and push `convex/schema.ts` plus `convex/sync.ts`. Ave sessions refresh with the rotated refresh token before Convex calls, and Convex receives a fresh `id_token`.
 
-Servers never receive plaintext vault contents. Klarkey derives a sync wrapping key from the Ave E2EE `app_key`, wraps one vault data key per Ave identity, and encrypts each item/passkey/settings record with AES-GCM. New Klarkey-created website passkeys are stored as exportable software ES256 keys inside encrypted `site-passkey` records so the same passkey can be used after sync on desktop and mobile. Older device-bound provider keys remain local until the user recreates or migrates them. Concurrent item edits are resolved per record; when Klarkey sees a conflict, it keeps a separate conflict copy instead of dropping a secret.
+Servers never receive plaintext vault contents. Klarkey derives a sync wrapping key from the Ave E2EE `app_key`, wraps one vault data key per Ave identity, and encrypts each item/passkey/settings record with AES-GCM. Klarkey-created website passkeys are stored as exportable software ES256 keys inside encrypted `site-passkey` records so the same passkey can be used after sync on desktop and mobile. Concurrent item edits are resolved per record; when Klarkey sees a conflict, it keeps a separate conflict copy instead of dropping a secret.
 
 After sign-in, sync runs automatically while the vault is unlocked. Desktop and mobile subscribe to a small Convex sync-status query that only carries the account sequence, then call `pullSince` only when the sequence advances. Local item changes are debounced into background sync batches, and device registration is rate-limited locally so normal editing does not create an extra write every time.
 
@@ -75,15 +78,29 @@ bun run test
 bun run build
 ```
 
+## Desktop release
+
+Windows desktop releases use the NSIS target and GitHub release metadata for updater support. Before packaging a release, set code-signing material and run the release policy verifier:
+
+```powershell
+$env:CSC_LINK="file://C:/path/to/klarkey.pfx"
+$env:CSC_KEY_PASSWORD="certificate_password"
+bun run verify:desktop-release
+```
+
+`bun run build:desktop` runs this verifier before `electron-builder`. The GitHub release workflow expects the same signing values in `WINDOWS_CODESIGN_CERTIFICATE` and `WINDOWS_CODESIGN_PASSWORD` secrets.
+
 ## Notes
 
-- Sensitive actions use an in-memory unlock window on top of OS-backed key protection.
+- Existing desktop vaults start locked. Sensitive actions use an in-memory unlock window on top of OS-backed key protection, and OS-backed keys are released only after Windows Hello verification or a configured master-password unlock.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
 - Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses the native Windows Hello helper for UV-capable Windows flows.
-- The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode.
+- Local and synced settings are validated before use; unsafe hotkeys and out-of-range lock or clipboard timings fall back to defaults instead of being applied.
+- Browser fill suggestions are available by default, but login auto-submit is opt-in from settings so filling and submitting remain separate decisions unless the user enables it.
+- The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode, and bridge errors are bounded and redacted before they cross process boundaries.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
-- The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped synced passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and synced passkey source.
+- The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, screenshot protection, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped synced passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and synced passkey source.
 
 ## Mobile app
 
@@ -102,9 +119,9 @@ bun expo run:android
 bun expo run:ios
 ```
 
-For iOS builds, set `EXPO_APPLE_TEAM_ID` or `APPLE_TEAM_ID` so the Credential Provider Extension can be signed. The current mobile native identity defaults to `com.lantharos.klarkey` and `klarkey.com`, with iOS 18+ as the mobile target for newer credential-manager fill surfaces. On macOS with Xcode, `bun run verify:ios-build` from `mobile` runs iOS prebuild validation and a Simulator compile. From Windows, use `bunx eas-cli build --platform ios --profile ios-simulator` or `bunx eas-cli build --platform ios --profile development` from `mobile` after storing `EXPO_APPLE_TEAM_ID` in the EAS environment. Before shipping, run `bun run write:well-known` from `mobile` with the Apple Team ID and Android release signing SHA-256 fingerprint, then host the generated files on `https://klarkey.com/.well-known/`.
+For iOS builds, set `EXPO_APPLE_TEAM_ID` or `APPLE_TEAM_ID` so the Credential Provider Extension can be signed. The current mobile native identity defaults to `com.lantharos.klarkey` and `klarkey.com`, with iOS 18+ as the mobile target for newer credential-manager fill surfaces. From Windows, use `bunx eas-cli build --platform ios --profile ios-simulator` or `bunx eas-cli build --platform ios --profile development` from `mobile` after storing `EXPO_APPLE_TEAM_ID` in the EAS environment. Before shipping, host the Apple and Android association files on `https://klarkey.com/.well-known/` using the Apple Team ID and Android release signing SHA-256 fingerprint.
 
-For mobile sync, also set:
+For mobile sync, also set the same HTTPS Convex origin:
 
 ```bash
 EXPO_PUBLIC_AVE_CLIENT_ID=ave_app_client_id
@@ -114,6 +131,8 @@ EXPO_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
 ## Browser extension
 
 After `bun run build`, unpacked extension builds are written to `dist-extension/chromium` and `dist-extension/firefox`.
+
+`bun run build:extension` regenerates the background and content bundles, stages only the manifest-declared runtime files, and runs `bun run verify:extension` to reject broad URL permissions, loose extension-page CSP, external messaging, or accidental source files in the packaged extension.
 
 Opening Klarkey on Windows now registers the native-messaging bridge for the bundled Chromium and Firefox extension IDs automatically.
 
@@ -192,7 +211,3 @@ Launch the packaged WinUI app for the bridge probe UI:
 ```powershell
 .\scripts\run-native-provider.ps1
 ```
-
-<p class="attribution">
-  <a href="https://logo.dev">Logos provided by Logo.dev</a>
-</p>

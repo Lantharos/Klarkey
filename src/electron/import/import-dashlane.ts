@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs'
 import type { CreateItemInput } from '@/shared/types'
 import type { ImportResult } from '@/shared/import-export'
 import type { VaultRepository } from '@/electron/repository'
-import { importItems } from '@/electron/import/import-utils'
+import { importItems, MAX_IMPORT_ITEMS, readImportFileText, tooManyImportItemsResult } from '@/electron/import/import-utils'
 
 interface DashlaneCredential {
   title?: string
@@ -57,8 +56,17 @@ function extractUrl(url: unknown): string | undefined {
 }
 
 export async function importDashlaneJson(repository: VaultRepository, filePath: string): Promise<ImportResult> {
-  const content = readFileSync(filePath, 'utf-8')
+  const content = readImportFileText(filePath)
   const data = JSON.parse(content) as DashlaneExport
+  const itemCount =
+    (data.credentials?.length ?? 0) +
+    (data.secureNotes?.length ?? 0) +
+    (data.identities?.length ?? 0) +
+    (data.paymentCards?.length ?? 0)
+
+  if (itemCount > MAX_IMPORT_ITEMS) {
+    return tooManyImportItemsResult()
+  }
 
   const inputs: CreateItemInput[] = []
 

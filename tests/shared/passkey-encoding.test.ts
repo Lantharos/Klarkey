@@ -14,6 +14,11 @@ describe('passkey credential id normalization', () => {
     expect(normalizeCredentialId('-_8')).toBe('-_8')
   })
 
+  it('rejects malformed base64url values without rewriting raw credential ids', () => {
+    expect(() => decodeBase64Url('not base64!')).toThrow('Invalid base64url value')
+    expect(normalizeCredentialId('not base64!')).toBe('not base64!')
+  })
+
   it('converts byte arrays and structured payloads into base64url ids', () => {
     expect(normalizeCredentialId([1, 2, 3, 4])).toBe('AQIDBA')
     expect(normalizeCredentialId({ data: [1, 2, 3, 4] })).toBe('AQIDBA')

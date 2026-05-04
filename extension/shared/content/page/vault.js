@@ -97,7 +97,12 @@ const maybePromptToSave = async (preferredInput, force = false) => {
     return
   }
 
-  const stored = await sendMessage({ type: 'fetch-login', itemId: exact.itemId }).catch(() => undefined)
+  const stored = await sendMessage({
+    type: 'fetch-login',
+    itemId: exact.itemId,
+    url: window.location.href,
+    title: document.title,
+  }).catch(() => undefined)
   const storedPassword = stored?.ok ? stored.login?.password || '' : ''
 
   if (storedPassword === snapshot.password) {

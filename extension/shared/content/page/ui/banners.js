@@ -4,6 +4,25 @@ import { sendMessage } from '../runtime.js'
 import { removeInlineUi } from './inline-ui.js'
 import { savePromptKeyFor, clearPendingSavePrompt, passkeyPromptKeyFor } from '../pending-save.js'
 import { setPendingUsername } from '../forms/forms.js'
+import { runTrustedUserAction } from './trusted-events.js'
+
+const appendTextElement = (parent, tagName, className, text) => {
+  const element = document.createElement(tagName)
+  element.className = className
+  element.textContent = text
+  parent.appendChild(element)
+  return element
+}
+
+const appendButton = (parent, className, text, action) => {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = className
+  button.dataset.action = action
+  button.textContent = text
+  parent.appendChild(button)
+  return button
+}
 
 const showSaveBanner = ({ username, password, ssoProvider, reason }) => {
   if (!browserSettings.browserSavePrompts) {
@@ -19,18 +38,20 @@ const showSaveBanner = ({ username, password, ssoProvider, reason }) => {
   pageState.activeSaveBannerKey = promptKey
   const banner = document.createElement('section')
   banner.className = 'klarkey-save-banner'
-  banner.innerHTML = `
-    <div class="klarkey-save-title">${reason === 'update' ? 'Update login in Klarkey?' : 'Save login in Klarkey?'}</div>
-    <p class="klarkey-save-copy">${
-      reason === 'update'
-        ? `${username || ssoProvider || 'This account'} looks updated on ${window.location.hostname}.`
-        : `${username || ssoProvider || 'This account'} was used on ${window.location.hostname}.`
-    }</p>
-    <div class="klarkey-save-actions">
-      <button class="klarkey-save-button primary" data-action="save">${reason === 'update' ? 'Update' : 'Save'}</button>
-      <button class="klarkey-save-button" data-action="dismiss">Dismiss</button>
-    </div>
-  `
+  appendTextElement(banner, 'div', 'klarkey-save-title', reason === 'update' ? 'Update login in Klarkey?' : 'Save login in Klarkey?')
+  const copy = appendTextElement(
+    banner,
+    'p',
+    'klarkey-save-copy',
+    reason === 'update'
+      ? `${username || ssoProvider || 'This account'} looks updated on ${window.location.hostname}.`
+      : `${username || ssoProvider || 'This account'} was used on ${window.location.hostname}.`,
+  )
+  const actions = document.createElement('div')
+  actions.className = 'klarkey-save-actions'
+  const saveButton = appendButton(actions, 'klarkey-save-button primary', reason === 'update' ? 'Update' : 'Save', 'save')
+  const dismissButton = appendButton(actions, 'klarkey-save-button', 'Dismiss', 'dismiss')
+  banner.appendChild(actions)
 
   const dismiss = () => {
     window.clearTimeout(timers.savePrompt)
@@ -44,34 +65,38 @@ const showSaveBanner = ({ username, password, ssoProvider, reason }) => {
     }, 160)
   }
 
-  banner.querySelector('[data-action="save"]').addEventListener('click', async () => {
-    const response = await sendMessage({
-      type: 'save-login-payload',
-      payload: {
-        url: window.location.href,
-        title: document.title,
-        username,
-        password,
-        ssoProvider,
-      },
-    }).catch((error) => ({
-      ok: false,
-      message: error instanceof Error ? error.message : 'Klarkey could not save this login.',
-    }))
+  saveButton.addEventListener('click', (event) => {
+    runTrustedUserAction(event, async () => {
+      const response = await sendMessage({
+        type: 'save-login-payload',
+        payload: {
+          url: window.location.href,
+          title: document.title,
+          username,
+          password,
+          ssoProvider,
+        },
+      }).catch((error) => ({
+        ok: false,
+        message: error instanceof Error ? error.message : 'Klarkey could not save this login.',
+      }))
 
-    banner.querySelector('.klarkey-save-copy').textContent = response.message || 'Saved.'
-    if (response.ok) {
-      pageState.matches = []
-      pageState.lastSavePromptKey = promptKey
-      setPendingUsername(username || '')
-      clearPendingSavePrompt()
-    }
-    dismiss()
+      copy.textContent = response.message || 'Saved.'
+      if (response.ok) {
+        pageState.matches = []
+        pageState.lastSavePromptKey = promptKey
+        setPendingUsername(username || '')
+        clearPendingSavePrompt()
+      }
+      dismiss()
+    })
   })
 
-  banner.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
-    clearPendingSavePrompt()
-    dismiss()
+  dismissButton.addEventListener('click', (event) => {
+    runTrustedUserAction(event, () => {
+      clearPendingSavePrompt()
+      dismiss()
+    })
   })
   overlayRoot.appendChild(banner)
 }
@@ -82,16 +107,16 @@ const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 
     pageState.activeSaveBannerKey = promptKey
     const banner = document.createElement('section')
     banner.className = 'klarkey-save-banner'
-    banner.innerHTML = `
-      <div class="klarkey-save-title">${title}</div>
-      <p class="klarkey-save-copy">${copy}</p>
-      <div class="klarkey-save-choice-list"></div>
-      <div class="klarkey-save-actions">
-        <button class="klarkey-save-button" data-action="dismiss">${dismissLabel}</button>
-      </div>
-    `
+    appendTextElement(banner, 'div', 'klarkey-save-title', title)
+    appendTextElement(banner, 'p', 'klarkey-save-copy', copy)
+    const choiceList = document.createElement('div')
+    choiceList.className = 'klarkey-save-choice-list'
+    banner.appendChild(choiceList)
+    const actions = document.createElement('div')
+    actions.className = 'klarkey-save-actions'
+    const dismissButton = appendButton(actions, 'klarkey-save-button', dismissLabel, 'dismiss')
+    banner.appendChild(actions)
 
-    const choiceList = banner.querySelector('.klarkey-save-choice-list')
     const dismiss = (value) => {
       pageState.activeSaveBannerKey = ''
       banner.classList.add('hidden')
@@ -107,16 +132,16 @@ const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 
       const button = document.createElement('button')
       button.type = 'button'
       button.className = 'klarkey-save-choice'
-      button.innerHTML = `
-        <div class="klarkey-save-choice-title">${choice.title}</div>
-        <div class="klarkey-save-choice-copy">${choice.copy}</div>
-      `
-      button.addEventListener('click', () => dismiss(choice.value))
+      appendTextElement(button, 'div', 'klarkey-save-choice-title', choice.title)
+      appendTextElement(button, 'div', 'klarkey-save-choice-copy', choice.copy)
+      button.addEventListener('click', (event) => {
+        runTrustedUserAction(event, () => dismiss(choice.value))
+      })
       choiceList.appendChild(button)
     }
 
-    banner.querySelector('[data-action="dismiss"]').addEventListener('click', () => {
-      dismiss(undefined)
+    dismissButton.addEventListener('click', (event) => {
+      runTrustedUserAction(event, () => dismiss(undefined))
     })
 
     overlayRoot.appendChild(banner)
@@ -126,56 +151,61 @@ const promptPasskeyCreateChoice = async ({ rpId, userName, itemName, suggestedMa
   const existingItemId = suggestedMatch?.itemId
   const existingLabel = suggestedMatch?.itemName
   const promptKey = passkeyPromptKeyFor('passkey-create', rpId, userName, existingItemId)
+  const accountLabel = userName || itemName || 'This account'
   const choices = [
     existingItemId && existingLabel
       ? {
           value: { itemId: existingItemId, createNew: false },
           title: `Save to ${existingLabel}`,
-          copy: `${userName || itemName || 'This passkey'} will be linked to that existing login.`,
+          copy: `${accountLabel} will be linked to that existing login.`,
         }
       : {
           value: { itemId: undefined, createNew: true },
           title: 'Save as new item',
-          copy: `${userName || itemName || 'This passkey'} will create a fresh login in Klarkey.`,
+          copy: `${accountLabel} will create a fresh login in Klarkey.`,
         },
     existingItemId
       ? {
           value: { itemId: undefined, createNew: true },
           title: 'Save as new item',
-          copy: `${userName || itemName || 'This passkey'} will stay separate from your existing login.`,
+          copy: `${accountLabel} will stay separate from your existing login.`,
         }
       : undefined,
   ].filter(Boolean)
-
-  if (choices.length <= 1) {
-    return choices[0]?.value
-  }
 
   return presentPasskeyBanner({
     promptKey,
     title: 'Save passkey in Klarkey?',
     copy:
       existingItemId && existingLabel
-        ? `${userName || 'This account'} matches ${existingLabel} on ${window.location.hostname}.`
-        : `${userName || itemName || 'This account'} can be saved in Klarkey for ${window.location.hostname}.`,
+        ? `${accountLabel} matches ${existingLabel} on ${window.location.hostname}.`
+        : `${accountLabel} can be saved in Klarkey for ${window.location.hostname}.`,
     choices,
   })
 }
 
 const promptPasskeyGetChoice = async (choices) => {
-  if (choices.length <= 1) {
-    return choices[0]?.credentialId
+  if (!choices.length) {
+    return undefined
   }
+
+  const passkeyChoices = choices.map((choice) => {
+    const label = choice.itemName || choice.userName || 'Passkey'
+    return {
+      value: choice.credentialId,
+      title: label,
+      copy: choice.userName || 'Passkey ready',
+    }
+  })
 
   return presentPasskeyBanner({
     promptKey: passkeyPromptKeyFor('passkey-get', window.location.pathname, choices.map((choice) => choice.credentialId).join(',')),
-    title: 'Choose a passkey',
-    copy: `Klarkey found multiple passkeys for ${window.location.hostname}.`,
-    choices: choices.map((choice) => ({
-      value: choice.credentialId,
-      title: choice.itemName,
-      copy: choice.userName || 'Passkey ready',
-    })),
+    title: passkeyChoices.length === 1 ? 'Use passkey?' : 'Choose a passkey',
+    copy:
+      passkeyChoices.length === 1
+        ? `Klarkey will use ${passkeyChoices[0].title} for ${window.location.hostname}.`
+        : `Klarkey found multiple passkeys for ${window.location.hostname}.`,
+    choices: passkeyChoices,
   })
 }
 

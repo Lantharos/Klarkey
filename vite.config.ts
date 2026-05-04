@@ -4,6 +4,9 @@ import electron from 'vite-plugin-electron/simple'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
+  server: {
+    host: '127.0.0.1',
+  },
   plugins: [
     react(),
     tailwindcss(),

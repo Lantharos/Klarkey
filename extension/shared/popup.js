@@ -1,5 +1,16 @@
 const runtimeApi = globalThis.browser ?? globalThis.chrome
 const runtime = runtimeApi?.runtime
+const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
+const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
+
+const safePopupErrorMessage = (error, fallback = 'Could not reach Klarkey desktop.') => {
+  const message = (error instanceof Error ? error.message : typeof error === 'string' ? error : '').trim()
+  if (!message || message.length > 180 || sensitiveErrorPattern.test(message) || urlErrorPattern.test(message)) {
+    return fallback
+  }
+
+  return message
+}
 
 const sendMessage = (message) =>
   !runtime
@@ -10,7 +21,7 @@ const sendMessage = (message) =>
           runtime.sendMessage(message, (result) => {
             const error = globalThis.chrome?.runtime?.lastError
             if (error) {
-              reject(new Error(error.message))
+              reject(new Error(safePopupErrorMessage(error.message, 'Browser request failed.')))
               return
             }
 
@@ -100,8 +111,7 @@ async function loadPopup() {
   } catch (error) {
     elements.siteHost.textContent = ''
     elements.title.textContent = 'Desktop app required.'
-    elements.statusMessage.textContent =
-      error instanceof Error ? error.message : 'Could not reach Klarkey desktop.'
+    elements.statusMessage.textContent = safePopupErrorMessage(error)
     elements.passkeyTitle.textContent = 'Passkey status unavailable.'
     elements.passkeyMessage.textContent = 'Klarkey could not load passkey state for this browser.'
   }

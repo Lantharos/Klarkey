@@ -42,6 +42,16 @@ class KlarkeyCredentialStoreModule(
   }
 
   @ReactMethod
+  fun unlock(unlockedUntil: Double, promise: Promise) {
+    try {
+      KlarkeyCredentialStore.unlock(context, unlockedUntil.toLong())
+      promise.resolve(null)
+    } catch (error: Exception) {
+      promise.reject("ERR_KLARKEY_CREDENTIAL_STORE", error)
+    }
+  }
+
+  @ReactMethod
   fun getProviderPasskeys(promise: Promise) {
     try {
       promise.resolve(KlarkeyCredentialStore.passkeysPayload(context))

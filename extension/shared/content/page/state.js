@@ -7,6 +7,7 @@ export const pageState = {
   overlayInput: undefined,
   formSnapshot: undefined,
   activeMenuButtons: [],
+  activeMenuActions: [],
   activeMenuIndex: -1,
   lastSavePromptKey: '',
   activeSaveBannerKey: '',
@@ -30,13 +31,9 @@ export const timers = {
 
 export const browserSettings = {
   browserAutoOpenMenu: true,
-  browserAutoSubmitLogin: true,
+  browserAutoSubmitLogin: false,
   browserSavePrompts: true,
 }
-
-export const pendingUsernameStorageKey = `klarkey:pending-username:${window.location.hostname}`
-export const pendingOtpStorageKey = `klarkey:pending-otp:${window.location.hostname}`
-export const pendingSaveStorageKey = `klarkey:pending-save:${window.location.hostname}`
 
 export const menuSuppress = { until: 0, input: undefined }
 

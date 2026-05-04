@@ -1,6 +1,13 @@
 (function () {
   let bypassInterception = 0
+  let fallbackRequestCounter = 0
   const pendingAuthenticatorRequests = new Map()
+  const maxAuthenticatorMessageIdLength = 128
+  const maxAuthenticatorResponseJsonLength = 262_144
+  const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
+  const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
+  const isObject = (value) => typeof value === 'object' && value !== null
+  const isBoundedString = (value, maxLength) => typeof value === 'string' && value.length > 0 && value.length <= maxLength
 
   const decodeBase64Url = (value) => {
     const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
@@ -31,6 +38,15 @@
   }
 
   const toArrayBuffer = (bytes) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  const requestIdSuffix = () => {
+    const bytes = new Uint8Array(8)
+    if (globalThis.crypto?.getRandomValues) {
+      globalThis.crypto.getRandomValues(bytes)
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+    }
+    fallbackRequestCounter = (fallbackRequestCounter + 1) % Number.MAX_SAFE_INTEGER
+    return `${Date.now().toString(36)}_${fallbackRequestCounter.toString(36)}`
+  }
 
   const decodeBase64UrlBuffer = (value) => {
     if (!value) {
@@ -82,6 +98,48 @@
     name: error?.name || 'NotAllowedError',
     message: error?.message || 'The passkey request could not be completed.',
   })
+
+  const sanitizeErrorName = (name) =>
+    typeof name === 'string' && /^[A-Za-z][A-Za-z0-9]*Error$/.test(name) && name.length <= 48 ? name : 'NotAllowedError'
+
+  const sanitizeErrorMessage = (message) => {
+    const text = typeof message === 'string' ? message.trim() : ''
+    if (!text || text.length > 160 || sensitiveErrorPattern.test(text) || urlErrorPattern.test(text)) {
+      return 'The passkey request could not be completed.'
+    }
+    return text
+  }
+
+  const sanitizeAuthenticatorResponsePayload = (payload) => {
+    if (!isObject(payload)) {
+      return {
+        ok: false,
+        error: {
+          name: 'NotAllowedError',
+          message: 'The passkey request could not be completed.',
+        },
+      }
+    }
+
+    if (payload.fallbackToBrowser === true) {
+      return { fallbackToBrowser: true }
+    }
+
+    if (payload.ok === true && isBoundedString(payload.responseJson, maxAuthenticatorResponseJsonLength)) {
+      return {
+        ok: true,
+        responseJson: payload.responseJson,
+      }
+    }
+
+    return {
+      ok: false,
+      error: {
+        name: sanitizeErrorName(payload.error?.name),
+        message: sanitizeErrorMessage(payload.error?.message ?? payload.message),
+      },
+    }
+  }
 
   const createDomException = ({ name, message }) => {
     if (typeof DOMException === 'function') {
@@ -202,7 +260,7 @@
 
   const requestKlarkeyAuthenticator = (operation, requestDetailsJson) =>
     new Promise((resolve) => {
-      const id = `klarkey_auth_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
+      const id = `klarkey_auth_${requestIdSuffix()}`
       const timeoutId = window.setTimeout(() => {
         pendingAuthenticatorRequests.delete(id)
         resolve({
@@ -287,7 +345,15 @@
   overrideCredentialMethod('get', getWithKlarkey)
 
   window.addEventListener('message', (event) => {
-    if (event.source !== window || event.data?.source !== 'klarkey-page-authenticator-response') {
+    if (
+      event.source !== window ||
+      event.origin !== window.location.origin ||
+      event.data?.source !== 'klarkey-page-authenticator-response'
+    ) {
+      return
+    }
+
+    if (!isBoundedString(event.data.id, maxAuthenticatorMessageIdLength)) {
       return
     }
 
@@ -297,7 +363,7 @@
     }
 
     pendingAuthenticatorRequests.delete(event.data.id)
-    pending.resolve(event.data.payload)
+    pending.resolve(sanitizeAuthenticatorResponsePayload(event.data.payload))
   })
 
   document.documentElement.setAttribute('data-klarkey-bridge', 'ready')

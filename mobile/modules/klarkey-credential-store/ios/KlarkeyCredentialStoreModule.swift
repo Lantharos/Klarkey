@@ -1,21 +1,36 @@
 import AuthenticationServices
+import CryptoKit
 import ExpoModulesCore
 import Foundation
 import Security
 
 public class KlarkeyCredentialStoreModule: Module {
   private let suiteName = "group.com.lantharos.klarkey"
-  private let credentialsKey = "klarkey.ios.provider.credentials.v1"
-  private let passkeysKey = "klarkey.ios.provider.passkeys.v1"
+  private let credentialsKey = "klarkey.ios.provider.credentials.v2"
+  private let passkeysKey = "klarkey.ios.provider.passkeys.v2"
   private let unlockedUntilKey = "klarkey.ios.provider.unlockedUntil.v1"
+  private let maxUnlockWindowMs = 5.0 * 60.0 * 1000.0
+  private let maxProviderPayloadBytes = 2 * 1024 * 1024
 
   public func definition() -> ModuleDefinition {
     Name("KlarkeyCredentialStore")
 
     Function("replaceCredentials") { (payload: String, unlockedUntil: Double) -> Void in
-      let previousPayload = defaults().string(forKey: credentialsKey)
-      defaults().set(payload, forKey: credentialsKey)
-      defaults().set(unlockedUntil, forKey: unlockedUntilKey)
+      guard self.isProviderPayloadSizeSafe(payload) else {
+        return
+      }
+      guard let store = defaults() else {
+        return
+      }
+      let previousPayload = credentialsPayload(defaults: store)
+      guard KlarkeyProviderCrypto.writeString(
+        payload,
+        defaults: store,
+        key: credentialsKey
+      ) else {
+        return
+      }
+      store.set(boundedUnlockedUntil(unlockedUntil), forKey: unlockedUntilKey)
       syncCredentialIdentities(previousPayload: previousPayload, nextPayload: payload)
     }
 
@@ -24,7 +39,17 @@ public class KlarkeyCredentialStoreModule: Module {
     }
 
     Function("getProviderPasskeys") { () -> String in
-      providerPasskeysPayload()
+      guard let store = defaults() else {
+        return "[]"
+      }
+      return providerPasskeysPayload(includeSecrets: isUnlocked(defaults: store))
+    }
+
+    Function("getProviderCredentials") { () -> String in
+      guard let store = defaults() else {
+        return "[]"
+      }
+      return providerCredentialsPayload(defaults: store, includeSecrets: isUnlocked(defaults: store))
     }
 
     Function("deleteProviderItem") { (itemId: String, passkeyIdsPayload: String) -> Void in
@@ -33,12 +58,23 @@ public class KlarkeyCredentialStoreModule: Module {
     }
 
     Function("lock") { () -> Void in
-      defaults().set(0, forKey: unlockedUntilKey)
+      defaults()?.set(0, forKey: unlockedUntilKey)
+    }
+
+    Function("unlock") { (unlockedUntil: Double) -> Void in
+      defaults()?.set(boundedUnlockedUntil(unlockedUntil), forKey: unlockedUntilKey)
     }
   }
 
-  private func providerPasskeysPayload() -> String {
-    guard let data = defaults().data(forKey: passkeysKey),
+  private func providerPasskeysPayload(includeSecrets: Bool) -> String {
+    guard let store = defaults() else {
+      return "[]"
+    }
+
+    guard let data = KlarkeyProviderCrypto.readData(
+        defaults: store,
+        key: passkeysKey
+      ),
       let passkeys = try? JSONDecoder().decode([ProviderPasskey].self, from: data)
     else {
       return "[]"
@@ -51,9 +87,9 @@ public class KlarkeyCredentialStoreModule: Module {
         "username": passkey.username,
         "userHandle": passkey.userHandle.base64URLEncodedString(),
         "itemId": passkey.itemId ?? "",
-        "privateKeyJwk": passkey.privateKeyJwk?.dictionary ?? "",
+        "privateKeyJwk": includeSecrets ? (passkey.privateKeyJwk?.dictionary ?? "") : "",
         "signCount": 0,
-        "syncedCounter": passkey.privateKeyJwk != nil,
+        "syncedCounter": includeSecrets && passkey.privateKeyJwk != nil,
         "createdAt": isoDay(passkey.lastUsedAt),
         "lastUsedAt": passkey.privateKeyJwk == nil ? "Provider" : ISO8601DateFormatter().string(from: passkey.lastUsedAt),
         "providerBacked": passkey.privateKeyJwk == nil
@@ -67,8 +103,41 @@ public class KlarkeyCredentialStoreModule: Module {
     return value
   }
 
+  private func providerCredentialsPayload(defaults: UserDefaults, includeSecrets: Bool) -> String {
+    guard let payload = credentialsPayload(defaults: defaults),
+      let data = payload.data(using: .utf8),
+      let credentials = try? JSONDecoder().decode([SharedCredential].self, from: data)
+    else {
+      return "[]"
+    }
+
+    let output = credentials.map { credential in
+      [
+        "id": credential.id,
+        "title": credential.title,
+        "username": credential.username,
+        "domain": credential.domain ?? "",
+        "domains": credential.domains ?? [],
+        "password": includeSecrets ? (credential.password ?? "") : "",
+        "otpCode": includeSecrets ? (credential.otpCode ?? "") : "",
+        "hasPassword": credential.hasPassword,
+        "hasOtp": credential.hasOtp ?? false,
+        "hasPasskey": credential.hasPasskey ?? false,
+        "lastUsedAt": credential.lastUsedAt ?? ""
+      ] as [String: Any]
+    }
+
+    guard let data = try? JSONSerialization.data(withJSONObject: output),
+      let value = String(data: data, encoding: .utf8)
+    else {
+      return "[]"
+    }
+    return value
+  }
+
   private func replaceSyncedPasskeys(payload: String) {
     guard let data = payload.data(using: .utf8),
+      data.count <= maxProviderPayloadBytes,
       let incoming = try? JSONDecoder().decode([SharedPasskey].self, from: data)
     else {
       return
@@ -92,15 +161,22 @@ public class KlarkeyCredentialStoreModule: Module {
         lastUsedAt: passkey.lastUsedAt.flatMap(ISO8601DateFormatter().date(from:)) ?? Date()
       )
     }.filter { passkey in
-      !passkey.id.isEmpty && !passkey.relyingParty.isEmpty && !passkey.username.isEmpty && !passkey.userHandle.isEmpty
+      !passkey.id.isEmpty &&
+        !passkey.relyingParty.isEmpty &&
+        !passkey.username.isEmpty &&
+        !passkey.userHandle.isEmpty &&
+        passkey.privateKeyJwk?.isP256PrivateKey == true
     }
-    savePasskeys(next + preserved)
+    guard savePasskeys(next + preserved) else {
+      return
+    }
     syncPasskeyIdentities(previous: previous, next: next + preserved)
   }
 
   private func deleteCredential(id: String) {
     guard !id.isEmpty,
-      let previousPayload = defaults().string(forKey: credentialsKey),
+      let store = defaults(),
+      let previousPayload = credentialsPayload(defaults: store),
       let data = previousPayload.data(using: .utf8),
       let object = try? JSONSerialization.jsonObject(with: data),
       let credentials = object as? [[String: Any]]
@@ -118,7 +194,13 @@ public class KlarkeyCredentialStoreModule: Module {
       return
     }
 
-    defaults().set(nextPayload, forKey: credentialsKey)
+    guard KlarkeyProviderCrypto.writeString(
+      nextPayload,
+      defaults: store,
+      key: credentialsKey
+    ) else {
+      return
+    }
     syncCredentialIdentities(previousPayload: previousPayload, nextPayload: nextPayload)
   }
 
@@ -140,7 +222,9 @@ public class KlarkeyCredentialStoreModule: Module {
     let nextPasskeys = passkeys.filter { passkey in
       !ids.contains(passkey.id.base64URLEncodedString())
     }
-    savePasskeys(nextPasskeys)
+    guard savePasskeys(nextPasskeys) else {
+      return
+    }
 
     removed.forEach { passkey in
       if !passkey.keyTag.isEmpty {
@@ -161,7 +245,14 @@ public class KlarkeyCredentialStoreModule: Module {
   }
 
   private func storedPasskeys() -> [ProviderPasskey] {
-    guard let data = defaults().data(forKey: passkeysKey),
+    guard let store = defaults() else {
+      return []
+    }
+
+    guard let data = KlarkeyProviderCrypto.readData(
+        defaults: store,
+        key: passkeysKey
+      ),
       let passkeys = try? JSONDecoder().decode([ProviderPasskey].self, from: data)
     else {
       return []
@@ -169,10 +260,19 @@ public class KlarkeyCredentialStoreModule: Module {
     return passkeys
   }
 
-  private func savePasskeys(_ passkeys: [ProviderPasskey]) {
-    if let data = try? JSONEncoder().encode(passkeys) {
-      defaults().set(data, forKey: passkeysKey)
+  private func savePasskeys(_ passkeys: [ProviderPasskey]) -> Bool {
+    guard let store = defaults() else {
+      return false
     }
+
+    if let data = try? JSONEncoder().encode(passkeys) {
+      return KlarkeyProviderCrypto.writeData(
+        data,
+        defaults: store,
+        key: passkeysKey
+      )
+    }
+    return false
   }
 
   private func syncPasskeyIdentities(previous: [ProviderPasskey], next: [ProviderPasskey]) {
@@ -199,6 +299,7 @@ public class KlarkeyCredentialStoreModule: Module {
 
   private func stringSet(from payload: String) -> Set<String> {
     guard let data = payload.data(using: .utf8),
+      data.count <= maxProviderPayloadBytes,
       let object = try? JSONSerialization.jsonObject(with: data),
       let values = object as? [String]
     else {
@@ -233,38 +334,65 @@ public class KlarkeyCredentialStoreModule: Module {
   }
 
   private func identities(for credential: SharedCredential) -> [any ASCredentialIdentity] {
-    guard let domain = credential.normalizedDomain else {
+    let serviceIdentifiers = credential.normalizedDomains.map {
+      ASCredentialServiceIdentifier(identifier: $0, type: .domain)
+    }
+    guard !serviceIdentifiers.isEmpty else {
       return []
     }
 
-    let serviceIdentifier = ASCredentialServiceIdentifier(identifier: domain, type: .domain)
     var identities: [any ASCredentialIdentity] = []
 
-    if credential.hasPassword, credential.password?.isEmpty == false {
-      identities.append(
-        ASPasswordCredentialIdentity(
-          serviceIdentifier: serviceIdentifier,
-          user: credential.username,
-          recordIdentifier: credential.id
+    for serviceIdentifier in serviceIdentifiers {
+      if credential.hasPassword, credential.password?.isEmpty == false {
+        identities.append(
+          ASPasswordCredentialIdentity(
+            serviceIdentifier: serviceIdentifier,
+            user: credential.username,
+            recordIdentifier: credential.id
+          )
         )
-      )
-    }
+      }
 
-    if credential.hasOtp == true, credential.otpCode?.isEmpty == false {
-      identities.append(
-        ASOneTimeCodeCredentialIdentity(
-          serviceIdentifier: serviceIdentifier,
-          label: credential.title,
-          recordIdentifier: credential.id + ":otp"
+      if credential.hasOtp == true, credential.otpCode?.isEmpty == false {
+        identities.append(
+          ASOneTimeCodeCredentialIdentity(
+            serviceIdentifier: serviceIdentifier,
+            label: credential.title,
+            recordIdentifier: credential.id + ":otp"
+          )
         )
-      )
+      }
     }
 
     return identities
   }
 
-  private func defaults() -> UserDefaults {
-    UserDefaults(suiteName: suiteName) ?? .standard
+  private func defaults() -> UserDefaults? {
+    UserDefaults(suiteName: suiteName)
+  }
+
+  private func credentialsPayload(defaults: UserDefaults) -> String? {
+    KlarkeyProviderCrypto.readString(defaults: defaults, key: credentialsKey)
+  }
+
+  private func isUnlocked(defaults: UserDefaults) -> Bool {
+    defaults.double(forKey: unlockedUntilKey) > Date().timeIntervalSince1970 * 1000
+  }
+
+  private func boundedUnlockedUntil(_ value: Double) -> Double {
+    let now = Date().timeIntervalSince1970 * 1000
+    guard value.isFinite, value > now else {
+      return 0
+    }
+    return min(value, now + maxUnlockWindowMs)
+  }
+
+  private func isProviderPayloadSizeSafe(_ value: String) -> Bool {
+    guard let data = value.data(using: .utf8) else {
+      return false
+    }
+    return data.count <= maxProviderPayloadBytes
   }
 
   private func isoDay(_ date: Date) -> String {
@@ -302,6 +430,33 @@ private struct SyncedPasskeyJwk: Codable {
       "ext": ext
     ]
   }
+
+  var isP256PrivateKey: Bool {
+    guard kty == "EC",
+      crv == "P-256",
+      let xData = Data(base64URLString: x),
+      let yData = Data(base64URLString: y),
+      xData.count == 32,
+      yData.count == 32,
+      let privateKey
+    else {
+      return false
+    }
+
+    let publicKey = privateKey.publicKey.x963Representation
+    return publicKey.count == 65 &&
+      publicKey.subdata(in: 1..<33) == xData &&
+      publicKey.subdata(in: 33..<65) == yData
+  }
+
+  var privateKey: P256.Signing.PrivateKey? {
+    guard let privateKeyData = Data(base64URLString: d),
+      privateKeyData.count == 32
+    else {
+      return nil
+    }
+    return try? P256.Signing.PrivateKey(rawRepresentation: privateKeyData)
+  }
 }
 
 private struct SharedPasskey: Codable {
@@ -319,26 +474,31 @@ private struct SharedCredential: Codable {
   let title: String
   let username: String
   let domain: String?
+  let domains: [String]?
   let password: String?
   let otpCode: String?
   let hasPassword: Bool
   let hasOtp: Bool?
+  let hasPasskey: Bool?
+  let lastUsedAt: String?
 
-  var normalizedDomain: String? {
-    guard let domain else {
-      return nil
+  var normalizedDomains: [String] {
+    var values = (domains ?? []).compactMap(normalizeHost)
+    if let domain = domain.flatMap(normalizeHost) {
+      values.append(domain)
     }
+    return Array(Set(values))
+  }
 
-    let host = domain
-      .replacingOccurrences(of: "https://", with: "")
-      .replacingOccurrences(of: "http://", with: "")
-      .replacingOccurrences(of: "www.", with: "")
-      .split(separator: "/")
-      .first
-      .map(String.init)?
-      .lowercased()
-
-    return host?.isEmpty == false ? host : nil
+  private func normalizeHost(_ value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let candidate = trimmed.contains("://") ? trimmed : "https://" + trimmed
+    if let host = URLComponents(string: candidate)?.host, !host.isEmpty {
+      return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+    let fallback = trimmed.split(separator: "/").first?.split(separator: ":").first.map(String.init) ?? trimmed
+    let host = fallback.hasPrefix("www.") ? String(fallback.dropFirst(4)) : fallback
+    return host.isEmpty ? nil : host
   }
 }
 

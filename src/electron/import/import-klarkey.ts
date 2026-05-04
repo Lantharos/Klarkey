@@ -1,12 +1,11 @@
-import { readFileSync } from 'node:fs'
 import type { ItemType } from '@/shared/item-types'
 import type { CreateItemInput } from '@/shared/types'
 import type { ImportResult, KlarkeyExportVault } from '@/shared/import-export'
 import type { VaultRepository } from '@/electron/repository'
-import { importItems } from '@/electron/import/import-utils'
+import { importItems, MAX_IMPORT_ITEMS, readImportFileText, tooManyImportItemsResult } from '@/electron/import/import-utils'
 
 export async function importKlarkeyJson(repository: VaultRepository, filePath: string): Promise<ImportResult> {
-  const content = readFileSync(filePath, 'utf-8')
+  const content = readImportFileText(filePath)
   const vault = JSON.parse(content) as KlarkeyExportVault
 
   if (!vault.items || !Array.isArray(vault.items)) {
@@ -17,6 +16,10 @@ export async function importKlarkeyJson(repository: VaultRepository, filePath: s
       errorCount: 1,
       message: 'Invalid Klarkey export file: missing items array.',
     }
+  }
+
+  if (vault.items.length > MAX_IMPORT_ITEMS) {
+    return tooManyImportItemsResult()
   }
 
   const inputs: CreateItemInput[] = vault.items.map((item) => {
@@ -55,6 +58,7 @@ export async function importKlarkeyJson(repository: VaultRepository, filePath: s
       sshAlgorithm: item.sshAlgorithm,
       sshFingerprint: item.sshFingerprint,
       sshPublicKey: item.sshPublicKey,
+      sshPrivateKey: item.sshPrivateKey,
       sshComment: item.sshComment,
       ssoProvider: item.ssoProvider,
       content: item.content,

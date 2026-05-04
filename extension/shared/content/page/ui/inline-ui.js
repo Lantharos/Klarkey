@@ -10,6 +10,7 @@ const removeInlineUi = () => {
     .querySelectorAll('.klarkey-inline-trigger, .klarkey-inline-menu, .klarkey-save-banner')
     .forEach((element) => element.remove())
   pageState.activeMenuButtons = []
+  pageState.activeMenuActions = []
   pageState.activeMenuIndex = -1
   pageState.activeSaveBannerKey = ''
   pageState.triggerElement = undefined

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { decryptValue, type EncryptedPayload } from '@/electron/crypto'
+import { decryptValue, encryptValue, type EncryptedPayload } from '@/electron/crypto'
 import type { CreatableItemType } from '@/shared/item-types'
 import type { CreateItemInput, ItemDetails } from '@/shared/types'
 
@@ -16,6 +16,43 @@ export const tryDecrypt = (key: Buffer, payload?: string) => {
   } catch {
     return undefined
   }
+}
+
+export const hasVaultKey = (key?: Buffer) => Boolean(key && key.length === 32)
+
+export function isEncryptedPayload(value: unknown): value is EncryptedPayload {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const payload = value as Partial<EncryptedPayload>
+  return typeof payload.iv === 'string' && typeof payload.ciphertext === 'string' && typeof payload.authTag === 'string'
+}
+
+export function encryptJsonPayload(key: Buffer, value: unknown) {
+  return JSON.stringify(encryptValue(key, JSON.stringify(value)))
+}
+
+export function readEncryptedJsonPayload<Value>(key: Buffer | undefined, payload: string | undefined, fallback: Value): Value {
+  if (!payload) {
+    return fallback
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(payload)
+  } catch {
+    return fallback
+  }
+
+  if (isEncryptedPayload(parsed)) {
+    if (!key || !hasVaultKey(key)) {
+      return fallback
+    }
+    return parseJson<Value>(tryDecrypt(key, payload), fallback)
+  }
+
+  return fallback
 }
 
 export const decryptPrivateKeyPayload = (key: Buffer, payload?: string) => {
@@ -143,6 +180,7 @@ export type ItemDataPayload = {
   company?: string
   jobTitle?: string
   birthDate?: string
+  email?: string
   phone?: string
   address?: string
   addressLine1?: string
@@ -165,6 +203,8 @@ export type ItemDataPayload = {
   sshComment?: string
   sshPrivateKeyPayload?: string
   content?: string
+  notes?: string
+  customFields?: Array<{ id: string; label: string; value: string }>
   recoveryCodes?: string[]
   ssoProvider?: string
 }
@@ -216,8 +256,14 @@ export type BrowserRequestOptions = {
 }
 
 export function sanitizeItemData(itemType: CreatableItemType, input: Partial<CreateItemInput>) {
+  const sharedData = {
+    ...(input.notes !== undefined ? { notes: input.notes.trim() || undefined } : {}),
+    ...(input.customFields !== undefined ? { customFields: sanitizeCustomFields(input.customFields) } : {}),
+  } satisfies Partial<ItemDataPayload>
+
   if (itemType === 'identity') {
     const itemData = {
+      ...sharedData,
       fullName: input.fullName?.trim() || undefined,
       firstName: input.firstName?.trim() || undefined,
       middleName: input.middleName?.trim() || undefined,
@@ -225,6 +271,7 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
       company: input.company?.trim() || undefined,
       jobTitle: input.jobTitle?.trim() || undefined,
       birthDate: input.birthDate?.trim() || undefined,
+      email: input.email?.trim() || undefined,
       phone: input.phone?.trim() || undefined,
       address: input.address?.trim() || undefined,
       addressLine1: input.addressLine1?.trim() || undefined,
@@ -245,6 +292,7 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
 
   if (itemType === 'note') {
     return {
+      ...sharedData,
       content: input.content?.trim() || undefined,
       recoveryCodes: input.recoveryCodes?.filter(Boolean),
     } satisfies ItemDataPayload
@@ -253,6 +301,7 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
   if (itemType === 'card') {
     const parsedExpiry = splitCardExpiry(input.cardExpiry)
     const itemData = {
+      ...sharedData,
       cardholderName: input.cardholderName?.trim() || undefined,
       cardNumber: normalizeLooseDigits(input.cardNumber?.trim()),
       cardExpiry: input.cardExpiry?.trim() || undefined,
@@ -272,6 +321,7 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
 
   if (itemType === 'ssh-key') {
     return {
+      ...sharedData,
       sshAlgorithm: input.sshAlgorithm?.trim() || undefined,
       sshFingerprint: input.sshFingerprint?.trim() || undefined,
       sshPublicKey: input.sshPublicKey?.trim() || undefined,
@@ -280,7 +330,18 @@ export function sanitizeItemData(itemType: CreatableItemType, input: Partial<Cre
   }
 
   return {
+    ...sharedData,
     ...(input.recoveryCodes !== undefined ? { recoveryCodes: input.recoveryCodes.filter(Boolean) } : {}),
     ...(input.ssoProvider !== undefined ? { ssoProvider: input.ssoProvider.trim() || undefined } : {}),
   } satisfies ItemDataPayload
+}
+
+function sanitizeCustomFields(fields: Array<{ id: string; label: string; value: string }>) {
+  return fields
+    .map((field) => ({
+      id: field.id || id('field'),
+      label: field.label.trim(),
+      value: field.value.trim(),
+    }))
+    .filter((field) => field.label || field.value)
 }

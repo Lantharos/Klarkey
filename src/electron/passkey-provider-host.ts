@@ -1,10 +1,15 @@
 import { readSync, writeSync } from 'node:fs'
 import { PasskeyProviderBridgeController } from '@/electron/passkey-provider-controller'
-import type { PasskeyProviderBridgeRequest, PasskeyProviderBridgeResponse } from '@/shared/passkey-provider-bridge'
+import { safeErrorMessage } from '@/electron/security'
+import {
+  validatePasskeyProviderBridgeRequest,
+  type PasskeyProviderBridgeResponse,
+} from '@/shared/passkey-provider-bridge'
 
 const MAX_MESSAGE_LENGTH = 10 * 1024 * 1024
+export const MAX_PASSKEY_PROVIDER_RESPONSE_BYTES = 1024 * 1024
 
-export const readPasskeyProviderMessageSync = () => {
+export const readPasskeyProviderMessageSync = (): unknown => {
   const header = Buffer.alloc(4)
   const headerBytes = readSync(0, header, 0, header.byteLength, null)
   if (headerBytes < 4) {
@@ -28,17 +33,39 @@ export const readPasskeyProviderMessageSync = () => {
     offset += bytesRead
   }
 
-  return JSON.parse(messageBuffer.toString('utf8')) as PasskeyProviderBridgeRequest
+  try {
+    return JSON.parse(messageBuffer.toString('utf8')) as unknown
+  } catch {
+    return {
+      id: 'unknown',
+      type: '__invalid_json',
+    }
+  }
+}
+
+export const serializePasskeyProviderResponse = (response: PasskeyProviderBridgeResponse): Buffer => {
+  const message = Buffer.from(JSON.stringify(response), 'utf8')
+  if (message.byteLength > MAX_PASSKEY_PROVIDER_RESPONSE_BYTES) {
+    return serializePasskeyProviderResponse({
+      id: response.id,
+      ok: false,
+      error: {
+        code: 'provider_bridge_response_too_large',
+        message: 'The passkey provider response was too large to return safely.',
+      },
+    })
+  }
+
+  const header = Buffer.alloc(4)
+  header.writeUInt32LE(message.byteLength, 0)
+  return Buffer.concat([header, message])
 }
 
 const writeMessage = (response: PasskeyProviderBridgeResponse) => {
-  const message = Buffer.from(JSON.stringify(response), 'utf8')
-  const header = Buffer.alloc(4)
-  header.writeUInt32LE(message.byteLength, 0)
-  writeSync(1, Buffer.concat([header, message]))
+  writeSync(1, serializePasskeyProviderResponse(response))
 }
 
-const sanitizeProviderMessage = (error: unknown): string => {
+export const sanitizePasskeyProviderErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     const message = error.message
     if (message.includes('ENOENT') || message.includes('EACCES') || message.includes('EPERM')) {
@@ -56,13 +83,13 @@ const sanitizeProviderMessage = (error: unknown): string => {
     if (message.length > 200) {
       return 'An internal error occurred.'
     }
-    return message
+    return safeErrorMessage(error)
   }
   return 'The passkey provider bridge failed.'
 }
 
-export async function runPasskeyProviderBridgeHost(request = readPasskeyProviderMessageSync()) {
-  const controller = new PasskeyProviderBridgeController()
+export async function runPasskeyProviderBridgeHost(request: unknown = readPasskeyProviderMessageSync()) {
+  let controller: PasskeyProviderBridgeController | undefined
 
   try {
     if (!request) {
@@ -77,18 +104,31 @@ export async function runPasskeyProviderBridgeHost(request = readPasskeyProvider
       return
     }
 
-    const response = await controller.handle(request)
+    const validation = validatePasskeyProviderBridgeRequest(request)
+    if (!validation.ok) {
+      writeMessage({
+        id: validation.id,
+        ok: false,
+        error: validation.error,
+      })
+      return
+    }
+
+    controller = new PasskeyProviderBridgeController()
+    const response = await controller.handle(validation.request)
     writeMessage(response)
   } catch (error) {
     writeMessage({
-      id: request?.id ?? 'unknown',
+      id: request && typeof request === 'object' && 'id' in request && typeof request.id === 'string'
+        ? request.id
+        : 'unknown',
       ok: false,
       error: {
         code: 'provider_bridge_failure',
-        message: sanitizeProviderMessage(error),
+        message: sanitizePasskeyProviderErrorMessage(error),
       },
     })
   } finally {
-    controller.dispose()
+    controller?.dispose()
   }
 }

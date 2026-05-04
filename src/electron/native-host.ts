@@ -1,8 +1,10 @@
 import { readSync, writeSync } from 'node:fs'
 import { BrowserExtensionController } from '@/electron/extension-controller'
-import type { BrowserExtensionRequest, BrowserExtensionResponse } from '@/shared/browser-extension'
+import { safeErrorMessage } from '@/electron/security'
+import { validateBrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
 
 const MAX_MESSAGE_LENGTH = 10 * 1024 * 1024
+export const MAX_NATIVE_HOST_RESPONSE_BYTES = 1024 * 1024
 
 export const readNativeMessageSync = () => {
   const header = Buffer.alloc(4)
@@ -28,17 +30,39 @@ export const readNativeMessageSync = () => {
     offset += bytesRead
   }
 
-  return JSON.parse(messageBuffer.toString('utf8')) as BrowserExtensionRequest
+  try {
+    return JSON.parse(messageBuffer.toString('utf8')) as unknown
+  } catch {
+    return {
+      id: 'unknown',
+      type: '__invalid_json',
+    }
+  }
+}
+
+export const serializeNativeMessageResponse = (response: BrowserExtensionResponse): Buffer => {
+  const message = Buffer.from(JSON.stringify(response), 'utf8')
+  if (message.byteLength > MAX_NATIVE_HOST_RESPONSE_BYTES) {
+    return serializeNativeMessageResponse({
+      id: response.id,
+      ok: false,
+      error: {
+        code: 'native_host_response_too_large',
+        message: 'The browser response was too large to return safely.',
+      },
+    })
+  }
+
+  const header = Buffer.alloc(4)
+  header.writeUInt32LE(message.byteLength, 0)
+  return Buffer.concat([header, message])
 }
 
 const writeNativeMessage = (response: BrowserExtensionResponse) => {
-  const message = Buffer.from(JSON.stringify(response), 'utf8')
-  const header = Buffer.alloc(4)
-  header.writeUInt32LE(message.byteLength, 0)
-  writeSync(1, Buffer.concat([header, message]))
+  writeSync(1, serializeNativeMessageResponse(response))
 }
 
-const sanitizeMessage = (error: unknown): string => {
+export const sanitizeNativeHostErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     const message = error.message
     if (message.includes('ENOENT') || message.includes('EACCES') || message.includes('EPERM')) {
@@ -56,44 +80,64 @@ const sanitizeMessage = (error: unknown): string => {
     if (message.length > 200) {
       return 'An internal error occurred.'
     }
-    return message
+    return safeErrorMessage(error)
   }
   return 'The operation failed.'
 }
 
-export async function runNativeMessagingHost(request = readNativeMessageSync()) {
+export async function runNativeMessagingHost(request?: unknown) {
   const controller = new BrowserExtensionController()
+  const singleRequestMode = request !== undefined
 
   try {
-    let nextRequest = request
+    let nextRequest = request ?? readNativeMessageSync()
 
     while (nextRequest) {
+      const validation = validateBrowserExtensionRequest(nextRequest)
+      if (!validation.ok) {
+        writeNativeMessage({
+          id: validation.id,
+          ok: false,
+          error: validation.error,
+        })
+        nextRequest = singleRequestMode ? undefined : readNativeMessageSync()
+        continue
+      }
+
       try {
-        const response = await controller.handle(nextRequest)
+        const response = await controller.handle(validation.request)
         writeNativeMessage(response)
       } catch (error) {
         writeNativeMessage({
-          id: nextRequest.id ?? 'unknown',
+          id: validation.request.id,
           ok: false,
           error: {
             code: 'native_host_failure',
-            message: sanitizeMessage(error),
+            message: sanitizeNativeHostErrorMessage(error),
           },
         })
       }
 
-      nextRequest = readNativeMessageSync()
+      nextRequest = singleRequestMode ? undefined : readNativeMessageSync()
     }
   } catch (error) {
     writeNativeMessage({
-      id: request?.id ?? 'unknown',
+      id: readBrowserExtensionRequestId(request),
       ok: false,
       error: {
         code: 'native_host_failure',
-        message: sanitizeMessage(error),
+        message: sanitizeNativeHostErrorMessage(error),
       },
     })
   } finally {
     controller.dispose()
   }
 }
+
+const readBrowserExtensionRequestId = (request: unknown) =>
+  request &&
+  typeof request === 'object' &&
+  'id' in request &&
+  typeof request.id === 'string'
+    ? request.id
+    : 'unknown'

@@ -1,5 +1,6 @@
-import { extensionApi, sendMessage } from '../runtime.js'
+import { sendMessage } from '../runtime.js'
 import { queryAllDeep, readFieldValue, visible } from '../dom.js'
+import { clearTransientState, getTransientState, setTransientState } from '../transient-state.js'
 
 const SSO_KEYWORDS = [
   'sign in with',
@@ -36,25 +37,24 @@ const SSO_PROVIDERS = [
 ]
 
 const SSO_PROVIDER_HOST_PATTERNS = {
-  Google: [/google\.com$/i, /googleusercontent\.com$/i],
-  GitHub: [/github\.com$/i],
-  Apple: [/apple\.com$/i],
-  Microsoft: [/live\.com$/i, /microsoftonline\.com$/i, /microsoft\.com$/i],
-  Facebook: [/facebook\.com$/i],
-  Twitter: [/twitter\.com$/i, /x\.com$/i],
-  Discord: [/discord\.com$/i],
-  Slack: [/slack\.com$/i],
-  LinkedIn: [/linkedin\.com$/i],
-  GitLab: [/gitlab\.com$/i],
-  Bitbucket: [/bitbucket\.org$/i],
-  Amazon: [/amazon\.com$/i, /amazonaws\.com$/i],
-  Stripe: [/stripe\.com$/i],
-  Auth0: [/auth0\.com$/i],
-  Okta: [/okta\.com$/i],
+  Google: [/^(.+\.)?google\.com$/i, /^(.+\.)?googleusercontent\.com$/i],
+  GitHub: [/^(.+\.)?github\.com$/i],
+  Apple: [/^(.+\.)?apple\.com$/i],
+  Microsoft: [/^(.+\.)?live\.com$/i, /^(.+\.)?microsoftonline\.com$/i, /^(.+\.)?microsoft\.com$/i],
+  Facebook: [/^(.+\.)?facebook\.com$/i],
+  Twitter: [/^(.+\.)?twitter\.com$/i, /^(.+\.)?x\.com$/i],
+  Discord: [/^(.+\.)?discord\.com$/i],
+  Slack: [/^(.+\.)?slack\.com$/i],
+  LinkedIn: [/^(.+\.)?linkedin\.com$/i],
+  GitLab: [/^(.+\.)?gitlab\.com$/i],
+  Bitbucket: [/^(.+\.)?bitbucket\.org$/i],
+  Amazon: [/^(.+\.)?amazon\.com$/i, /^(.+\.)?amazonaws\.com$/i],
+  Stripe: [/^(.+\.)?stripe\.com$/i],
+  Auth0: [/^(.+\.)?auth0\.com$/i],
+  Okta: [/^(.+\.)?okta\.com$/i],
 }
 
-const ssoSessionKey = '__klarkey_sso_flow'
-const ssoExtensionStorageKey = 'klarkey:sso-tracking'
+const ssoTrackingTtlMs = 90_000
 const ENTERPRISE_SSO_PROVIDERS = new Set(['Okta', 'Auth0', 'SSO', 'SAML'])
 const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i
 
@@ -217,19 +217,7 @@ function extractProviderSpecificAccount(target, tracking) {
 }
 
 function setSsoTracking(payload) {
-  try {
-    window.sessionStorage.setItem(ssoSessionKey, JSON.stringify(payload))
-  } catch {
-    // ignore
-  }
-
-  if (extensionApi?.storage?.local) {
-    try {
-      extensionApi.storage.local.set({ [ssoExtensionStorageKey]: payload })
-    } catch {
-      // ignore
-    }
-  }
+  setTransientState('sso-flow', payload, ssoTrackingTtlMs)
 
   void sendMessage({ type: 'sso-tracking-set', payload }).catch(() => undefined)
 }
@@ -243,87 +231,33 @@ function updateSsoTracking(patch) {
     })
   }
 
-  if (!current && extensionApi?.storage?.local) {
-    try {
-      extensionApi.storage.local.get([ssoExtensionStorageKey], (result) => {
-        const stored = result?.[ssoExtensionStorageKey]
-        if (!stored) {
-          return
-        }
-
-        const next = { ...stored, ...patch }
-        try {
-          window.sessionStorage.setItem(ssoSessionKey, JSON.stringify(next))
-        } catch {
-          // ignore
-        }
-        extensionApi.storage.local.set({ [ssoExtensionStorageKey]: next })
-      })
-    } catch {
-      // ignore
-    }
-  }
-
   void sendMessage({ type: 'sso-tracking-update', payload: patch }).catch(() => undefined)
 }
 
 function clearSsoTracking() {
-  try {
-    window.sessionStorage.removeItem(ssoSessionKey)
-  } catch {
-    // ignore
-  }
-
-  if (extensionApi?.storage?.local) {
-    try {
-      extensionApi.storage.local.remove([ssoExtensionStorageKey])
-    } catch {
-      // ignore
-    }
-  }
+  clearTransientState('sso-flow')
 
   void sendMessage({ type: 'sso-tracking-clear' }).catch(() => undefined)
 }
 
 function getSsoTracking() {
-  try {
-    const raw = window.sessionStorage.getItem(ssoSessionKey)
-    if (!raw) {
-      return undefined
-    }
-
-    const data = JSON.parse(raw)
-    if (!data.startedAt || Date.now() - data.startedAt > 90_000) {
-      clearSsoTracking()
-      return undefined
-    }
-
-    return data
-  } catch {
+  const data = getTransientState('sso-flow')
+  if (!data) {
     return undefined
   }
+
+  if (!data.startedAt || Date.now() - data.startedAt > ssoTrackingTtlMs) {
+    clearSsoTracking()
+    return undefined
+  }
+
+  return data
 }
 
 async function getStoredSsoTracking() {
   const local = getSsoTracking()
   if (local) {
     return local
-  }
-
-  if (extensionApi?.storage?.local) {
-    const stored = await new Promise((resolve) => {
-      try {
-        extensionApi.storage.local.get([ssoExtensionStorageKey], (result) => {
-          resolve(result?.[ssoExtensionStorageKey])
-        })
-      } catch {
-        resolve(undefined)
-      }
-    })
-
-    if (stored?.startedAt && Date.now() - stored.startedAt <= 90_000) {
-      return stored
-    }
   }
 
   const response = await sendMessage({ type: 'sso-tracking-get' }).catch(() => undefined)
@@ -345,11 +279,7 @@ async function hydrateStoredSsoTracking() {
 
   const tracking = await getStoredSsoTracking()
   if (tracking) {
-    try {
-      window.sessionStorage.setItem(ssoSessionKey, JSON.stringify(tracking))
-    } catch {
-      // ignore
-    }
+    setTransientState('sso-flow', tracking, ssoTrackingTtlMs)
   }
 
   ssoTrackingHydrated = true
@@ -483,7 +413,7 @@ function rankGoogleEmailsForPage() {
     }
   }
 
-  const bodyText = [document.body?.innerText || '', document.body?.textContent || '', document.documentElement?.innerHTML || ''].join(' ')
+  const bodyText = [document.body?.innerText || '', document.body?.textContent || ''].join(' ').slice(0, 200_000)
   for (const match of bodyText.matchAll(new RegExp(EMAIL_PATTERN.source, 'gi'))) {
     const email = match[0]
     if (!emailBelongsToOrigin(email)) {

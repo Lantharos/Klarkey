@@ -1,5 +1,6 @@
 const domainPattern = /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i
 const logoDevToken = 'pk_G1_JcYwwSreTU9VAtuRtJw'
+type LoginLogoKind = 'domain' | 'name'
 
 export const normalizeLoginLogoDomain = (value: string | undefined) => {
   const trimmed = value?.trim()
@@ -18,7 +19,13 @@ export const normalizeLoginLogoDomain = (value: string | undefined) => {
   }
 }
 
-export const buildLoginLogoUrl = (kind: 'domain' | 'name', value: string) =>
-  kind === 'domain'
-    ? `https://img.logo.dev/${encodeURIComponent(value)}?token=${logoDevToken}&fallback=404&theme=dark&format=png&size=128`
-    : `https://img.logo.dev/name/${encodeURIComponent(value)}?token=${logoDevToken}&fallback=404&theme=dark&format=png&size=128`
+export const buildLoginLogoUrl = (kind: LoginLogoKind, value: string) => {
+  const normalized = kind === 'domain' ? normalizeLoginLogoDomain(value) : value.trim()
+  if (!normalized) {
+    return undefined
+  }
+
+  const encoded = encodeURIComponent(normalized)
+  const path = kind === 'domain' ? encoded : `name/${encoded}`
+  return `https://img.logo.dev/${path}?token=${logoDevToken}&fallback=404&theme=dark&format=png&size=128`
+}

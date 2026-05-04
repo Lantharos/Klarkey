@@ -3,6 +3,24 @@ const cacheName = 'klarkey-login-logos-v1'
 const resolvedLogoCache = new Map<string, string | null>()
 const inflightLogoCache = new Map<string, Promise<string | null>>()
 
+function isLocalLogoUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'data:' || parsed.protocol === 'blob:'
+  } catch {
+    return false
+  }
+}
+
+function isLogoDevUrl(url: string) {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' && parsed.hostname === 'img.logo.dev' && parsed.searchParams.has('token')
+  } catch {
+    return false
+  }
+}
+
 async function readCachedResponse(url: string) {
   if (typeof window === 'undefined' || !('caches' in window)) {
     return undefined
@@ -22,6 +40,10 @@ async function writeCachedResponse(url: string, response: Response) {
 }
 
 async function fetchLogoResponse(url: string) {
+  if (!isLocalLogoUrl(url) && !isLogoDevUrl(url)) {
+    return null
+  }
+
   const cached = await readCachedResponse(url)
   if (cached) {
     return cached
@@ -30,6 +52,7 @@ async function fetchLogoResponse(url: string) {
   const response = await fetch(url, {
     mode: 'cors',
     cache: 'force-cache',
+    referrerPolicy: 'origin',
   })
 
   if (!response.ok) {

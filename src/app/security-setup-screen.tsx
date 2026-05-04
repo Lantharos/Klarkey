@@ -65,13 +65,15 @@ export function PasscodeSetupScreen({
     if (isSubmitting) {
       return
     }
+    const submittedPasscode = passcode
+    const submittedConfirmPasscode = nextConfirmPasscode
+    setPasscode('')
+    setConfirmPasscode('')
     setIsSubmitting(true)
-    const result = await onSubmit(passcode, nextConfirmPasscode)
+    const result = await onSubmit(submittedPasscode, submittedConfirmPasscode)
     if (!result.success) {
       setError(result.message)
       setStage('enter')
-      setPasscode('')
-      setConfirmPasscode('')
     }
     setIsSubmitting(false)
   }
@@ -213,13 +215,15 @@ export function MasterPasswordSetupScreen({
     if (isSubmitting) {
       return
     }
+    const submittedPassword = password
+    const submittedConfirmPassword = confirmPassword
+    setPassword('')
+    setConfirmPassword('')
     setIsSubmitting(true)
-    const result = await onSubmit(password, confirmPassword)
+    const result = await onSubmit(submittedPassword, submittedConfirmPassword)
     if (!result.success) {
       setError(result.message)
       setStage('enter')
-      setPassword('')
-      setConfirmPassword('')
     }
     setIsSubmitting(false)
   }
@@ -229,7 +233,7 @@ export function MasterPasswordSetupScreen({
       <div className="mx-auto w-full max-w-[360px] space-y-4">
         <p className="text-[14px] text-white/55">
           {stage === 'enter'
-            ? 'Enter your master password (minimum 8 characters).'
+            ? 'Enter your master password (minimum 12 characters).'
             : 'Confirm your master password.'}
         </p>
         <input
@@ -313,11 +317,11 @@ export function PasscodeConfirmScreen({
       return
     }
 
+    setPasscode('')
     setIsSubmitting(true)
     const result = await onSubmit(nextPasscode)
     if (!result.success) {
       setError(result.message || 'Incorrect passcode.')
-      setPasscode('')
       inputRefs.current[0]?.focus()
     }
     setIsSubmitting(false)

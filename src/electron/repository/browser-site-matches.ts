@@ -1,17 +1,26 @@
-import { normalizeBrowserHostname, primarySiteLabelFromHostname, scoreWebsiteMatch } from '@/shared/browser-extension'
+import { normalizeBrowserHostname, primarySiteLabelFromHostname, scoreWebsiteMatch, toBrowserSiteUrl } from '@/shared/browser-extension'
 import { getHostnameLabel, normalizeSearchText, scoreTextHit } from '@/electron/repository/helpers'
 import type { BrowserSiteMatch, VaultSnapshot } from '@/shared/types'
 
+const maxBrowserSiteMatches = 20
+
+export function hasBrowserSiteAccess(snapshot: VaultSnapshot, itemId: string, url: string) {
+  const siteUrl = toBrowserSiteUrl(url) ?? url
+  const item = snapshot.items.find((candidate) => candidate.id === itemId)
+  return item?.itemType === 'login' && scoreWebsiteMatch(item.websites ?? [], siteUrl) > 0
+}
+
 export function buildBrowserSiteMatches(snapshot: VaultSnapshot, url: string, title?: string): BrowserSiteMatch[] {
-  const siteLabel = getHostnameLabel(url)
+  const siteUrl = toBrowserSiteUrl(url) ?? url
+  const siteLabel = getHostnameLabel(siteUrl)
   const titleText = normalizeSearchText(title)
-  const urlText = normalizeSearchText(url)
+  const urlText = normalizeSearchText(siteUrl)
   const matches = snapshot.items
     .filter((item) => item.itemType === 'login')
     .map((item) => ({
       item,
       score: (() => {
-        const siteScore = scoreWebsiteMatch(item.websites ?? [], url)
+        const siteScore = scoreWebsiteMatch(item.websites ?? [], siteUrl)
         const itemName = normalizeSearchText(item.itemName)
         const labelScore = siteLabel ? scoreTextHit(itemName, siteLabel, 28, 20) : 0
         const titleScore = itemName ? scoreTextHit(titleText, itemName, 26, 18) : 0
@@ -45,7 +54,7 @@ export function buildBrowserSiteMatches(snapshot: VaultSnapshot, url: string, ti
       return left.item.itemName.localeCompare(right.item.itemName)
     })
 
-  return matches.map(({ item }) => ({
+  return matches.slice(0, maxBrowserSiteMatches).map(({ item }) => ({
     itemId: item.id,
     itemName: item.itemName,
     username: item.username,

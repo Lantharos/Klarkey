@@ -7,7 +7,20 @@ export interface AveOAuthCallback {
   appKey: string
 }
 
+export function isAveOAuthCallbackUrl(callbackUrl: string) {
+  try {
+    const url = new URL(callbackUrl)
+    return url.protocol === 'klarkey:' && url.host === 'oauth' && url.pathname === '/callback'
+  } catch {
+    return false
+  }
+}
+
 export function parseAveOAuthCallback(callbackUrl: string): AveOAuthCallback {
+  if (!isAveOAuthCallbackUrl(callbackUrl)) {
+    throw new Error('Ave callback URL is invalid.')
+  }
+
   const url = new URL(callbackUrl)
   const code = url.searchParams.get('code')?.trim()
   const state = url.searchParams.get('state')?.trim()

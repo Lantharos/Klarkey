@@ -41,12 +41,60 @@ describe('sync crypto', () => {
     expect(() => unwrapVaultKey(appKey(), wrapped)).toThrow()
   })
 
+  it('rejects malformed wrapped vault key envelopes before decrypting', () => {
+    const vaultKey = randomBytes(32)
+    const wrapped = wrapVaultKey(appKey(), vaultKey)
+
+    expect(() => unwrapVaultKey(appKey(), { ...wrapped, iv: Buffer.alloc(16).toString('base64') })).toThrow('key envelope IV')
+    expect(() => unwrapVaultKey(appKey(), { ...wrapped, iv: '!!!!!!!!!!!!' })).toThrow('key envelope IV')
+    expect(() => unwrapVaultKey(appKey(), { ...wrapped, ciphertext: Buffer.alloc(31).toString('base64') })).toThrow('key envelope ciphertext')
+  })
+
   it('fails when authenticated data is tampered', () => {
     const vaultKey = randomBytes(32)
     const encrypted = encryptPlainRecord(vaultKey, 'ave_identity', 'device_1', 1, plainRecord())
     expect(() =>
       decryptSyncRecord(vaultKey, 'other_identity', { ...encrypted, serverSequence: 1 } satisfies SyncRecord),
     ).toThrow()
+  })
+
+  it('fails when plaintext and server deletion metadata diverge', () => {
+    const vaultKey = randomBytes(32)
+    const encrypted = encryptPlainRecord(vaultKey, 'ave_identity', 'device_1', 1, plainRecord())
+    expect(() =>
+      decryptSyncRecord(vaultKey, 'ave_identity', { ...encrypted, deletedAt: Date.now(), serverSequence: 1 } satisfies SyncRecord),
+    ).toThrow('metadata mismatch')
+  })
+
+  it('fails when decrypted plaintext is not a valid vault record', () => {
+    const vaultKey = randomBytes(32)
+    const invalidRecord = {
+      ...plainRecord(),
+      item: {
+        itemId: 'example',
+        itemType: 'login',
+      },
+    } as unknown as PlainVaultRecord
+    const encrypted = encryptPlainRecord(vaultKey, 'ave_identity', 'device_1', 1, invalidRecord)
+
+    expect(() =>
+      decryptSyncRecord(vaultKey, 'ave_identity', { ...encrypted, serverSequence: 1 } satisfies SyncRecord),
+    ).toThrow('payload is invalid')
+  })
+
+  it('rejects malformed sync record envelopes before parsing plaintext', () => {
+    const vaultKey = randomBytes(32)
+    const encrypted = encryptPlainRecord(vaultKey, 'ave_identity', 'device_1', 1, plainRecord())
+
+    expect(() =>
+      decryptSyncRecord(vaultKey, 'ave_identity', { ...encrypted, iv: Buffer.alloc(16).toString('base64'), serverSequence: 1 } satisfies SyncRecord),
+    ).toThrow('record IV')
+    expect(() =>
+      decryptSyncRecord(vaultKey, 'ave_identity', { ...encrypted, iv: '!!!!!!!!!!!!', serverSequence: 1 } satisfies SyncRecord),
+    ).toThrow('record IV')
+    expect(() =>
+      decryptSyncRecord(vaultKey, 'ave_identity', { ...encrypted, schemaVersion: 999, serverSequence: 1 } satisfies SyncRecord),
+    ).toThrow('schema')
   })
 
   it('does not dirty a record when only sync metadata changes', () => {

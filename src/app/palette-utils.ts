@@ -1,9 +1,10 @@
 import type { CreatableItemType } from '@/shared/item-types'
 import type { ItemDetails, ResolvedAction } from '@/shared/types'
 import type { ItemFormValues } from '@/app/palette-types'
+import { randomId } from '@/shared/random-id'
 
 const newCustomField = () => ({
-  id: `field_${Math.random().toString(16).slice(2, 8)}`,
+  id: randomId('field'),
   label: '',
   value: '',
 })

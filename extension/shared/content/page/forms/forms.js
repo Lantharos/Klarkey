@@ -37,9 +37,9 @@ import {
   isPasswordInput,
   isConfirmPasswordInput,
 } from './field-classifiers.js'
-import { pendingUsernameStorageKey, pendingOtpStorageKey } from '../state.js'
 import { sendMessage } from '../runtime.js'
 import { browserSettings } from '../state.js'
+import { clearTransientState, getTransientState, hydrateTransientState, setTransientState } from '../transient-state.js'
 
 const pickForm = (preferredInput) => {
   const preferredForm = preferredInput && isFieldElement(preferredInput) ? getAssociatedForm(preferredInput) : undefined
@@ -180,29 +180,53 @@ const detectAuthFlow = (input) => {
   return 'login'
 }
 
-const randomPassword = (length = 20) => {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*'
-  const bytes = crypto.getRandomValues(new Uint8Array(length))
-  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
+const passwordGroups = [
+  'ABCDEFGHJKLMNPQRSTUVWXYZ',
+  'abcdefghijkmnopqrstuvwxyz',
+  '23456789',
+  '!@#$%^&*',
+]
+const passwordAlphabet = passwordGroups.join('')
+const randomByte = new Uint8Array(1)
+
+const randomIndex = (max) => {
+  const limit = Math.floor(256 / max) * max
+  let value
+  do {
+    crypto.getRandomValues(randomByte)
+    value = randomByte[0]
+  } while (value >= limit)
+  return value % max
 }
 
-const getPendingUsername = () => {
-  try {
-    return window.sessionStorage.getItem(pendingUsernameStorageKey) || ''
-  } catch {
-    return ''
+const randomChar = (alphabet) => alphabet[randomIndex(alphabet.length)]
+
+const shufflePasswordChars = (chars) => {
+  for (let index = chars.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomIndex(index + 1)
+    const current = chars[index]
+    chars[index] = chars[swapIndex]
+    chars[swapIndex] = current
   }
+  return chars
 }
+
+const randomPassword = (length = 24) => {
+  const resolvedLength = Math.max(passwordGroups.length, Math.min(Number.isFinite(length) ? Math.trunc(length) : 24, 128))
+  const chars = passwordGroups.map(randomChar)
+  while (chars.length < resolvedLength) {
+    chars.push(randomChar(passwordAlphabet))
+  }
+  return shufflePasswordChars(chars).join('')
+}
+
+const getPendingUsername = () => getTransientState('pending-username', '')
 
 const setPendingUsername = (username) => {
-  try {
-    if (username) {
-      window.sessionStorage.setItem(pendingUsernameStorageKey, username)
-    } else {
-      window.sessionStorage.removeItem(pendingUsernameStorageKey)
-    }
-  } catch {
-    return
+  if (username) {
+    setTransientState('pending-username', username)
+  } else {
+    clearTransientState('pending-username')
   }
 }
 
@@ -230,25 +254,18 @@ const ensurePageBridgeReady = async () => {
   }
 }
 
-const getPendingOtp = () => {
-  try {
-    return window.sessionStorage.getItem(pendingOtpStorageKey) || ''
-  } catch {
-    return ''
+const getPendingOtp = () => getTransientState('pending-otp', '')
+
+const setPendingOtp = (otp) => {
+  if (otp) {
+    setTransientState('pending-otp', otp, 90_000)
+  } else {
+    clearTransientState('pending-otp')
   }
 }
 
-const setPendingOtp = (otp) => {
-  try {
-    if (otp) {
-      window.sessionStorage.setItem(pendingOtpStorageKey, otp)
-    } else {
-      window.sessionStorage.removeItem(pendingOtpStorageKey)
-    }
-  } catch {
-    return
-  }
-}
+void hydrateTransientState('pending-username')
+void hydrateTransientState('pending-otp')
 
 export {
   pickForm,

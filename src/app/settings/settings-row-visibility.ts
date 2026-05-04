@@ -1,8 +1,8 @@
 import type { SyncStatus } from '@/shared/sync'
 
 const baseRows = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-const signedInSyncRows = [11, 12, 13]
-const dataRows = [14, 15]
+const signedInSyncRows = [11, 12]
+const dataRows = [13, 14]
 
 export function getVisibleSettingsRowIndexes(syncStatus?: SyncStatus) {
   return syncStatus?.signedIn ? [...baseRows, ...signedInSyncRows, ...dataRows] : [...baseRows, ...dataRows]

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 
 import { LockedVaultScreen } from "@/components/klarkey-ui";
@@ -22,6 +22,16 @@ export default function HomeScreen() {
     () => vault.items.filter((item) => itemSearchText(item).includes(query.toLowerCase())),
     [query, vault.items],
   );
+
+  useEffect(() => {
+    if (!locked) {
+      return;
+    }
+
+    setSelectedItem(undefined);
+    setCreateOpen(false);
+    setQuery("");
+  }, [locked]);
 
   if (locked) {
     return (

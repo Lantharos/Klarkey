@@ -14,6 +14,9 @@ internal enum LaunchMode
 
 internal sealed record LaunchOptions(LaunchMode Mode, string ResponseFilePath, string? Message)
 {
+    private const string ResponseDirectoryPrefix = "klarkey-hello-";
+    private const string ResponseFileName = "response.json";
+
     internal static LaunchOptions Parse(IReadOnlyList<string> arguments)
     {
         string? mode = null;
@@ -46,11 +49,68 @@ internal sealed record LaunchOptions(LaunchMode Mode, string ResponseFilePath, s
             throw new InvalidOperationException("A response file path is required.");
         }
 
+        var validatedResponseFilePath = ValidateResponseFilePath(responseFilePath)
+            ?? throw new InvalidOperationException("The response file path is not trusted.");
+
         return new LaunchOptions(
             string.Equals(mode, "verify-user", StringComparison.OrdinalIgnoreCase) ? LaunchMode.VerifyUser : LaunchMode.CheckAvailability,
-            responseFilePath,
+            validatedResponseFilePath,
             message
         );
+    }
+
+    internal static string? ValidateResponseFilePath(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(value);
+            var tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var tempRootWithSeparator = tempRoot + Path.DirectorySeparatorChar;
+            if (!fullPath.StartsWith(tempRootWithSeparator, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (!string.Equals(Path.GetFileName(fullPath), ResponseFileName, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var directoryPath = Path.GetDirectoryName(fullPath);
+            if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath) || !File.Exists(fullPath))
+            {
+                return null;
+            }
+
+            var parentDirectory = Path.GetDirectoryName(directoryPath);
+            if (!string.Equals(Path.GetFullPath(parentDirectory ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), tempRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (!new DirectoryInfo(directoryPath).Name.StartsWith(ResponseDirectoryPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var fileAttributes = File.GetAttributes(fullPath);
+            var directoryAttributes = File.GetAttributes(directoryPath);
+            if ((fileAttributes & FileAttributes.ReparsePoint) != 0 || (directoryAttributes & FileAttributes.ReparsePoint) != 0)
+            {
+                return null;
+            }
+
+            return fullPath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 
@@ -101,6 +161,8 @@ internal sealed class WindowsHelloVerifier
 
 internal static class Program
 {
+    private const string GenericFailureMessage = "Windows Hello verification failed.";
+
     [STAThread]
     private static async Task<int> Main(string[] args)
     {
@@ -137,9 +199,9 @@ internal static class Program
                 {
                     result = await verifier.VerifyAsync(ownerWindow, options.Message);
                 }
-                catch (Exception exception)
+                catch
                 {
-                    result = new VerificationResult("failed", exception.Message);
+                    result = new VerificationResult("failed", GenericFailureMessage);
                 }
 
                 await File.WriteAllTextAsync(options.ResponseFilePath, JsonSerializer.Serialize(result));
@@ -149,14 +211,14 @@ internal static class Program
             Application.Run(ownerWindow);
             return 0;
         }
-        catch (Exception exception)
+        catch
         {
-            var responseFilePath = TryReadResponseFilePath(args);
+            var responseFilePath = TryReadValidatedResponseFilePath(args);
             if (!string.IsNullOrWhiteSpace(responseFilePath))
             {
                 await File.WriteAllTextAsync(
                     responseFilePath,
-                    JsonSerializer.Serialize(new VerificationResult("failed", exception.Message))
+                    JsonSerializer.Serialize(new VerificationResult("failed", GenericFailureMessage))
                 );
             }
 
@@ -164,13 +226,13 @@ internal static class Program
         }
     }
 
-    private static string? TryReadResponseFilePath(IReadOnlyList<string> arguments)
+    private static string? TryReadValidatedResponseFilePath(IReadOnlyList<string> arguments)
     {
         for (var index = 0; index < arguments.Count - 1; index++)
         {
             if (string.Equals(arguments[index], "--response-file", StringComparison.OrdinalIgnoreCase))
             {
-                return arguments[index + 1];
+                return LaunchOptions.ValidateResponseFilePath(arguments[index + 1]);
             }
         }
 

@@ -110,6 +110,13 @@ function withKlarkeyCredentialProvider(config) {
   });
 
   config = withAppBuildGradle(config, (nextConfig) => {
+    if (!nextConfig.modResults.contents.includes("debuggableVariants = []")) {
+      nextConfig.modResults.contents = nextConfig.modResults.contents.replace(
+        /react\s*\{/,
+        "react {\n    debuggableVariants = []",
+      );
+    }
+
     const dependencies = [
       `implementation("androidx.autofill:autofill:${AUTOFILL_VERSION}")`,
       `implementation("androidx.credentials:credentials:${CREDENTIALS_VERSION}")`,

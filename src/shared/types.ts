@@ -538,7 +538,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   clearClipboardSeconds: 45,
   launchOnStartup: false,
   browserAutoOpenMenu: true,
-  browserAutoSubmitLogin: true,
+  browserAutoSubmitLogin: false,
   browserSavePrompts: true,
   passcodeEnabled: true,
   autoLockMinutes: 15,

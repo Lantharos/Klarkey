@@ -1,14 +1,25 @@
-import { writeFileSync } from 'node:fs'
 import type { VaultRepository } from '@/electron/repository'
+import { writePrivateExportFile } from '@/electron/export/write-export-file'
 import type { ExportResult } from '@/shared/import-export'
 
+const spreadsheetFormulaStart = /^[=+\-@\uFF1D\uFF0B\uFF0D\uFF20]/
+const leadingSpreadsheetControl = /^[\t\r\n]/
+const leadingFormulaWhitespace = /^[ \f\v]*/
+
 function escapeCsv(value: string | undefined): string {
-  if (value == null) return ''
-  const str = String(value)
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
-    return `"${str.replace(/"/g, '""')}"`
+  if (value == null) {
+    return '""'
   }
-  return str
+
+  const raw = String(value)
+  const formulaCandidate = raw.slice(raw.match(leadingFormulaWhitespace)?.[0].length ?? 0)
+  const safeValue = spreadsheetFormulaStart.test(formulaCandidate)
+    ? `\t${raw}`
+    : leadingSpreadsheetControl.test(raw)
+      ? `'${raw}`
+      : raw
+
+  return `"${safeValue.replace(/"/g, '""')}"`
 }
 
 export async function exportCsv(repository: VaultRepository, filePath: string): Promise<ExportResult> {
@@ -40,7 +51,7 @@ export async function exportCsv(repository: VaultRepository, filePath: string): 
     rows.push([type, name, username, password, url, notes, cardholder, cardNumber, cardExpiry, cardCvc, email, phone, address, sshPublicKey].join(','))
   }
 
-  writeFileSync(filePath, rows.join('\n'), 'utf-8')
+  writePrivateExportFile(filePath, rows.join('\n'))
 
   return {
     success: true,

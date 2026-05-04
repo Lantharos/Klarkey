@@ -1,6 +1,7 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
+import { safeErrorMessage } from '@/electron/security'
 
 export type RuntimeUpdatePhase = 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing' | 'error'
 export type RuntimeAvailability = 'online' | 'updating'
@@ -37,10 +38,25 @@ const DEFAULT_RUNTIME_STATE: KlarkeyRuntimeState = {
   activity: {},
 }
 
+const MAX_RUNTIME_STATE_BYTES = 64 * 1024
 const runtimeStatePath = () => join(app.getPath('userData'), 'runtime-state.json')
 
 const sanitizeTimestamp = (value: unknown) =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+
+const sanitizeTargetVersion = (value: unknown) => {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+  return /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/.test(trimmed) ? trimmed : undefined
+}
+
+const sanitizeRuntimeError = (value: unknown) =>
+  typeof value === 'string' && value.trim()
+    ? safeErrorMessage(new Error(value), 'Update status unavailable.')
+    : undefined
 
 const normalizeRuntimeState = (value: unknown): KlarkeyRuntimeState => {
   if (!value || typeof value !== 'object') {
@@ -62,7 +78,7 @@ const normalizeRuntimeState = (value: unknown): KlarkeyRuntimeState => {
         update.phase === 'error'
           ? update.phase
           : 'idle',
-      targetVersion: typeof update.targetVersion === 'string' && update.targetVersion.trim() ? update.targetVersion : undefined,
+      targetVersion: sanitizeTargetVersion(update.targetVersion),
       downloadedAt: sanitizeTimestamp(update.downloadedAt),
       forceInstallAfter: sanitizeTimestamp(update.forceInstallAfter),
       restartNotBefore: sanitizeTimestamp(update.restartNotBefore),
@@ -71,7 +87,7 @@ const normalizeRuntimeState = (value: unknown): KlarkeyRuntimeState => {
           ? Math.round(update.retryAfterSeconds)
           : undefined,
       lastCheckAt: sanitizeTimestamp(update.lastCheckAt),
-      lastError: typeof update.lastError === 'string' && update.lastError.trim() ? update.lastError : undefined,
+      lastError: sanitizeRuntimeError(update.lastError),
     },
     activity: {
       lastPaletteOpenAt: sanitizeTimestamp(activity.lastPaletteOpenAt),
@@ -95,7 +111,13 @@ const writeRuntimeState = (state: KlarkeyRuntimeState) => {
 
 export const readRuntimeState = (): KlarkeyRuntimeState => {
   try {
-    return normalizeRuntimeState(JSON.parse(readFileSync(runtimeStatePath(), 'utf8')))
+    const filePath = runtimeStatePath()
+    const stats = lstatSync(filePath)
+    if (!stats.isFile() || stats.isSymbolicLink() || stats.size > MAX_RUNTIME_STATE_BYTES) {
+      return structuredClone(DEFAULT_RUNTIME_STATE)
+    }
+
+    return normalizeRuntimeState(JSON.parse(readFileSync(filePath, 'utf8')))
   } catch {
     return structuredClone(DEFAULT_RUNTIME_STATE)
   }

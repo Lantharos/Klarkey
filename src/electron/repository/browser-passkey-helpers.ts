@@ -1,12 +1,11 @@
 import type Database from 'better-sqlite3'
-import { scoreWebsiteMatch } from '@/shared/browser-extension'
 import { normalizeCredentialId } from '@/shared/passkey-encoding'
+import { resolveRpId } from '@/electron/site-passkey/webauthn-crypto'
 import type { BrowserPasskeySavePlan, BrowserSiteMatch, ItemDetails } from '@/shared/types'
 import {
   type BrowserRequestCredential,
   type BrowserRequestOptions,
   type PasskeyRow,
-  getHostname,
   isExactBrowserAccountMatch,
   parseJson,
 } from '@/electron/repository/helpers'
@@ -57,6 +56,10 @@ export function loadKnownPasskeyCredentialIds(db: Database.Database): string[] {
   )
 }
 
+function resolveBrowserRequestRpId(url: string, request: BrowserRequestOptions) {
+  return resolveRpId(new URL(url).origin, request.rpId?.trim() || request.rp?.id?.trim())
+}
+
 export function buildBrowserPasskeySavePlan(
   listBrowserSiteMatches: (url: string, title?: string) => BrowserSiteMatch[],
   getItemDetails: (itemId: string) => ItemDetails | undefined,
@@ -64,7 +67,7 @@ export function buildBrowserPasskeySavePlan(
   requestDetailsJson: string,
 ): BrowserPasskeySavePlan {
   const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
-  const rpId = request.rp?.id?.trim() || request.rpId?.trim() || getHostname(url)
+  const rpId = resolveBrowserRequestRpId(url, request)
   const userName = request.user?.name?.trim() || undefined
   const itemName = request.rp?.name?.trim() || rpId || 'Saved passkey'
   const siteMatches = listBrowserSiteMatches(url, request.rp?.name?.trim())
@@ -103,7 +106,7 @@ export function filterUsableBrowserPasskeys(
   getItemDetails: (itemId: string) => ItemDetails | undefined,
 ): PasskeyRow[] {
   const request = parseJson<BrowserRequestOptions>(requestDetailsJson, {})
-  const rpId = request.rpId?.trim() || request.rp?.id?.trim() || getHostname(url)
+  const rpId = resolveBrowserRequestRpId(url, request)
   const requestedIds = new Set(
     (request.allowCredentials ?? [])
       .map((credential: BrowserRequestCredential) => normalizeCredentialId(credential.id))
@@ -119,11 +122,6 @@ export function filterUsableBrowserPasskeys(
       return false
     }
 
-    if (rpId && passkey.rpId === rpId) {
-      return true
-    }
-
-    const item = getItemDetails(passkey.itemId)
-    return Boolean(item && scoreWebsiteMatch(item.websites ?? [], url) > 0)
+    return passkey.rpId === rpId && Boolean(getItemDetails(passkey.itemId))
   })
 }

@@ -19,18 +19,34 @@
         "com.apple.security.application-groups": [
           "group.com.lantharos.klarkey"
         ],
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)com.lantharos.klarkey.shared"
+        ],
         "com.apple.developer.associated-domains": [
           "webcredentials:klarkey.com",
           "applinks:klarkey.com"
         ]
       },
       "infoPlist": {
-        "NSFaceIDUsageDescription": "Unlock Klarkey to fill credentials and approve passkey requests."
+        "NSFaceIDUsageDescription": "Unlock Klarkey to fill credentials and approve passkey requests.",
+        "KlarkeyKeychainAccessGroup": "$(AppIdentifierPrefix)com.lantharos.klarkey.shared"
       }
     },
     "android": {
       "package": "com.lantharos.klarkey",
       "allowBackup": false,
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
       "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "backgroundColor": "#E07878",
@@ -114,6 +130,9 @@
                     "com.apple.developer.authentication-services.autofill-credential-provider": true,
                     "com.apple.security.application-groups": [
                       "group.com.lantharos.klarkey"
+                    ],
+                    "keychain-access-groups": [
+                      "$(AppIdentifierPrefix)com.lantharos.klarkey.shared"
                     ],
                     "com.apple.developer.associated-domains": [
                       "webcredentials:klarkey.com",

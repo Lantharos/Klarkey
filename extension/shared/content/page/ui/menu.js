@@ -17,12 +17,21 @@ import {
   setPendingUsername,
   setPendingOtp,
   getPendingOtp,
-  getFillableFields,
 } from '../forms/forms.js'
-import { writePasswordGroup, writeValue, writeSplitOtp, scheduleLoginAutoSubmit } from '../autofill/write-submit.js'
+import { writePasswordGroup, writeValue, writeSplitOtp } from '../autofill/write-submit.js'
 import { setPendingSavePrompt } from '../pending-save.js'
 import { showSaveBanner } from './banners.js'
 import { suppressInlineMenu, stopInlineLayoutTracking } from '../menu-suppress.js'
+import { runTrustedUserAction } from './trusted-events.js'
+import { applyLoginFill, applyIdentityFill, applyCardFill, clickMatchingSsoControl } from './fill-actions.js'
+
+const appendTextElement = (parent, tagName, className, text) => {
+  const element = document.createElement(tagName)
+  element.className = className
+  element.textContent = text
+  parent.appendChild(element)
+  return element
+}
 
 const openMenuFromTrigger = (input) => {
   const generation = ++matchFetch.generation
@@ -50,15 +59,20 @@ const renderInlineTrigger = (input, onOpen) => {
   trigger.setAttribute('aria-label', 'Open Klarkey')
   trigger.style.top = `${Math.max(8, rect.top + (rect.height - 24) / 2)}px`
   trigger.style.left = `${Math.max(8, Math.min(rect.right - 28, window.innerWidth - 32))}px`
-  trigger.innerHTML = `<img alt="Klarkey" src="${runtime.getURL('icons/klarkey-128.png')}" />`
+  const icon = document.createElement('img')
+  icon.alt = 'Klarkey'
+  icon.src = runtime.getURL('icons/klarkey-128.png')
+  trigger.appendChild(icon)
   trigger.addEventListener('mousedown', (event) => {
     event.preventDefault()
   })
   trigger.addEventListener('click', (event) => {
-    event.preventDefault()
-    event.stopPropagation()
-    pageState.overlayInput = input
-    onOpen()
+    runTrustedUserAction(event, () => {
+      event.preventDefault()
+      event.stopPropagation()
+      pageState.overlayInput = input
+      onOpen()
+    })
   })
   overlayRoot.appendChild(trigger)
   pageState.triggerInput = input
@@ -140,142 +154,20 @@ const appendFieldMenuButton = ({ container, title, secondary, onClick }) => {
   const copy = document.createElement('div')
   copy.className = 'klarkey-inline-copy'
 
-  const titleEl = document.createElement('div')
-  titleEl.className = 'klarkey-inline-title'
-  titleEl.textContent = title
-  copy.appendChild(titleEl)
+  appendTextElement(copy, 'div', 'klarkey-inline-title', title)
 
   if (secondary) {
-    const secondaryEl = document.createElement('div')
-    secondaryEl.className = 'klarkey-inline-secondary'
-    secondaryEl.textContent = secondary
-    copy.appendChild(secondaryEl)
+    appendTextElement(copy, 'div', 'klarkey-inline-secondary', secondary)
   }
 
   item.appendChild(copy)
 
-  item.addEventListener('click', onClick)
+  item.addEventListener('click', (event) => {
+    runTrustedUserAction(event, onClick)
+  })
   container.appendChild(item)
   pageState.activeMenuButtons.push(item)
-}
-
-const applyLoginFill = (input, login) => {
-  // SSO login: no credentials to fill, just navigate to the site's login
-  if (login.ssoProvider) {
-    suppressInlineMenu(input)
-    removeInlineUi()
-    // Look for any link/button mentioning the provider
-    const allButtons = document.querySelectorAll('a, button, [role="button"]')
-    for (const el of allButtons) {
-      const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase()
-      if (text.includes('sign in with') && text.includes(login.ssoProvider.toLowerCase())) {
-        el.click()
-        return
-      }
-    }
-    return
-  }
-
-  const inputs = getInputs(input)
-  suppressInlineMenu(input)
-  writeValue(inputs.username, login.username)
-  writePasswordGroup(input, login.password)
-  if (inputs.splitOtpTargets?.length && login.otp) {
-    writeSplitOtp(inputs.splitOtpTargets, login.otp)
-  } else {
-    writeValue(inputs.otp, login.otp)
-  }
-  setPendingUsername(login.username || '')
-  setPendingOtp(login.otp || '')
-  removeInlineUi()
-  scheduleLoginAutoSubmit(input)
-}
-const findFieldByKind = (preferredInput, kind) =>
-  getFillableFields(preferredInput).find((field) => fieldKindFor(field) === kind)
-
-const applyIdentityFill = (input, identity) => {
-  suppressInlineMenu(input)
-
-  const fieldMap = {
-    username: identity.username,
-    email: identity.email,
-    fullName: identity.fullName,
-    firstName: identity.firstName,
-    middleName: identity.middleName,
-    lastName: identity.lastName,
-    company: identity.company,
-    jobTitle: identity.jobTitle,
-    birthDate: identity.birthDate,
-    phone: identity.phone,
-    address: identity.address,
-    addressLine1: identity.addressLine1 || identity.address,
-    addressLine2: identity.addressLine2,
-    city: identity.city,
-    state: identity.state,
-    postalCode: identity.postalCode,
-    country: identity.country,
-  }
-
-  for (const [kind, value] of Object.entries(fieldMap)) {
-    if (!value) {
-      continue
-    }
-
-    const target = findFieldByKind(input, kind)
-    if (target) {
-      writeValue(target, value)
-    }
-  }
-
-  if (!identity.firstName && identity.fullName) {
-    const firstNameField = findFieldByKind(input, 'firstName')
-    if (firstNameField && !(firstNameField.value || '').trim()) {
-      writeValue(firstNameField, identity.fullName.split(/\s+/)[0] || identity.fullName)
-    }
-  }
-
-  if (!identity.lastName && identity.fullName) {
-    const parts = identity.fullName.split(/\s+/).filter(Boolean)
-    const lastNameField = findFieldByKind(input, 'lastName')
-    if (lastNameField && !(lastNameField.value || '').trim() && parts.length > 1) {
-      writeValue(lastNameField, parts.slice(1).join(' '))
-    }
-  }
-
-  if (identity.username || identity.email) {
-    setPendingUsername(identity.username || identity.email || '')
-  }
-
-  removeInlineUi()
-}
-
-const applyCardFill = (input, card) => {
-  suppressInlineMenu(input)
-
-  const fieldMap = {
-    cardholderName: card.cardholderName,
-    fullName: card.cardholderName,
-    cardNumber: card.cardNumber,
-    cardExpiry: card.cardExpiry,
-    cardExpiryMonth: card.cardExpiryMonth,
-    cardExpiryYear: card.cardExpiryYear,
-    cardCvc: card.cardCvc,
-    cardBrand: card.cardBrand,
-    postalCode: card.billingPostalCode,
-  }
-
-  for (const [kind, value] of Object.entries(fieldMap)) {
-    if (!value) {
-      continue
-    }
-
-    const target = findFieldByKind(input, kind)
-    if (target) {
-      writeValue(target, value)
-    }
-  }
-
-  removeInlineUi()
+  pageState.activeMenuActions.push(onClick)
 }
 
 const renderFieldMenu = (input, options = {}) => {
@@ -291,16 +183,19 @@ const renderFieldMenu = (input, options = {}) => {
 
   const fieldKind = fieldKindFor(input)
   const authFlow = suggestionFlowFor(input, fieldKind)
-  menu.innerHTML = `
-    <div class="klarkey-inline-header">
-      <div class="klarkey-inline-brand">Klarkey</div>
-      <div class="klarkey-inline-subtle">${fieldLabelFor(fieldKind)}</div>
-    </div>
-    <div class="klarkey-inline-list"></div>
-    <div class="klarkey-inline-actions"></div>
-  `
+  const header = document.createElement('div')
+  header.className = 'klarkey-inline-header'
+  appendTextElement(header, 'div', 'klarkey-inline-brand', 'Klarkey')
+  appendTextElement(header, 'div', 'klarkey-inline-subtle', fieldLabelFor(fieldKind))
+  menu.appendChild(header)
 
-  const list = menu.querySelector('.klarkey-inline-list')
+  const list = document.createElement('div')
+  list.className = 'klarkey-inline-list'
+  menu.appendChild(list)
+
+  const actions = document.createElement('div')
+  actions.className = 'klarkey-inline-actions'
+  menu.appendChild(actions)
 
   if (loading) {
     const loadingEl = document.createElement('div')
@@ -346,7 +241,12 @@ const renderFieldMenu = (input, options = {}) => {
           secondary: match.username && match.username !== match.itemName ? match.itemName : undefined,
           accent: match.hasOtp ? 'OTP' : undefined,
           onClick: async () => {
-            const response = await sendMessage({ type: 'fetch-login', itemId: match.itemId }).catch((error) => ({
+            const response = await sendMessage({
+              type: 'fetch-login',
+              itemId: match.itemId,
+              url: window.location.href,
+              title: document.title,
+            }).catch((error) => ({
               ok: false,
               message: error instanceof Error ? error.message : 'Klarkey could not load this login.',
             }))
@@ -368,14 +268,7 @@ const renderFieldMenu = (input, options = {}) => {
           onClick: () => {
             suppressInlineMenu(input)
             removeInlineUi()
-            const allButtons = document.querySelectorAll('a, button, [role="button"]')
-            for (const el of allButtons) {
-              const text = (el.textContent || el.getAttribute('aria-label') || '').toLowerCase()
-              if (text.includes('sign in with') && text.includes(match.ssoProvider.toLowerCase())) {
-                el.click()
-                return
-              }
-            }
+            clickMatchingSsoControl(match.ssoProvider)
           },
         })
       }
@@ -439,7 +332,12 @@ const renderFieldMenu = (input, options = {}) => {
         accent: suggestion.fromSiteMatch ? 'Site' : undefined,
         onClick: async () => {
           if (authFlow === 'login' && suggestion.source === 'login-username') {
-            const response = await sendMessage({ type: 'fetch-login', itemId: suggestion.itemId }).catch((error) => ({
+            const response = await sendMessage({
+              type: 'fetch-login',
+              itemId: suggestion.itemId,
+              url: window.location.href,
+              title: document.title,
+            }).catch((error) => ({
               ok: false,
               message: error instanceof Error ? error.message : 'Klarkey could not load this login.',
             }))
@@ -453,7 +351,12 @@ const renderFieldMenu = (input, options = {}) => {
           }
 
           if (suggestion.source === 'identity') {
-            const response = await sendMessage({ type: 'fetch-identity', itemId: suggestion.itemId }).catch((error) => ({
+            const response = await sendMessage({
+              type: 'fetch-identity',
+              itemId: suggestion.itemId,
+              url: window.location.href,
+              title: document.title,
+            }).catch((error) => ({
               ok: false,
               message: error instanceof Error ? error.message : 'Klarkey could not load this identity.',
             }))
@@ -467,7 +370,12 @@ const renderFieldMenu = (input, options = {}) => {
           }
 
           if (suggestion.source === 'card') {
-            const response = await sendMessage({ type: 'fetch-card', itemId: suggestion.itemId }).catch((error) => ({
+            const response = await sendMessage({
+              type: 'fetch-card',
+              itemId: suggestion.itemId,
+              url: window.location.href,
+              title: document.title,
+            }).catch((error) => ({
               ok: false,
               message: error instanceof Error ? error.message : 'Klarkey could not load this card.',
             }))
@@ -498,4 +406,4 @@ const renderFieldMenu = (input, options = {}) => {
   setActiveMenuIndex(pageState.activeMenuButtons.length ? 0 : -1)
 }
 
-export { openMenuFromTrigger, renderInlineTrigger, renderInlineMenu, renderInlineTriggerOnly, positionInlineMenu, positionInlineTrigger, syncInlineUiPosition, startInlineLayoutTracking, appendFieldMenuButton, applyLoginFill, findFieldByKind, applyIdentityFill, applyCardFill, renderFieldMenu }
+export { openMenuFromTrigger, renderInlineTrigger, renderInlineMenu, renderInlineTriggerOnly, positionInlineMenu, positionInlineTrigger, syncInlineUiPosition, startInlineLayoutTracking, appendFieldMenuButton, applyLoginFill, applyIdentityFill, applyCardFill, renderFieldMenu }

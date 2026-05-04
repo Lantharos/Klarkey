@@ -5,6 +5,7 @@
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>KlarkeyPasskeyProvider</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platform Condition="'$(Platform)' == '' Or '$(Platform)' == 'AnyCPU'">x64</Platform>
     <Platforms>x86;x64;ARM64</Platforms>
     <RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
@@ -39,8 +40,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="*" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="*" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.1839" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
   </ItemGroup>
 
   <ItemGroup>

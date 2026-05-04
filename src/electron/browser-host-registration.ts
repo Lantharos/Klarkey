@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, writeSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import {
-  KLARKEY_CHROMIUM_EXTENSION_ID,
+  KLARKEY_CHROMIUM_EXTENSION_ORIGIN,
   KLARKEY_FIREFOX_EXTENSION_ID,
   KLARKEY_NATIVE_HOST_NAME,
 } from '@/shared/browser-extension'
@@ -16,6 +16,8 @@ const chromiumRegistryRoots = [
 ]
 
 const firefoxRegistryRoot = 'HKCU\\Software\\Mozilla\\NativeMessagingHosts'
+
+const ignoreUnsupportedModeBits = () => undefined
 
 const resolveNativeHostExecutable = () => {
   if (app.isPackaged && existsSync(app.getPath('exe'))) {
@@ -31,8 +33,54 @@ const resolveNativeHostExecutable = () => {
   return candidates.find((candidate) => existsSync(candidate))
 }
 
-const writeManifestFile = (filePath: string, manifest: Record<string, unknown>) => {
-  writeFileSync(filePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+export const ensureNativeHostManifestDirectory = (directoryPath: string) => {
+  try {
+    mkdirSync(directoryPath, { recursive: true, mode: 0o700 })
+  } catch (error) {
+    if (!existsSync(directoryPath)) {
+      throw error
+    }
+
+    const stats = lstatSync(directoryPath)
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error('Native host manifest directory must be a normal directory.', { cause: error })
+    }
+  }
+
+  const stats = lstatSync(directoryPath)
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error('Native host manifest directory must be a normal directory.')
+  }
+
+  try {
+    chmodSync(directoryPath, 0o700)
+  } catch {
+    ignoreUnsupportedModeBits()
+  }
+}
+
+export const writeNativeHostManifestFile = (filePath: string, manifest: Record<string, unknown>) => {
+  if (existsSync(filePath)) {
+    const stats = lstatSync(filePath)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      throw new Error('Native host manifest path must be a normal file.')
+    }
+  }
+
+  const payload = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const descriptor = openSync(filePath, constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY, 0o600)
+
+  try {
+    writeSync(descriptor, payload, 0, payload.byteLength)
+  } finally {
+    closeSync(descriptor)
+  }
+
+  try {
+    chmodSync(filePath, 0o600)
+  } catch {
+    ignoreUnsupportedModeBits()
+  }
 }
 
 const setRegistryValue = (registryPath: string, manifestPath: string) => {
@@ -56,15 +104,15 @@ export const ensureNativeMessagingHostRegistration = () => {
   }
 
   const manifestDirectory = join(app.getPath('userData'), 'native-messaging-hosts')
-  mkdirSync(manifestDirectory, { recursive: true })
+  ensureNativeHostManifestDirectory(manifestDirectory)
 
   const chromiumManifestPath = join(manifestDirectory, 'chromium.app.klarkey.desktop.json')
-  writeManifestFile(chromiumManifestPath, {
+  writeNativeHostManifestFile(chromiumManifestPath, {
     name: KLARKEY_NATIVE_HOST_NAME,
     description: 'Klarkey desktop bridge',
     path: hostPath,
     type: 'stdio',
-    allowed_origins: [`chrome-extension://${KLARKEY_CHROMIUM_EXTENSION_ID}/`],
+    allowed_origins: [KLARKEY_CHROMIUM_EXTENSION_ORIGIN],
   })
 
   for (const registryRoot of chromiumRegistryRoots) {
@@ -72,7 +120,7 @@ export const ensureNativeMessagingHostRegistration = () => {
   }
 
   const firefoxManifestPath = join(manifestDirectory, 'firefox.app.klarkey.desktop.json')
-  writeManifestFile(firefoxManifestPath, {
+  writeNativeHostManifestFile(firefoxManifestPath, {
     name: KLARKEY_NATIVE_HOST_NAME,
     description: 'Klarkey desktop bridge',
     path: hostPath,

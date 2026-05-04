@@ -9,6 +9,7 @@
  */
 
 import type * as sync from "../sync.js";
+import type * as syncPolicy from "../syncPolicy.js";
 
 import type {
   ApiFromModules,
@@ -18,6 +19,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   sync: typeof sync;
+  syncPolicy: typeof syncPolicy;
 }>;
 
 /**

@@ -25,6 +25,9 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Windows desktop release
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: bun run build:desktop
 
       - name: Upload desktop artifacts

@@ -32,6 +32,9 @@ const fallbackApi: KlarkeyApi = {
   action: {
     execute: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
   },
+  clipboard: {
+    copySecret: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+  },
   item: {
     get: async () => undefined,
     create: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
@@ -105,10 +108,26 @@ const fallbackSyncStatus: SyncStatus = {
   serverSequence: 0,
 }
 
+const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
+const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
+
+function safeClientErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) {
+    return fallback
+  }
+
+  const message = error.message.trim()
+  if (!message || message.length > 160 || sensitiveErrorPattern.test(message) || urlErrorPattern.test(message)) {
+    return fallback
+  }
+
+  return message
+}
+
 function syncStatusError(error: unknown): SyncStatus {
   return {
     ...fallbackSyncStatus,
-    lastError: error instanceof Error ? error.message : 'Sync is unavailable.',
+    lastError: safeClientErrorMessage(error, 'Sync is unavailable.'),
   }
 }
 
@@ -116,7 +135,7 @@ async function safeSyncStatus() {
   try {
     return await api.sync.status()
   } catch (error) {
-    console.warn('Sync status unavailable', error)
+    console.warn('Sync status unavailable:', safeClientErrorMessage(error, 'Sync is unavailable.'))
     return syncStatusError(error)
   }
 }
@@ -124,6 +143,7 @@ async function safeSyncStatus() {
 const api = window.klarkey ?? fallbackApi
 let nextResolveKey = 0
 let syncListenerAttached = false
+let lockListenerAttached = false
 
 function preserveSelectedIndex(actions: ResolvedAction[], selectedActionId: string | undefined, previousIndex: number) {
   if (selectedActionId) {
@@ -208,6 +228,25 @@ const defaultQuery: CommandQuery = {
   trailingText: '',
 }
 
+function lockedRendererState(lockInfo: VaultLockInfo) {
+  return {
+    resolveKey: ++nextResolveKey,
+    lockInfo,
+    page: lockInfo.state === 'passcode' ? 'passcode' as const : 'locked' as const,
+    query: defaultQuery,
+    actions: [],
+    hasMoreResults: false,
+    nextOffset: 0,
+    selectedIndex: 0,
+    detailAction: undefined,
+    formMode: undefined,
+    recoveryCodesMode: undefined,
+    execution: undefined,
+    isLoadingResults: false,
+    isLoadingMore: false,
+  }
+}
+
 export const usePaletteStore = create<PaletteState>((set, get) => ({
   hydrated: false,
   isLoadingResults: false,
@@ -227,6 +266,22 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   syncStatus: fallbackSyncStatus,
   settings: DEFAULT_SETTINGS,
   async boot() {
+    if (!lockListenerAttached) {
+      lockListenerAttached = true
+      api.onLockStateChanged((lockInfo) => {
+        if (lockInfo.state !== 'unlocked') {
+          set(lockedRendererState(lockInfo))
+          return
+        }
+
+        set({ lockInfo })
+        if (get().page === 'locked' || get().page === 'passcode') {
+          get().primeHome()
+          void get().resetToHome()
+        }
+      })
+    }
+
     if (!syncListenerAttached) {
       syncListenerAttached = true
       api.onSyncChanged((update) => {
@@ -279,8 +334,8 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       })
       set({ hydrated: true, bootError: undefined })
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Klarkey failed to boot.'
-      console.error('Klarkey boot failed', error)
+      const message = safeClientErrorMessage(error, 'Klarkey failed to boot.')
+      console.error('Klarkey boot failed:', message)
       set({ bootError: message, isLoadingResults: false })
     }
   },
@@ -533,7 +588,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         set({ page: 'detail', selectedIndex: 0, formMode: undefined, recoveryCodesMode: undefined, execution: undefined })
         return
       }
-      set({ page: 'settings', selectedIndex: page === 'export' ? 14 : 15, formMode: undefined, execution: undefined })
+      set({ page: 'settings', selectedIndex: page === 'export' ? 13 : 14, formMode: undefined, execution: undefined })
       return
     }
 
@@ -707,7 +762,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         execution: {
           status: 'error',
           title: 'Sync sign-in failed',
-          message: error instanceof Error ? error.message : 'Klarkey could not start Ave sign-in.',
+          message: safeClientErrorMessage(error, 'Klarkey could not start Ave sign-in.'),
         },
       })
     }
@@ -754,7 +809,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         execution: {
           status: 'error',
           title: 'Sync failed',
-          message: error instanceof Error ? error.message : 'Klarkey could not sync.',
+          message: safeClientErrorMessage(error, 'Klarkey could not sync.'),
         },
       })
     }
@@ -768,9 +823,9 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ page: 'import-loading' as const, execution: undefined })
     const result = await api.importExport.exportVault({ format, filePath })
     if (result.success) {
-      set({ page: 'settings', selectedIndex: 14, execution: { status: 'success', title: 'Export complete', message: result.message } })
+      set({ page: 'settings', selectedIndex: 13, execution: { status: 'success', title: 'Export complete', message: result.message } })
     } else {
-      set({ page: 'settings', selectedIndex: 14, execution: { status: 'error', title: 'Export failed', message: result.message } })
+      set({ page: 'settings', selectedIndex: 13, execution: { status: 'error', title: 'Export failed', message: result.message } })
     }
     return { success: result.success, message: result.message }
   },
@@ -783,10 +838,10 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     set({ page: 'import-loading' as const, execution: undefined })
     const result = await api.importExport.importVault({ format, filePath })
     if (result.success) {
-      set({ page: 'settings', selectedIndex: 15, execution: { status: 'success', title: 'Import complete', message: result.message } })
+      set({ page: 'settings', selectedIndex: 14, execution: { status: 'success', title: 'Import complete', message: result.message } })
       await get().resetToHome()
     } else {
-      set({ page: 'settings', selectedIndex: 15, execution: { status: 'error', title: 'Import failed', message: result.message } })
+      set({ page: 'settings', selectedIndex: 14, execution: { status: 'error', title: 'Import failed', message: result.message } })
     }
     return { success: result.success, message: result.message }
   },

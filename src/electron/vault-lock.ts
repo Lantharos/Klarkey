@@ -3,26 +3,36 @@ import type Database from 'better-sqlite3'
 import type { UserSettings, VaultLockInfo, VaultUnlockMethod } from '@/shared/types'
 import { KeyManager } from '@/electron/crypto'
 import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
+import { LOCK_LEASE_UNTIL_KEY, LOCK_OWNER_PID_KEY, LOCK_STATE_KEY } from '@/electron/desktop-lock-lease'
 
 const PASSCODE_SALT_KEY = 'passcode_salt'
 const PASSCODE_HASH_KEY = 'passcode_hash'
 const PASSCODE_LENGTH_KEY = 'passcode_length'
 const MASTER_PASSWORD_SET_KEY = 'master_password_set'
-const LOCK_STATE_KEY = 'vault_lock_state'
+const UNLOCK_FAILED_ATTEMPTS_KEY = 'unlock_failed_attempts'
+const UNLOCK_LAST_ATTEMPT_KEY = 'unlock_last_attempt_ms'
 const SCRYPT_N = 16384
 const SCRYPT_R = 8
 const SCRYPT_P = 1
 const SCRYPT_KEY_LENGTH = 32
 const MAX_ATTEMPTS = 10
 const ATTEMPT_WINDOW_MS = 60_000
+const ATTEMPT_FUTURE_SKEW_MS = 30_000
 const PASSCODE_CONFIRM_WINDOW_MS = 30_000
 const LOCK_WARNING_SECONDS = 30
+const LOCK_LEASE_MS = 90_000
+const LOCK_LEASE_REFRESH_MS = 30_000
+const MASTER_PASSWORD_MIN_LENGTH = 12
+
+const isPasscodeCandidate = (passcode: string) => passcode.length >= 4 && passcode.length <= 6 && /^\d+$/.test(passcode)
+const isMasterPasswordCandidate = (password: string) => password.trim().length >= MASTER_PASSWORD_MIN_LENGTH
 
 export class VaultLockManager {
   private state: 'locked' | 'passcode' | 'unlocked' = 'locked'
   private autoLockTimer: NodeJS.Timeout | null = null
   private lockWarningTimer: NodeJS.Timeout | null = null
   private lockWarningInterval: NodeJS.Timeout | null = null
+  private lockLeaseTimer: NodeJS.Timeout | null = null
   private autoLockMs: number
   private _passcodeEnabled: boolean
   private readonly keyManager: KeyManager
@@ -38,6 +48,8 @@ export class VaultLockManager {
     this.db = db
     this.autoLockMs = (settings.autoLockMinutes ?? 15) * 60 * 1000
     this._passcodeEnabled = settings.passcodeEnabled
+    this.failedAttempts = this.readStoredInteger(UNLOCK_FAILED_ATTEMPTS_KEY)
+    this.lastAttemptTime = this.readStoredInteger(UNLOCK_LAST_ATTEMPT_KEY)
     this.persistState(this.state)
   }
 
@@ -53,9 +65,24 @@ export class VaultLockManager {
   }
 
   private persistState(state: 'locked' | 'passcode' | 'unlocked') {
+    this.writeSetting(LOCK_STATE_KEY, state)
+    if (state === 'unlocked' || state === 'passcode') {
+      this.refreshLockLease()
+    } else {
+      this.clearLockLease()
+    }
+  }
+
+  private writeSetting(key: string, value: string) {
     this.db
       .prepare('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-      .run(LOCK_STATE_KEY, state)
+      .run(key, value)
+  }
+
+  private readStoredInteger(key: string) {
+    const row = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+    const parsed = Number(row?.value)
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0
   }
 
   getLockInfo(): VaultLockInfo {
@@ -111,11 +138,18 @@ export class VaultLockManager {
 
   private checkRateLimit(): { blocked: boolean; remainingMs: number } {
     const now = Date.now()
-    if (now - this.lastAttemptTime > ATTEMPT_WINDOW_MS) {
+    if (this.lastAttemptTime > now + ATTEMPT_FUTURE_SKEW_MS) {
+      this.resetFailedAttempts()
+      return { blocked: false, remainingMs: 0 }
+    }
+
+    const elapsedMs = Math.max(0, now - this.lastAttemptTime)
+    if (this.lastAttemptTime > 0 && elapsedMs >= ATTEMPT_WINDOW_MS) {
       this.failedAttempts = 0
+      this.resetFailedAttempts()
     }
     if (this.failedAttempts >= MAX_ATTEMPTS) {
-      const remainingMs = ATTEMPT_WINDOW_MS - (now - this.lastAttemptTime)
+      const remainingMs = ATTEMPT_WINDOW_MS - elapsedMs
       return { blocked: true, remainingMs: Math.max(0, remainingMs) }
     }
     return { blocked: false, remainingMs: 0 }
@@ -124,10 +158,41 @@ export class VaultLockManager {
   private recordFailedAttempt() {
     this.failedAttempts++
     this.lastAttemptTime = Date.now()
+    this.writeSetting(UNLOCK_FAILED_ATTEMPTS_KEY, String(this.failedAttempts))
+    this.writeSetting(UNLOCK_LAST_ATTEMPT_KEY, String(this.lastAttemptTime))
   }
 
   private resetFailedAttempts() {
     this.failedAttempts = 0
+    this.lastAttemptTime = 0
+    this.db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(UNLOCK_FAILED_ATTEMPTS_KEY, UNLOCK_LAST_ATTEMPT_KEY)
+  }
+
+  private refreshLockLease() {
+    this.writeSetting(LOCK_LEASE_UNTIL_KEY, String(Date.now() + LOCK_LEASE_MS))
+    this.writeSetting(LOCK_OWNER_PID_KEY, String(process.pid))
+  }
+
+  private startLockLeaseTimer() {
+    this.stopLockLeaseTimer()
+    this.refreshLockLease()
+    this.lockLeaseTimer = setInterval(() => {
+      if (this.state === 'unlocked' || this.state === 'passcode') {
+        this.refreshLockLease()
+      }
+    }, LOCK_LEASE_REFRESH_MS)
+  }
+
+  private stopLockLeaseTimer() {
+    if (this.lockLeaseTimer) {
+      clearInterval(this.lockLeaseTimer)
+      this.lockLeaseTimer = null
+    }
+  }
+
+  private clearLockLease() {
+    this.stopLockLeaseTimer()
+    this.db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(LOCK_LEASE_UNTIL_KEY, LOCK_OWNER_PID_KEY)
   }
 
   async unlockWithWindowsHello(): Promise<{ success: boolean; message: string }> {
@@ -174,13 +239,8 @@ export class VaultLockManager {
         this.recordFailedAttempt()
         return { success: false, message: 'Incorrect master password.' }
       }
-    } else if (this.keyManager.isSafeStorageAvailable()) {
-      if (!this.keyManager.unlockFromSystem()) {
-        return { success: false, message: 'Could not unlock the vault.' }
-      }
-    } else if (!this.keyManager.unlockWithPassword(password)) {
-      this.recordFailedAttempt()
-      return { success: false, message: 'Incorrect password.' }
+    } else {
+      return { success: false, message: 'Use Windows Hello to unlock this vault, or set a master password first.' }
     }
 
     this.resetFailedAttempts()
@@ -244,6 +304,10 @@ export class VaultLockManager {
   }
 
   private isPasscodeValid(passcode: string): boolean {
+    if (!isPasscodeCandidate(passcode)) {
+      return false
+    }
+
     const saltRow = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(PASSCODE_SALT_KEY) as { value: string } | undefined
     const hashRow = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(PASSCODE_HASH_KEY) as { value: string } | undefined
 
@@ -251,23 +315,27 @@ export class VaultLockManager {
       return false
     }
 
-    const salt = Buffer.from(saltRow.value, 'base64')
-    const candidateHash = scryptSync(passcode, salt, SCRYPT_KEY_LENGTH, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P }).toString('base64')
-    return timingSafeEqual(Buffer.from(candidateHash), Buffer.from(hashRow.value))
+    try {
+      const salt = Buffer.from(saltRow.value, 'base64')
+      const expectedHash = Buffer.from(hashRow.value, 'base64')
+      const candidateHash = scryptSync(passcode, salt, SCRYPT_KEY_LENGTH, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P })
+      return candidateHash.length === expectedHash.length && timingSafeEqual(candidateHash, expectedHash)
+    } catch {
+      return false
+    }
   }
 
   setPasscode(passcode: string): { success: boolean; message: string } {
-    if (passcode.length < 4 || passcode.length > 6 || !/^\d+$/.test(passcode)) {
+    if (!isPasscodeCandidate(passcode)) {
       return { success: false, message: 'Passcode must be 4-6 digits.' }
     }
 
     const salt = randomBytes(32)
     const hash = scryptSync(passcode, salt, SCRYPT_KEY_LENGTH, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P }).toString('base64')
 
-    const statement = this.db.prepare('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    statement.run(PASSCODE_HASH_KEY, hash)
-    statement.run(PASSCODE_SALT_KEY, salt.toString('base64'))
-    statement.run(PASSCODE_LENGTH_KEY, String(passcode.length))
+    this.writeSetting(PASSCODE_HASH_KEY, hash)
+    this.writeSetting(PASSCODE_SALT_KEY, salt.toString('base64'))
+    this.writeSetting(PASSCODE_LENGTH_KEY, String(passcode.length))
 
     return { success: true, message: 'Passcode set.' }
   }
@@ -283,8 +351,8 @@ export class VaultLockManager {
   }
 
   setupMasterPassword(password: string): { success: boolean; message: string } {
-    if (password.length < 8) {
-      return { success: false, message: 'Master password must be at least 8 characters.' }
+    if (!isMasterPasswordCandidate(password)) {
+      return { success: false, message: `Master password must be at least ${MASTER_PASSWORD_MIN_LENGTH} characters.` }
     }
 
     if (!this.keyManager.isKeyInMemory()) {
@@ -293,15 +361,14 @@ export class VaultLockManager {
 
     this.keyManager.setupWithMasterPassword(password)
 
-    const statement = this.db.prepare('INSERT INTO settings(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-    statement.run(MASTER_PASSWORD_SET_KEY, 'true')
+    this.writeSetting(MASTER_PASSWORD_SET_KEY, 'true')
 
     return { success: true, message: 'Master password set up.' }
   }
 
   changeMasterPassword(currentPassword: string, newPassword: string): { success: boolean; message: string } {
-    if (newPassword.length < 8) {
-      return { success: false, message: 'New master password must be at least 8 characters.' }
+    if (!isMasterPasswordCandidate(newPassword)) {
+      return { success: false, message: `New master password must be at least ${MASTER_PASSWORD_MIN_LENGTH} characters.` }
     }
 
     if (!this.keyManager.changeMasterPassword(currentPassword, newPassword)) {
@@ -332,6 +399,14 @@ export class VaultLockManager {
     this.notifyStateChange()
   }
 
+  recordActivity() {
+    const hadLockWarning = this.lockWarningSeconds !== undefined
+    this.resetAutoLockTimer()
+    if (hadLockWarning) {
+      this.notifyStateChange()
+    }
+  }
+
   ensureKeyForNewVault(): Buffer {
     if (this.keyManager.isKeyInMemory()) {
       this.state = 'unlocked'
@@ -340,14 +415,11 @@ export class VaultLockManager {
     }
 
     if (this.keyManager.hasKeyFile()) {
-      if (this.keyManager.isSafeStorageAvailable()) {
-        this.keyManager.unlockFromSystem()
-      }
       if (!this.keyManager.isKeyInMemory() && this.keyManager.hasMasterPassword()) {
         throw new Error('Vault is locked. Unlock with your master password or Windows Hello.')
       }
-      if (!this.keyManager.isKeyInMemory() && !this.keyManager.isSafeStorageAvailable()) {
-        throw new Error('Vault is locked. Unlock with your master password.')
+      if (!this.keyManager.isKeyInMemory()) {
+        throw new Error('Vault is locked. Unlock with Windows Hello before accessing this vault.')
       }
     }
 
@@ -373,6 +445,7 @@ export class VaultLockManager {
 
   private startAutoLockTimer() {
     this.stopAutoLockTimer()
+    this.startLockLeaseTimer()
     this.lockWarningSeconds = undefined
 
     if (this.autoLockMs > LOCK_WARNING_SECONDS * 1000) {
@@ -401,6 +474,7 @@ export class VaultLockManager {
   }
 
   private stopAutoLockTimer() {
+    this.stopLockLeaseTimer()
     if (this.autoLockTimer) {
       clearTimeout(this.autoLockTimer)
       this.autoLockTimer = null

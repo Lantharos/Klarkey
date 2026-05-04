@@ -16,6 +16,8 @@ const finalizePreparedPasskeySave = ({ pendingPasskeyId, requestDetailsJson, pla
       await sendMessage({
         type: 'discard-passkey-credential',
         payload: {
+          url: window.location.href,
+          title: document.title,
           pendingPasskeyId,
         },
       }).catch(() => undefined)

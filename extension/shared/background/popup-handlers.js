@@ -5,6 +5,7 @@ import {
   isChromium,
   readDesktopConnectionState,
   requestHost,
+  safeExtensionErrorMessage,
   sendTabMessage,
   withTimeout,
 } from './native-messaging.js'
@@ -72,7 +73,7 @@ export async function loadPopupState() {
     ? await requestHost({ type: 'passkeys-status', url: pageContext.url }).catch((error) => ({
         ok: false,
         error: {
-          message: error instanceof Error ? error.message : 'Passkey state unavailable.',
+          message: safeExtensionErrorMessage(error, 'Passkey state unavailable.'),
         },
       }))
     : {
@@ -146,8 +147,8 @@ export async function loadPopupState() {
   }
 }
 
-export async function fillLogin(itemId) {
-  const response = await requestHost({ type: 'get-login', itemId })
+export async function fillLogin(itemId, url, title) {
+  const response = await requestHost({ type: 'get-login', itemId, url, title })
   if (!response?.ok || !response.result.login) {
     return { ok: false, message: response?.error?.message || 'The selected login could not be loaded.' }
   }
@@ -165,7 +166,11 @@ export async function fillActiveTab(itemId) {
     return { ok: false, message: 'No active tab is available.' }
   }
 
-  const fillState = await fillLogin(itemId)
+  const pageContext = await getPageContext(tab).catch(() => ({
+    url: tab.url,
+    title: tab.title,
+  }))
+  const fillState = await fillLogin(itemId, pageContext.url, pageContext.title)
   if (!fillState.ok || !fillState.login) {
     return fillState
   }
@@ -183,7 +188,7 @@ export async function fillActiveTab(itemId) {
   } catch (error) {
     return {
       ok: false,
-      message: error instanceof Error ? error.message : 'Klarkey could not reach the page.',
+      message: safeExtensionErrorMessage(error, 'Klarkey could not reach the page.'),
     }
   }
 }
@@ -240,8 +245,8 @@ export async function listLoginsForUrl(url, title) {
   }
 }
 
-export async function fetchIdentity(itemId) {
-  const response = await requestHost({ type: 'get-identity', itemId })
+export async function fetchIdentity(itemId, url, title) {
+  const response = await requestHost({ type: 'get-identity', itemId, url, title })
   if (!response?.ok || !response.result.identity) {
     return { ok: false, message: response?.error?.message || 'The selected identity could not be loaded.' }
   }
@@ -253,8 +258,8 @@ export async function fetchIdentity(itemId) {
   }
 }
 
-export async function fetchCard(itemId) {
-  const response = await requestHost({ type: 'get-card', itemId })
+export async function fetchCard(itemId, url, title) {
+  const response = await requestHost({ type: 'get-card', itemId, url, title })
   if (!response?.ok || !response.result.card) {
     return { ok: false, message: response?.error?.message || 'The selected card could not be loaded.' }
   }
@@ -283,8 +288,8 @@ export async function getBrowserSettings() {
 
 export async function planPasskeyCreate(payload) {
   const response = await requestHost({
-    type: 'passkey-create-plan',
     ...payload,
+    type: 'passkey-create-plan',
   })
 
   if (!response?.ok || !response.result.plan) {
@@ -302,8 +307,8 @@ export async function planPasskeyCreate(payload) {
 
 export async function createPasskeyCredential(payload) {
   const response = await requestHost({
-    type: 'passkey-create-credential',
     ...payload,
+    type: 'passkey-create-credential',
   })
 
   if (!response?.ok || !response.result.responseJson) {
@@ -326,8 +331,8 @@ export async function createPasskeyCredential(payload) {
 
 export async function savePasskeyCredential(payload) {
   const response = await requestHost({
-    type: 'passkey-save-credential',
     ...payload,
+    type: 'passkey-save-credential',
   })
 
   if (!response?.ok) {
@@ -338,7 +343,7 @@ export async function savePasskeyCredential(payload) {
   }
 
   return {
-    ok: true,
+    ok: response.result?.status !== 'error',
     message: response.result?.message || 'Passkey saved.',
     itemId: response.result?.itemId,
   }
@@ -346,8 +351,8 @@ export async function savePasskeyCredential(payload) {
 
 export async function discardPasskeyCredential(payload) {
   const response = await requestHost({
-    type: 'passkey-discard-credential',
     ...payload,
+    type: 'passkey-discard-credential',
   })
 
   if (!response?.ok) {
@@ -358,15 +363,15 @@ export async function discardPasskeyCredential(payload) {
   }
 
   return {
-    ok: true,
+    ok: response.result?.status !== 'error',
     message: response.result?.message || 'Passkey cleared.',
   }
 }
 
 export async function planPasskeyGet(payload) {
   const response = await requestHost({
-    type: 'passkey-get-plan',
     ...payload,
+    type: 'passkey-get-plan',
   })
 
   if (!response?.ok || !Array.isArray(response.result.choices)) {
@@ -384,8 +389,8 @@ export async function planPasskeyGet(payload) {
 
 export async function getPasskeyCredential(payload) {
   const response = await requestHost({
-    type: 'passkey-get-credential',
     ...payload,
+    type: 'passkey-get-credential',
   })
 
   if (!response?.ok || !response.result.responseJson) {

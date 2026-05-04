@@ -7,7 +7,11 @@ export const HOST_TIMEOUT_MS: number
 export const UNLOCK_RETRY_WAIT_MS: number
 export const UNLOCK_POLL_INTERVAL_MS: number
 export const UNLOCK_GRACE_MS: number
+export const MAX_NATIVE_REQUEST_BYTES: number
 export function createRequestId(): string
+export function nativeRequestByteLength(payload: unknown): number
+export function isNativeRequestSizeAllowed(payload: unknown): boolean
+export function safeExtensionErrorMessage(error: unknown, fallback?: string): string
 export function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs?: number): Promise<T>
 export function queryTabs(queryInfo: unknown): Promise<unknown>
 export function sendTabMessage(tabId: number, message: unknown): Promise<unknown>

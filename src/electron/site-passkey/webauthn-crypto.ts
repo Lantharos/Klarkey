@@ -1,5 +1,6 @@
 import { createHash, createPrivateKey, sign, type KeyObject } from 'node:crypto'
 import { Encoder } from 'cbor-x'
+import { getPublicSuffix, parse } from 'tldts'
 import { decodeBase64Url, encodeBase64Url } from '@/shared/passkey-encoding'
 import type { BrowserCreationOptions, BrowserRequestOptions, WebAuthnCredentialResponse } from '@/electron/site-passkey/types'
 
@@ -38,20 +39,50 @@ export const joinBytes = (...parts: Array<Uint8Array | Buffer>) => {
   return Buffer.from(output)
 }
 
-export const decodeRequiredBase64Url = (value: string | undefined, message: string) => {
+export const decodeRequiredBase64Url = (
+  value: string | undefined,
+  message: string,
+  bounds: { minBytes?: number; maxBytes?: number; exactBytes?: number } = {},
+) => {
   if (!value?.trim()) {
     throw new Error(message)
   }
 
-  return decodeBase64Url(value)
+  const decoded = decodeBase64Url(value)
+  const minBytes = bounds.exactBytes ?? bounds.minBytes ?? 1
+  const maxBytes = bounds.exactBytes ?? bounds.maxBytes ?? Number.MAX_SAFE_INTEGER
+  if (decoded.length < minBytes || decoded.length > maxBytes) {
+    throw new Error(message)
+  }
+  return decoded
 }
 
 export const parseCreationOptions = (requestDetailsJson: string) => JSON.parse(requestDetailsJson) as BrowserCreationOptions
 export const parseRequestOptions = (requestDetailsJson: string) => JSON.parse(requestDetailsJson) as BrowserRequestOptions
 
+const tldOptions = { allowPrivateDomains: true, extractHostname: false } as const
+
+const isLocalOrIpHost = (hostname: string) => hostname === 'localhost' || parse(hostname, tldOptions).isIp
+
 export const resolveRpId = (origin: string, requestedRpId?: string) => {
   const hostname = new URL(origin).hostname
-  return (requestedRpId?.trim() || hostname).toLowerCase()
+  const rpId = (requestedRpId?.trim() || hostname).toLowerCase().replace(/\.$/, '')
+  const normalizedHostname = hostname.toLowerCase().replace(/\.$/, '')
+
+  if (!/^[a-z0-9.-]+$/.test(rpId) || rpId.includes('..') || rpId.startsWith('.') || rpId.endsWith('.')) {
+    throw new Error('The site requested an invalid passkey relying party id.')
+  }
+
+  const publicSuffix = getPublicSuffix(rpId, tldOptions)
+  if (!isLocalOrIpHost(rpId) && (!publicSuffix || publicSuffix === rpId)) {
+    throw new Error('The site requested a public suffix as its passkey relying party id.')
+  }
+
+  if (rpId !== normalizedHostname && !normalizedHostname.endsWith(`.${rpId}`)) {
+    throw new Error('The passkey relying party id does not match this site.')
+  }
+
+  return rpId
 }
 
 export const validateEs256Support = (options: BrowserCreationOptions) => {
@@ -65,8 +96,8 @@ export const validateEs256Support = (options: BrowserCreationOptions) => {
 }
 
 export const buildCosePublicKey = (jwk: JsonWebKey) => {
-  const x = Buffer.from(decodeRequiredBase64Url(jwk.x, 'The generated passkey is missing its public key.'))
-  const y = Buffer.from(decodeRequiredBase64Url(jwk.y, 'The generated passkey is missing its public key.'))
+  const x = Buffer.from(decodeRequiredBase64Url(jwk.x, 'The generated passkey is missing its public key.', { exactBytes: 32 }))
+  const y = Buffer.from(decodeRequiredBase64Url(jwk.y, 'The generated passkey is missing its public key.', { exactBytes: 32 }))
   const coseKey = new Map<number, unknown>([
     [1, 2],
     [3, -7],

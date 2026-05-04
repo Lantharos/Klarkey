@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs'
 import type { CreateItemInput } from '@/shared/types'
 import type { ImportResult } from '@/shared/import-export'
 import type { VaultRepository } from '@/electron/repository'
-import { importItems, parseCsv } from '@/electron/import/import-utils'
+import { importItems, MAX_IMPORT_ITEMS, parseCsv, readImportFileText, tooManyImportItemsResult } from '@/electron/import/import-utils'
 
 function normalizeHeader(header: string): string {
   return header.toLowerCase().trim().replace(/[^a-z0-9]/g, '_')
@@ -45,8 +44,12 @@ function detectFormat(headers: string[]): 'lastpass' | 'chrome' | 'dashlane' | '
 }
 
 export async function importCsv(repository: VaultRepository, filePath: string): Promise<ImportResult> {
-  const content = readFileSync(filePath, 'utf-8')
-  const rows = parseCsv(content)
+  const content = readImportFileText(filePath)
+  const rows = parseCsv(content, MAX_IMPORT_ITEMS)
+
+  if (rows.length > MAX_IMPORT_ITEMS) {
+    return tooManyImportItemsResult()
+  }
 
   if (rows.length === 0) {
     return {

@@ -26,36 +26,41 @@ import { scanForSsoButtons, maybePromptSsoSave, highlightSavedSsoButtons } from 
 import { fieldKindFor, suggestionFlowFor, shouldAutoOpenFieldMenu } from './field-meta.js'
 import { renderInlineMenu, renderInlineTriggerOnly } from './ui/menu.js'
 import { handlePagePasskeyCreate, handlePagePasskeyGet } from './passkey/handlers.js'
+import { buildPagePasskeyResponse, readPagePasskeyRequest } from './passkey/page-message.js'
 import { suppressBrowserAutofill } from './autofill/autofill.js'
 
 window.addEventListener('message', (event) => {
-  if (event.source !== window || event.data?.source !== 'klarkey-page-authenticator-request') {
+  if (event.source !== window || event.origin !== window.location.origin) {
+    return
+  }
+
+  const request = readPagePasskeyRequest(event.data)
+  if (!request) {
     return
   }
 
   void (async () => {
-    await ensurePageBridgeReady()
-    const payload =
-      event.data.payload?.operation === 'create'
-        ? await handlePagePasskeyCreate(event.data.payload.requestDetailsJson)
-        : event.data.payload?.operation === 'get'
-          ? await handlePagePasskeyGet(event.data.payload.requestDetailsJson)
-          : {
-              ok: false,
-              error: {
-                name: 'NotSupportedError',
-                message: 'Unsupported passkey operation.',
-              },
-            }
+    const payload = await (async () => {
+      if ('error' in request) {
+        return {
+          ok: false,
+          error: request.error,
+        }
+      }
 
-    window.postMessage(
-      {
-        source: 'klarkey-page-authenticator-response',
-        id: event.data.id,
-        payload,
+      await ensurePageBridgeReady()
+      return request.operation === 'create'
+        ? handlePagePasskeyCreate(request.requestDetailsJson)
+        : handlePagePasskeyGet(request.requestDetailsJson)
+    })().catch((error) => ({
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: error instanceof Error ? error.message : 'The passkey request could not be completed.',
       },
-      window.location.origin,
-    )
+    }))
+
+    window.postMessage(buildPagePasskeyResponse(request.id, payload), window.location.origin)
   })()
 })
 
@@ -214,6 +219,10 @@ window.addEventListener('popstate', () => {
 })
 
 document.addEventListener('keydown', (event) => {
+  if (!event.isTrusted) {
+    return
+  }
+
   if (event.key === 'Escape') {
     const dismissButton = overlayRoot.querySelector('.klarkey-save-banner [data-action="dismiss"]')
     if (dismissButton instanceof HTMLButtonElement) {
@@ -242,10 +251,10 @@ document.addEventListener('keydown', (event) => {
   }
 
   if (event.key === 'Enter' && pageState.activeMenuIndex >= 0) {
-    const activeButton = pageState.activeMenuButtons[pageState.activeMenuIndex]
-    if (activeButton) {
+    const activeAction = pageState.activeMenuActions[pageState.activeMenuIndex]
+    if (activeAction) {
       event.preventDefault()
-      activeButton.click()
+      void activeAction(event)
     }
   }
 })

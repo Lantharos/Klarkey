@@ -74,7 +74,7 @@ export default function SettingsScreen() {
             title="Cloud sync"
             detail={!syncStatus.configured ? "Set Ave and Convex environment values to connect this device." : syncStatus.signedIn ? syncStatus.accountName ?? "Connected with Ave." : "Sign in with Ave to sync this vault."}
             state={syncStatus.signedIn ? "ready" : syncStatus.configured ? "neutral" : "attention"}
-            onPress={!syncStatus.configured ? undefined : syncStatus.signedIn ? () => void syncNow() : () => void syncSignIn()}
+            onPress={!syncStatus.configured || syncStatus.signedIn ? undefined : () => void syncSignIn()}
           />
           {syncStatus.signedIn ? (
             <>
@@ -82,14 +82,14 @@ export default function SettingsScreen() {
                 icon={RefreshCw}
                 title="Sync now"
                 detail={syncStatus.syncing ? "Syncing encrypted changes." : syncStatus.lastError ?? (syncStatus.lastSyncAt ? `Last sync ${new Date(syncStatus.lastSyncAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Push and pull encrypted vault changes.")}
-                state={syncStatus.conflictCount > 0 ? "attention" : "neutral"}
+                state={syncStatus.lastError ? "attention" : "neutral"}
                 syncing={syncStatus.syncing}
                 onPress={() => void syncNow()}
               />
               <SettingsRow
                 icon={LogOut}
                 title="Disconnect sync"
-                detail={syncStatus.conflictCount > 0 ? `${syncStatus.conflictCount} conflict copy saved.` : "This only signs out this phone."}
+                detail="This only signs out this phone."
                 state="neutral"
                 onPress={() => void syncSignOut()}
               />
@@ -171,6 +171,7 @@ function SettingsRow({
   const interactive = Boolean(onPress);
   const StateIcon = state === "ready" ? Check : state === "attention" ? CircleAlert : undefined;
   const stateColor = state === "ready" ? "rgba(134,239,172,0.88)" : "rgba(224,120,120,0.92)";
+  const hasAccessory = syncing || Boolean(StateIcon) || interactive;
   const content = (
     <>
       <View style={styles.rowIcon}>
@@ -180,8 +181,12 @@ function SettingsRow({
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowDetail}>{detail}</Text>
       </View>
-      {syncing ? <ActivityIndicator size="small" color="rgba(255,255,255,0.62)" /> : StateIcon ? <StateIcon size={18} color={stateColor} strokeWidth={2.2} /> : null}
-      {interactive ? <ChevronRight size={19} color="rgba(255,255,255,0.35)" strokeWidth={2.2} /> : null}
+      {hasAccessory ? (
+        <View style={styles.rowAccessory}>
+          {syncing ? <ActivityIndicator size="small" color="rgba(255,255,255,0.62)" /> : StateIcon ? <StateIcon size={19} color={stateColor} strokeWidth={2.25} /> : null}
+          {interactive ? <ChevronRight size={19} color="rgba(255,255,255,0.35)" strokeWidth={2.2} /> : null}
+        </View>
+      ) : null}
     </>
   );
 
@@ -278,6 +283,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flex: 1,
     gap: 3,
+  },
+  rowAccessory: {
+    width: 46,
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 9,
   },
   rowTitle: {
     color: "#ffffff",

@@ -9,6 +9,7 @@ interface KlarkeyCredentialStoreModule {
   getProviderCredentials?: () => Promise<string>;
   getProviderPasskeys?: () => Promise<string>;
   deleteProviderItem?: (itemId: string, passkeyIdsPayload: string) => Promise<void>;
+  unlock?: (unlockedUntil: number) => Promise<void>;
   lock: () => Promise<void>;
 }
 
@@ -20,6 +21,8 @@ interface ProviderSavedCredential {
   domains?: string[];
   password?: string;
   otpCode?: string;
+  hasPassword?: boolean;
+  hasOtp?: boolean;
   hasPasskey?: boolean;
   lastUsedAt?: string;
 }
@@ -38,6 +41,85 @@ function normalizeHost(value?: string) {
 
 function credentialDomainsForItem(item: MobileVaultItem) {
   return Array.from(new Set([...item.websites, item.website].filter(Boolean)));
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+function booleanValue(value: unknown) {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
+}
+
+function present<T>(value: T | undefined): value is T {
+  return value !== undefined;
+}
+
+function parseJsonArray(payload: string) {
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function normalizeProviderCredential(value: unknown): ProviderSavedCredential | undefined {
+  const record = objectRecord(value);
+  const id = stringValue(record?.id)?.trim();
+  const username = stringValue(record?.username)?.trim();
+  const title = stringValue(record?.title)?.trim() || username;
+  if (!id || !username || !title) {
+    return undefined;
+  }
+
+  return {
+    id,
+    title,
+    username,
+    domain: stringValue(record?.domain),
+    domains: stringArray(record?.domains),
+    password: stringValue(record?.password),
+    otpCode: stringValue(record?.otpCode),
+    hasPassword: booleanValue(record?.hasPassword),
+    hasOtp: booleanValue(record?.hasOtp),
+    hasPasskey: booleanValue(record?.hasPasskey),
+    lastUsedAt: stringValue(record?.lastUsedAt),
+  };
+}
+
+function normalizeProviderPasskey(value: unknown): MobilePasskey | undefined {
+  const record = objectRecord(value);
+  const id = stringValue(record?.id)?.trim();
+  const rpId = stringValue(record?.rpId)?.trim();
+  const username = stringValue(record?.username)?.trim();
+  if (!id || !rpId || !username) {
+    return undefined;
+  }
+
+  const signCount = record && typeof record.signCount === "number" && Number.isFinite(record.signCount) ? record.signCount : 0;
+  return normalizeMobilePasskey({
+    id,
+    rpId,
+    username,
+    userHandle: stringValue(record?.userHandle),
+    itemId: stringValue(record?.itemId),
+    transports: stringArray(record?.transports),
+    privateKeyJwk: objectRecord(record?.privateKeyJwk) ?? stringValue(record?.privateKeyJwk),
+    signCount,
+    createdAt: stringValue(record?.createdAt),
+    lastUsedAt: stringValue(record?.lastUsedAt),
+    syncedCounter: record?.syncedCounter === true,
+    providerBacked: record?.providerBacked === true && !objectRecord(record?.privateKeyJwk) && !stringValue(record?.privateKeyJwk),
+  });
 }
 
 export function isProviderBackedPasskeyForItem(passkey: MobilePasskey, item: MobileVaultItem) {
@@ -118,6 +200,15 @@ export async function lockNativeCredentialStore() {
   await store.lock();
 }
 
+export async function unlockNativeCredentialStore(unlockedUntil = Date.now() + unlockWindowMs) {
+  const store = credentialStoreModule();
+  if ((Platform.OS !== "android" && Platform.OS !== "ios") || !store?.unlock) {
+    return;
+  }
+
+  await store.unlock(unlockedUntil);
+}
+
 export async function deleteNativeProviderItem(itemId: string, passkeyIds: string[]) {
   const store = credentialStoreModule();
   if ((Platform.OS !== "android" && Platform.OS !== "ios") || !store?.deleteProviderItem) {
@@ -133,9 +224,22 @@ export async function loadNativeProviderCredentials(): Promise<MobileVaultItem[]
     return [];
   }
 
-  const payload = await store.getProviderCredentials();
-  const credentials = JSON.parse(payload) as ProviderSavedCredential[];
-  return credentials.map(createProviderSavedLogin);
+  try {
+    const payload = await store.getProviderCredentials();
+    return parseJsonArray(payload).map(normalizeProviderCredential).filter(present).map(createProviderSavedLogin);
+  } catch {
+    return [];
+  }
+}
+
+export async function loadNativeProviderCredentialIndex(): Promise<MobileVaultItem[]> {
+  const credentials = await loadNativeProviderCredentials();
+  return credentials.map((item) => ({
+    ...item,
+    password: undefined,
+    otp: undefined,
+    otpCode: undefined,
+  }));
 }
 
 export async function loadNativeProviderPasskeys(): Promise<MobilePasskey[]> {
@@ -144,10 +248,19 @@ export async function loadNativeProviderPasskeys(): Promise<MobilePasskey[]> {
     return [];
   }
 
-  const payload = await store.getProviderPasskeys();
-  const passkeys = JSON.parse(payload) as MobilePasskey[];
-  return passkeys.map((passkey) => normalizeMobilePasskey({
+  try {
+    const payload = await store.getProviderPasskeys();
+    return parseJsonArray(payload).map(normalizeProviderPasskey).filter(present);
+  } catch {
+    return [];
+  }
+}
+
+export async function loadNativeProviderPasskeyIndex(): Promise<MobilePasskey[]> {
+  const passkeys = await loadNativeProviderPasskeys();
+  return passkeys.map((passkey) => ({
     ...passkey,
-    providerBacked: !passkey.privateKeyJwk,
+    userHandle: undefined,
+    privateKeyJwk: undefined,
   }));
 }

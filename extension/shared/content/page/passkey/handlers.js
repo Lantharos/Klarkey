@@ -1,6 +1,13 @@
 import { sendMessage } from '../runtime.js'
-import { promptPasskeyGetChoice } from '../ui/banners.js'
-import { finalizePreparedPasskeySave } from './finalize.js'
+import { promptPasskeyCreateChoice, promptPasskeyGetChoice } from '../ui/banners.js'
+
+const deniedPasskeyRequest = (message) => ({
+  ok: false,
+  error: {
+    name: 'NotAllowedError',
+    message,
+  },
+})
 
 const handlePagePasskeyCreate = async (requestDetailsJson) => {
   const plan = await sendMessage({
@@ -14,6 +21,11 @@ const handlePagePasskeyCreate = async (requestDetailsJson) => {
 
   if (!plan?.ok || !plan.plan) {
     return { fallbackToBrowser: true }
+  }
+
+  const selection = await promptPasskeyCreateChoice(plan.plan)
+  if (!selection) {
+    return deniedPasskeyRequest('The passkey request was canceled.')
   }
 
   const result = await sendMessage({
@@ -34,22 +46,45 @@ const handlePagePasskeyCreate = async (requestDetailsJson) => {
     }))
 
   if (!result?.ok) {
-    return {
-      ok: false,
-      error: {
-        name: 'NotAllowedError',
-        message: result?.message || result?.error?.message || 'Klarkey could not create this passkey.',
-      },
-    }
+    return deniedPasskeyRequest(result?.message || result?.error?.message || 'Klarkey could not create this passkey.')
   }
 
-  finalizePreparedPasskeySave({
-    pendingPasskeyId: result.pendingPasskeyId,
-    requestDetailsJson,
-    plan: plan.plan,
-  })
+  if (!result.pendingPasskeyId) {
+    return deniedPasskeyRequest('Klarkey could not save this passkey.')
+  }
 
-  return result
+  const save = await sendMessage({
+    type: 'save-passkey-credential',
+    payload: {
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+      pendingPasskeyId: result.pendingPasskeyId,
+      itemId: selection.itemId,
+      createNew: selection.createNew,
+    },
+  }).catch((error) => ({
+    ok: false,
+    message: error instanceof Error ? error.message : 'Klarkey could not save this passkey.',
+  }))
+
+  if (!save?.ok) {
+    await sendMessage({
+      type: 'discard-passkey-credential',
+      payload: {
+        url: window.location.href,
+        title: document.title,
+        pendingPasskeyId: result.pendingPasskeyId,
+      },
+    }).catch(() => undefined)
+    return deniedPasskeyRequest(save?.message || 'Klarkey could not save this passkey.')
+  }
+
+  return {
+    ...result,
+    itemId: save.itemId,
+    message: save.message,
+  }
 }
 
 const handlePagePasskeyGet = async (requestDetailsJson) => {
@@ -72,13 +107,7 @@ const handlePagePasskeyGet = async (requestDetailsJson) => {
 
   const selectedCredentialId = await promptPasskeyGetChoice(plan.choices)
   if (!selectedCredentialId) {
-    return {
-      ok: false,
-      error: {
-        name: 'NotAllowedError',
-        message: 'The passkey request was canceled.',
-      },
-    }
+    return deniedPasskeyRequest('The passkey request was canceled.')
   }
 
   return sendMessage({
@@ -94,21 +123,9 @@ const handlePagePasskeyGet = async (requestDetailsJson) => {
     .then((result) =>
       result?.ok
         ? result
-        : {
-            ok: false,
-            error: {
-              name: 'NotAllowedError',
-              message: result?.message || 'Klarkey could not use this passkey.',
-            },
-          },
+        : deniedPasskeyRequest(result?.message || 'Klarkey could not use this passkey.'),
     )
-    .catch((error) => ({
-      ok: false,
-      error: {
-        name: 'NotAllowedError',
-        message: error instanceof Error ? error.message : 'Klarkey could not use this passkey.',
-      },
-    }))
+    .catch((error) => deniedPasskeyRequest(error instanceof Error ? error.message : 'Klarkey could not use this passkey.'))
 }
 
 export { handlePagePasskeyCreate, handlePagePasskeyGet }

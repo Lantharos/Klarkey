@@ -3,10 +3,11 @@ import { useEffect, useRef, useState } from 'react'
 import { KeyHint, ReturnHint, ShortcutHint } from '@/app/palette'
 import type { ItemFormValues } from '@/app/palette-types'
 import { TotpField } from '@/app/totp-field'
+import { randomId } from '@/shared/random-id'
 import type { ActionExecutionResult, TotpDetails } from '@/shared/types'
 
 const newCustomField = () => ({
-  id: `field_${Math.random().toString(16).slice(2, 8)}`,
+  id: randomId('field'),
   label: '',
   value: '',
 })

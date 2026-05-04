@@ -42,7 +42,7 @@ The unpackaged verifier supports command-line verification modes:
 - `--mode check-availability`
 - `--mode verify-user --message "..."`
 
-Both modes write a JSON result to the path passed through `--response-file`.
+Both modes write a JSON result to a pre-created `response.json` file inside a direct `$env:TEMP\klarkey-hello-*` directory passed through `--response-file`.
 
 ## Proposed architecture
 
@@ -127,9 +127,12 @@ dotnet build .\Klarkey.WindowsHelloVerifier\Klarkey.WindowsHelloVerifier.csproj
 Smoke-test the helper directly:
 
 ```powershell
-$Response = Join-Path $env:TEMP "klarkey-hello-response.json"
+$TempDir = New-Item -ItemType Directory -Path (Join-Path $env:TEMP ("klarkey-hello-" + [guid]::NewGuid().ToString("N")))
+$Response = Join-Path $TempDir.FullName "response.json"
+New-Item -ItemType File -Path $Response | Out-Null
 .\Klarkey.WindowsHelloVerifier\bin\Debug\net9.0-windows10.0.26100.0\Klarkey.WindowsHelloVerifier.exe --mode check-availability --response-file $Response
 Get-Content -Raw $Response
+Remove-Item -Recurse -Force $TempDir.FullName
 ```
 
 ### Current caveat

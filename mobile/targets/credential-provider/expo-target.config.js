@@ -8,6 +8,7 @@ module.exports = (config) => ({
   entitlements: {
     "com.apple.developer.authentication-services.autofill-credential-provider": true,
     "com.apple.security.application-groups": [`group.${config.ios.bundleIdentifier}`],
+    "keychain-access-groups": ["$(AppIdentifierPrefix)com.lantharos.klarkey.shared"],
     "com.apple.developer.associated-domains": config.ios.associatedDomains,
   },
 });

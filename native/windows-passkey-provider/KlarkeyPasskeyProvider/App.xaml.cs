@@ -9,6 +9,8 @@ namespace KlarkeyPasskeyProvider;
 
 public partial class App : Application
 {
+    private const string GenericVerificationFailureMessage = "Windows Hello verification failed.";
+
     private Window? _window;
     private readonly WindowsHelloVerificationService _windowsHelloVerificationService = new();
 
@@ -20,6 +22,12 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         var launchOptions = VerificationLaunchOptions.Parse(Environment.GetCommandLineArgs());
+        if (launchOptions.Mode == VerificationLaunchMode.Invalid)
+        {
+            Exit();
+            return;
+        }
+
         if (launchOptions.Mode != VerificationLaunchMode.Probe)
         {
             RunVerificationLaunch(launchOptions);
@@ -47,9 +55,9 @@ public partial class App : Application
                 ? await _windowsHelloVerificationService.CheckAvailabilityAsync()
                 : await _windowsHelloVerificationService.VerifyAsync(window, launchOptions.Message);
         }
-        catch (Exception exception)
+        catch
         {
-            result = new WindowsHelloVerificationResult("failed", exception.Message);
+            result = new WindowsHelloVerificationResult("failed", GenericVerificationFailureMessage);
         }
 
         try
@@ -58,7 +66,10 @@ public partial class App : Application
             {
                 await File.WriteAllTextAsync(
                     launchOptions.ResponseFilePath,
-                    JsonSerializer.Serialize(result)
+                    JsonSerializer.Serialize(
+                        result,
+                        WindowsHelloVerificationJsonContext.Default.WindowsHelloVerificationResult
+                    )
                 );
             }
         }

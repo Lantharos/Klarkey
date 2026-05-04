@@ -5,27 +5,54 @@ import { app } from 'electron'
 let loaded = false
 const envNamePattern = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+export type KlarkeyEnvRootInput = {
+  isPackaged: boolean
+  cwd: string
+  appPath?: string
+  resourcesPath?: string
+  execPath?: string
+}
+
 function addRoot(roots: Set<string>, root?: string) {
   if (root) {
     roots.add(root)
   }
 }
 
-function envRoots() {
-  const roots = new Set<string>()
-  addRoot(roots, process.cwd())
-
-  try {
-    const appPath = app.getAppPath()
-    addRoot(roots, appPath)
-    addRoot(roots, dirname(appPath))
-  } catch {
-    return Array.from(roots)
+export function resolveKlarkeyEnvRoots(input: KlarkeyEnvRootInput) {
+  if (input.isPackaged) {
+    return []
   }
 
-  addRoot(roots, process.resourcesPath)
-  addRoot(roots, dirname(process.execPath))
+  const roots = new Set<string>()
+  addRoot(roots, input.cwd)
+  addRoot(roots, input.appPath)
+  if (input.appPath) {
+    addRoot(roots, dirname(input.appPath))
+  }
+  addRoot(roots, input.resourcesPath)
+  if (input.execPath) {
+    addRoot(roots, dirname(input.execPath))
+  }
   return Array.from(roots)
+}
+
+function envRoots() {
+  let appPath: string | undefined
+
+  try {
+    appPath = app.getAppPath()
+  } catch {
+    appPath = undefined
+  }
+
+  return resolveKlarkeyEnvRoots({
+    isPackaged: app?.isPackaged ?? true,
+    cwd: process.cwd(),
+    appPath,
+    resourcesPath: process.resourcesPath,
+    execPath: process.execPath,
+  })
 }
 
 function trimEnvValue(value: string) {

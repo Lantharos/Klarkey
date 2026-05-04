@@ -1,5 +1,5 @@
-import { writeFileSync } from 'node:fs'
 import type { VaultRepository } from '@/electron/repository'
+import { writePrivateExportFile } from '@/electron/export/write-export-file'
 import type { ExportResult, KlarkeyExportItem, KlarkeyExportVault } from '@/shared/import-export'
 
 export async function exportKlarkeyJson(repository: VaultRepository, filePath: string): Promise<ExportResult> {
@@ -70,7 +70,7 @@ export async function exportKlarkeyJson(repository: VaultRepository, filePath: s
     items,
   }
 
-  writeFileSync(filePath, JSON.stringify(vault, null, 2), 'utf-8')
+  writePrivateExportFile(filePath, JSON.stringify(vault, null, 2))
 
   return {
     success: true,
