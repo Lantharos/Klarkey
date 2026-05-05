@@ -14,6 +14,7 @@ const electronMock = vi.hoisted(() => ({
 vi.mock('electron', () => electronMock)
 
 import {
+  chromiumWebStoreExtensionRegistryPaths,
   ensureNativeHostManifestDirectory,
   writeNativeHostManifestFile,
 } from '@/electron/browser-host-registration'
@@ -78,5 +79,15 @@ describe('native host registration hardening', () => {
     expect(source).toContain('stats.isSymbolicLink() || !stats.isFile()')
     expect(source).toContain('constants.O_CREAT | constants.O_TRUNC | constants.O_WRONLY, 0o600')
     expect(source).toContain('chmodSync(filePath, 0o600)')
+  })
+
+  it('targets per-user Chromium extension install entries', () => {
+    expect(chromiumWebStoreExtensionRegistryPaths()).toEqual(expect.arrayContaining([
+      'HKCU\\Software\\Google\\Chrome\\Extensions\\gbdmdcmboinmeckelhacpljieaphedgn',
+      'HKLM\\Software\\Google\\Chrome\\Extensions\\gbdmdcmboinmeckelhacpljieaphedgn',
+      'HKLM\\Software\\Wow6432Node\\Google\\Chrome\\Extensions\\gbdmdcmboinmeckelhacpljieaphedgn',
+      'HKCU\\Software\\BraveSoftware\\Brave-Browser\\Extensions\\gbdmdcmboinmeckelhacpljieaphedgn',
+      'HKCU\\Software\\imput\\Helium\\Extensions\\gbdmdcmboinmeckelhacpljieaphedgn',
+    ]))
   })
 })

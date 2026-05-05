@@ -96,11 +96,23 @@ export async function loadPopupState() {
     1000,
   ).catch(() => false)
 
+  const passkeyState = passkeys?.ok && typeof passkeys.result?.supported === 'boolean'
+    ? passkeys.result
+    : {
+        supported: false,
+        browser: browserKind,
+        mode: isChromium ? 'desktop-proxy' : 'browser-limited',
+        conditionalUi: false,
+        availablePasskeyCount: 0,
+        exactMatchCount: 0,
+        linkedMatchCount: 0,
+        reason: passkeys?.result?.message || passkeys?.error?.message || 'Unlock Klarkey to load passkey state for this site.',
+      }
+
   if (
     isChromium &&
-    passkeys?.ok &&
-    passkeys.result.supported &&
-    passkeys.result.mode === 'desktop-proxy' &&
+    passkeyState.supported &&
+    passkeyState.mode === 'desktop-proxy' &&
     !chromiumProxyReady
   ) {
     return {
@@ -135,12 +147,7 @@ export async function loadPopupState() {
     url: pageContext.url,
     title: pageContext.title,
     form: pageContext.form,
-    passkeys: passkeys?.ok
-      ? passkeys.result
-      : {
-          supported: false,
-          reason: passkeys?.error?.message || 'Passkey state unavailable.',
-        },
+    passkeys: passkeyState,
     chromiumProxyReady,
     error: undefined,
     targetVersion: connection.targetVersion,
@@ -384,6 +391,7 @@ export async function planPasskeyGet(payload) {
   return {
     ok: true,
     choices: response.result.choices,
+    locked: response.result.locked === true,
   }
 }
 

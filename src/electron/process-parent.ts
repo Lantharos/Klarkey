@@ -2,12 +2,30 @@ import { basename } from 'node:path'
 import koffi from 'koffi'
 
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+const SNAPSHOT_PROCESSES = 0x00000002
 const maxProcessPathLength = 4096
 const kernel32 = process.platform === 'win32' ? koffi.load('kernel32.dll') : undefined
+const ProcessEntry = kernel32
+  ? koffi.struct('PROCESSENTRY32W', {
+      size: 'uint32_t',
+      usage: 'uint32_t',
+      processId: 'uint32_t',
+      defaultHeapId: 'uintptr_t',
+      moduleId: 'uint32_t',
+      threads: 'uint32_t',
+      parentProcessId: 'uint32_t',
+      priorityClassBase: 'int32_t',
+      flags: 'uint32_t',
+      exeFile: 'char16_t[260]',
+    })
+  : undefined
 const OpenProcess = kernel32?.func('void * __stdcall OpenProcess(uint32_t dwDesiredAccess, bool bInheritHandle, uint32_t dwProcessId)')
 const QueryFullProcessImageNameW = kernel32?.func(
   'bool __stdcall QueryFullProcessImageNameW(void *hProcess, uint32_t dwFlags, _Out_ char16_t *lpExeName, _Inout_ uint32_t *lpdwSize)',
 )
+const CreateToolhelp32Snapshot = kernel32?.func('void * __stdcall CreateToolhelp32Snapshot(uint32_t dwFlags, uint32_t th32ProcessID)')
+const Process32FirstW = kernel32?.func('bool __stdcall Process32FirstW(void *hSnapshot, _Inout_ PROCESSENTRY32W *lppe)')
+const Process32NextW = kernel32?.func('bool __stdcall Process32NextW(void *hSnapshot, _Inout_ PROCESSENTRY32W *lppe)')
 const CloseHandle = kernel32?.func('bool __stdcall CloseHandle(void *hObject)')
 
 const allowedPasskeyProviderParentNames = new Set(['klarkeypasskeyprovider.exe'])
@@ -17,14 +35,16 @@ const allowedNativeMessagingBrowserParentNames = new Set([
   'brave.exe',
   'firefox.exe',
   'chromium.exe',
+  'zen.exe',
 ])
 const allowedNativeMessagingDevParentNames = new Set(['klarkey.nativehostlauncher.exe'])
 const allowedNativeMessagingBrowserPathSuffixes = new Map([
-  ['chrome.exe', ['Google\\Chrome\\Application\\chrome.exe']],
+  ['chrome.exe', ['Google\\Chrome\\Application\\chrome.exe', 'imput\\Helium\\Application\\chrome.exe']],
   ['msedge.exe', ['Microsoft\\Edge\\Application\\msedge.exe']],
   ['brave.exe', ['BraveSoftware\\Brave-Browser\\Application\\brave.exe']],
   ['firefox.exe', ['Mozilla Firefox\\firefox.exe']],
   ['chromium.exe', ['Chromium\\Application\\chromium.exe']],
+  ['zen.exe', ['Zen Browser\\zen.exe']],
 ])
 
 type NativeMessagingParentOptions = {
@@ -49,6 +69,17 @@ const browserInstallRoots = (env: NodeJS.ProcessEnv) => [
   env.LOCALAPPDATA,
 ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
 
+const windowsRoot = (env: NodeJS.ProcessEnv) =>
+  env.SystemRoot || env.windir || (env.SystemDrive ? `${env.SystemDrive}\\Windows` : undefined)
+
+const commandShellPaths = (env: NodeJS.ProcessEnv) => {
+  const root = windowsRoot(env)
+  return root ? [
+    `${root}\\System32\\cmd.exe`,
+    `${root}\\SysWOW64\\cmd.exe`,
+  ] : []
+}
+
 const windowsAppsInstallRoots = (env: NodeJS.ProcessEnv) => [
   env.ProgramFiles,
   env.ProgramW6432,
@@ -65,6 +96,15 @@ const isTrustedBrowserInstallPath = (processPath: string, parentName: string, en
     const normalizedRoot = normalizeWindowsPath(root)
     return suffixes.some((suffix) => normalizedPath === `${normalizedRoot}\\${normalizeWindowsPath(suffix)}`)
   })
+}
+
+const isTrustedCommandShellPath = (processPath: string | undefined, env: NodeJS.ProcessEnv) => {
+  if (!processPath || basename(processPath).toLowerCase() !== 'cmd.exe') {
+    return false
+  }
+
+  const normalizedPath = normalizeWindowsPath(processPath)
+  return commandShellPaths(env).some((shellPath) => normalizedPath === normalizeWindowsPath(shellPath))
 }
 
 const isTrustedPackagedPasskeyProviderPath = (processPath: string, env: NodeJS.ProcessEnv) => {
@@ -102,6 +142,40 @@ export function resolveProcessPath(processId: number) {
   } finally {
     CloseHandle(handle)
   }
+}
+
+export function resolveParentProcessId(processId: number) {
+  if (
+    process.platform !== 'win32' ||
+    !ProcessEntry ||
+    !CreateToolhelp32Snapshot ||
+    !Process32FirstW ||
+    !Process32NextW ||
+    !CloseHandle ||
+    processId <= 0
+  ) {
+    return undefined
+  }
+
+  const snapshot = CreateToolhelp32Snapshot(SNAPSHOT_PROCESSES, 0)
+  if (!snapshot) {
+    return undefined
+  }
+
+  try {
+    const entry = { size: koffi.sizeof(ProcessEntry) } as { size: number; processId?: number; parentProcessId?: number }
+    let hasEntry = Process32FirstW(snapshot, entry)
+    while (hasEntry) {
+      if (entry.processId === processId) {
+        return entry.parentProcessId
+      }
+      hasEntry = Process32NextW(snapshot, entry)
+    }
+  } finally {
+    CloseHandle(snapshot)
+  }
+
+  return undefined
 }
 
 export function isAllowedPasskeyProviderParentPath(processPath: string | undefined, options: PasskeyProviderParentOptions = {}) {
@@ -147,10 +221,31 @@ export function isAllowedNativeMessagingParentPath(processPath: string | undefin
     (!options.isPackaged && allowedNativeMessagingDevParentNames.has(parentName))
 }
 
+export function isAllowedNativeMessagingParentChain(
+  processPath: string | undefined,
+  browserProcessPath: string | undefined,
+  options: NativeMessagingParentOptions = {},
+) {
+  if (isAllowedNativeMessagingParentPath(processPath, options)) {
+    return true
+  }
+
+  if (!isTrustedCommandShellPath(processPath, options.env ?? process.env)) {
+    return false
+  }
+
+  return isAllowedNativeMessagingParentPath(browserProcessPath, options)
+}
+
 export function hasAllowedNativeMessagingHostCaller(options: NativeMessagingParentOptions = {}) {
   if (process.platform !== 'win32') {
     return true
   }
 
-  return isAllowedNativeMessagingParentPath(resolveProcessPath(process.ppid), options)
+  const parentPath = resolveProcessPath(process.ppid)
+  const browserProcessId = isTrustedCommandShellPath(parentPath, options.env ?? process.env)
+    ? resolveParentProcessId(process.ppid)
+    : undefined
+  const browserProcessPath = browserProcessId ? resolveProcessPath(browserProcessId) : undefined
+  return isAllowedNativeMessagingParentChain(parentPath, browserProcessPath, options)
 }

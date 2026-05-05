@@ -1,6 +1,6 @@
 import './webauthn-proxy.js'
 import * as handlers from './popup-handlers.js'
-import { runtimeApi } from './native-messaging.js'
+import { browserKind, runtimeApi, safeExtensionErrorMessage } from './native-messaging.js'
 
 const ssoTrackingKey = 'klarkey:sso-tracking'
 const ssoTrackingTtlMs = 90_000
@@ -370,29 +370,51 @@ async function clearSsoTracking() {
   }).catch(() => undefined)
 }
 
-runtimeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  ;(async () => {
-    if (isPopupOnlyMessage(message) && !isExtensionUiSender(sender)) {
-      sendResponse({
-        ok: false,
-        message: 'This extension action is only available from Klarkey.',
-      })
-      return
+const fallbackResponseFor = (message, error) => {
+  const messageText = safeExtensionErrorMessage(error, 'Klarkey could not complete this browser request.')
+  if (message?.type === 'popup-state') {
+    return {
+      connected: false,
+      updating: false,
+      desktopRequired: true,
+      browser: browserKind,
+      passkeys: {
+        supported: false,
+        reason: messageText,
+      },
+      chromiumProxyReady: false,
+      error: messageText,
     }
+  }
 
-    if (
-      isSenderBoundMessage(message) &&
-      (!assertMessageOriginMatchesSender(message, sender) ||
-        (!assertMessageUrlMatchesSender(message, sender) && !(await isTrackedOriginLookup(message, sender))))
-    ) {
-      sendResponse({
-        ok: false,
-        message: 'The extension request did not match the current tab.',
-      })
-      return
-    }
+  return {
+    ok: false,
+    message: messageText,
+  }
+}
 
-    switch (message?.type) {
+async function handleRuntimeMessage(message, sender, sendResponse) {
+  if (isPopupOnlyMessage(message) && !isExtensionUiSender(sender)) {
+    sendResponse({
+      ok: false,
+      message: 'This extension action is only available from Klarkey.',
+    })
+    return
+  }
+
+  if (
+    isSenderBoundMessage(message) &&
+    (!assertMessageOriginMatchesSender(message, sender) ||
+      (!assertMessageUrlMatchesSender(message, sender) && !(await isTrackedOriginLookup(message, sender))))
+  ) {
+    sendResponse({
+      ok: false,
+      message: 'The extension request did not match the current tab.',
+    })
+    return
+  }
+
+  switch (message?.type) {
       case 'transient-state-get':
         {
           const key = assertTransientKeyMatchesSender(message.payload, sender) ? message.payload.key : undefined
@@ -509,6 +531,15 @@ runtimeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ok: false,
           message: 'Unsupported extension action.',
         })
+  }
+}
+
+runtimeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  ;(async () => {
+    try {
+      await handleRuntimeMessage(message, sender, sendResponse)
+    } catch (error) {
+      sendResponse(fallbackResponseFor(message, error))
     }
   })()
 

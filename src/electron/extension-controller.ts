@@ -8,6 +8,7 @@ import { resolveBrowserUserVerification } from '@/electron/browser-user-verifica
 import { BrowserFillGrantStore } from '@/electron/browser-fill-grants'
 import { hasBrowserSiteAccess } from '@/electron/repository/browser-site-matches'
 import { VaultRepository } from '@/electron/repository'
+import { EXTERNAL_UNLOCK_TOKEN_ENV, externalUnlockArgs } from '@/electron/external-unlock'
 import { app } from 'electron'
 import { KLARKEY_EXTENSION_PROTOCOL_VERSION, validateBrowserPasskeyOrigin, type BrowserExtensionRequest, type BrowserExtensionResponse } from '@/shared/browser-extension'
 
@@ -61,7 +62,21 @@ export class BrowserExtensionController {
     return {
       status: 'locked',
       title: 'Vault locked',
-      message: 'Unlock Klarkey to use browser autofill.',
+      message: 'Unlock Klarkey to continue.',
+    } as const
+  }
+
+  private lockedBrowserPasskeyStatus(url: string) {
+    const status = this.repository.getBrowserPasskeyStatus(url)
+    const hasSitePasskeys = status.exactMatchCount > 0 || status.linkedMatchCount > 0
+
+    return {
+      ...status,
+      status: 'locked',
+      locked: true,
+      reason: hasSitePasskeys
+        ? 'Windows Hello will unlock Klarkey when you use a saved passkey.'
+        : status.reason,
     } as const
   }
 
@@ -75,6 +90,54 @@ export class BrowserExtensionController {
 
   private isPassiveRequest(type: BrowserExtensionRequest['type']) {
     return type === 'ping' || type === 'get-settings'
+  }
+
+  private canAnswerWhileLocked(type: BrowserExtensionRequest['type']) {
+    return [
+      'list-logins',
+      'list-field-suggestions',
+      'passkeys-status',
+      'passkey-create-plan',
+      'passkey-get-plan',
+    ].includes(type)
+  }
+
+  private lockedRequestResult(request: BrowserExtensionRequest) {
+    switch (request.type) {
+      case 'list-logins':
+        return {
+          matches: this.repository.listBrowserSiteMatches(request.url, request.title),
+          locked: true,
+        }
+
+      case 'list-field-suggestions':
+        {
+          const suggestions = this.repository.listBrowserFieldSuggestions(request.field, request.flow, request.url, request.title)
+          this.fillGrants.remember(request.url, suggestions)
+          return {
+            suggestions,
+            locked: true,
+          }
+        }
+
+      case 'passkeys-status':
+        return this.lockedBrowserPasskeyStatus(request.url)
+
+      case 'passkey-create-plan':
+        return {
+          plan: this.repository.planBrowserPasskeyCreate(request.url, request.requestDetailsJson),
+          locked: true,
+        }
+
+      case 'passkey-get-plan':
+        return {
+          choices: this.repository.listBrowserPasskeyChoices(request.url, request.requestDetailsJson),
+          locked: true,
+        }
+
+      default:
+        return this.lockedExtensionResult()
+    }
   }
 
   private buildUpdatingMessage(targetVersion?: string) {
@@ -91,9 +154,10 @@ export class BrowserExtensionController {
     this.lastUnlockPromptAt = now
 
     const appPath = app.getAppPath()
+    const unlockArgs = externalUnlockArgs(process.env[EXTERNAL_UNLOCK_TOKEN_ENV])
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette']
-      : ['--open-palette']
+      ? [appPath, ...unlockArgs]
+      : unlockArgs
 
     try {
       const child = spawn(process.execPath, args, {
@@ -166,14 +230,13 @@ export class BrowserExtensionController {
 
     const requiresVault = request.type !== 'get-settings'
     if (requiresVault && !this.ensureVaultReady()) {
-      const isPassiveRequest = ['list-logins', 'list-field-suggestions', 'passkeys-status', 'passkey-create-plan', 'passkey-get-plan'].includes(request.type)
-      if (!isPassiveRequest) {
+      if (!this.canAnswerWhileLocked(request.type)) {
         this.promptDesktopUnlock()
       }
       return {
         id: request.id,
         ok: true,
-        result: this.lockedExtensionResult(),
+        result: this.lockedRequestResult(request),
       }
     }
 
@@ -198,14 +261,6 @@ export class BrowserExtensionController {
           }
         }
 
-        const loginVerification = await resolveBrowserUserVerification('get', '{}', request.url)
-        if (!loginVerification.ok) {
-          return {
-            id: request.id,
-            ok: true,
-            result: loginVerification.result,
-          }
-        }
         return {
           id: request.id,
           ok: true,
@@ -226,14 +281,6 @@ export class BrowserExtensionController {
           }
         }
 
-        const identityVerification = await resolveBrowserUserVerification('get', '{}', request.url)
-        if (!identityVerification.ok) {
-          return {
-            id: request.id,
-            ok: true,
-            result: identityVerification.result,
-          }
-        }
         return {
           id: request.id,
           ok: true,
@@ -254,14 +301,6 @@ export class BrowserExtensionController {
           }
         }
 
-        const cardVerification = await resolveBrowserUserVerification('get', '{}', request.url)
-        if (!cardVerification.ok) {
-          return {
-            id: request.id,
-            ok: true,
-            result: cardVerification.result,
-          }
-        }
         return {
           id: request.id,
           ok: true,

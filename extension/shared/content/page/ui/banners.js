@@ -184,7 +184,7 @@ const promptPasskeyCreateChoice = async ({ rpId, userName, itemName, suggestedMa
   })
 }
 
-const promptPasskeyGetChoice = async (choices) => {
+const promptPasskeyGetChoice = async (choices, options = {}) => {
   if (!choices.length) {
     return undefined
   }
@@ -202,7 +202,9 @@ const promptPasskeyGetChoice = async (choices) => {
     promptKey: passkeyPromptKeyFor('passkey-get', window.location.pathname, choices.map((choice) => choice.credentialId).join(',')),
     title: passkeyChoices.length === 1 ? 'Use passkey?' : 'Choose a passkey',
     copy:
-      passkeyChoices.length === 1
+      options.locked
+        ? 'Windows Hello will unlock Klarkey after you choose a passkey.'
+        : passkeyChoices.length === 1
         ? `Klarkey will use ${passkeyChoices[0].title} for ${window.location.hostname}.`
         : `Klarkey found multiple passkeys for ${window.location.hostname}.`,
     choices: passkeyChoices,

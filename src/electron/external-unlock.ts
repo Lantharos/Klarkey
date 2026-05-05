@@ -9,6 +9,8 @@ export const createExternalUnlockToken = () => randomBytes(32).toString('base64u
 export const externalUnlockArgs = (token: string | undefined) =>
   token ? [EXTERNAL_UNLOCK_FLAG, EXTERNAL_UNLOCK_TOKEN_FLAG, token] : [EXTERNAL_UNLOCK_FLAG]
 
+export const hasExternalUnlockRequest = (argv: string[]) => argv.includes(EXTERNAL_UNLOCK_FLAG)
+
 const readFlagValue = (argv: string[], flag: string) => {
   const index = argv.indexOf(flag)
   const value = index >= 0 ? argv[index + 1] : undefined

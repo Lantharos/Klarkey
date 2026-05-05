@@ -257,6 +257,8 @@ export interface BrowserFillCard {
 
 export interface BrowserPasskeyStatus {
   supported: boolean
+  status?: 'locked'
+  locked?: boolean
   browser: 'chromium' | 'firefox' | 'other'
   mode: 'desktop-proxy' | 'browser-limited'
   conditionalUi: boolean

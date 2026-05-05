@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 
-const string ChromiumExtensionOrigin = "chrome-extension://gbdmdcmboinmeckelhacpljieaphedgn/";
+string[] ChromiumExtensionOrigins = ["chrome-extension://gbdmdcmboinmeckelhacpljieaphedgn/"];
 const string FirefoxExtensionId = "klarkey@example.local";
 
 var executablePath = Path.Combine(AppContext.BaseDirectory, "..", "..", "node_modules", "electron", "dist", "electron.exe");
@@ -84,7 +84,13 @@ catch (OperationCanceledException)
 return process.ExitCode;
 
 bool IsAllowedNativeMessagingCaller(string value) =>
-    value == ChromiumExtensionOrigin || value == FirefoxExtensionId;
+    ChromiumExtensionOrigins.Contains(NormalizeNativeMessagingCaller(value), StringComparer.Ordinal) ||
+    value == FirefoxExtensionId;
+
+string NormalizeNativeMessagingCaller(string value) =>
+    value.StartsWith("chrome-extension://", StringComparison.Ordinal) && !value.EndsWith("/", StringComparison.Ordinal)
+        ? value + "/"
+        : value;
 
 static async Task RelayInputAsync(Stream source, Stream destination, CancellationToken cancellationToken)
 {
@@ -140,24 +146,41 @@ static async Task<bool> ReadHeaderAsync(Stream source, byte[] header, Cancellati
 static async Task RelayOutputAsync(Stream source, Stream destination)
 {
     var buffer = new byte[4096];
-    var isFirstChunk = true;
+    var prefix = new byte[2];
+    var prefixLength = 0;
+    var prefixChecked = false;
 
     while (true)
     {
         var bytesRead = await source.ReadAsync(buffer);
         if (bytesRead == 0)
         {
+            if (!prefixChecked && prefixLength > 0)
+            {
+                await destination.WriteAsync(prefix.AsMemory(0, prefixLength));
+            }
             return;
         }
 
         var offset = 0;
-        if (isFirstChunk)
+        if (!prefixChecked)
         {
-            isFirstChunk = false;
-
-            if (bytesRead >= 2 && buffer[0] == '\r' && buffer[1] == '\n')
+            while (offset < bytesRead && prefixLength < prefix.Length)
             {
-                offset = 2;
+                prefix[prefixLength] = buffer[offset];
+                prefixLength++;
+                offset++;
+            }
+
+            if (prefixLength < prefix.Length)
+            {
+                continue;
+            }
+
+            prefixChecked = true;
+            if (prefix[0] != '\r' || prefix[1] != '\n')
+            {
+                await destination.WriteAsync(prefix);
             }
         }
 
@@ -271,11 +294,12 @@ static class NativeMessagingParent
     static readonly IntPtr InvalidHandle = new(-1);
     static readonly Dictionary<string, string[]> AllowedParentPathSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["chrome.exe"] = ["Google\\Chrome\\Application\\chrome.exe"],
+        ["chrome.exe"] = ["Google\\Chrome\\Application\\chrome.exe", "imput\\Helium\\Application\\chrome.exe"],
         ["msedge.exe"] = ["Microsoft\\Edge\\Application\\msedge.exe"],
         ["brave.exe"] = ["BraveSoftware\\Brave-Browser\\Application\\brave.exe"],
         ["firefox.exe"] = ["Mozilla Firefox\\firefox.exe"],
         ["chromium.exe"] = ["Chromium\\Application\\chromium.exe"],
+        ["zen.exe"] = ["Zen Browser\\zen.exe"],
     };
 
     public static bool IsAllowed()
@@ -291,7 +315,19 @@ static class NativeMessagingParent
             return false;
         }
 
-        return IsAllowedParentPath(TryGetProcessPath(parentProcessId.Value));
+        var parentPath = TryGetProcessPath(parentProcessId.Value);
+        if (IsAllowedParentPath(parentPath))
+        {
+            return true;
+        }
+
+        if (!IsTrustedCommandShellPath(parentPath))
+        {
+            return false;
+        }
+
+        var browserProcessId = TryGetParentProcessId(parentProcessId.Value);
+        return browserProcessId.HasValue && IsAllowedParentPath(TryGetProcessPath(browserProcessId.Value));
     }
 
     public static bool IsAllowedParentPath(string? processPath)
@@ -321,6 +357,32 @@ static class NativeMessagingParent
         };
 
         return roots.Where(root => !string.IsNullOrWhiteSpace(root));
+    }
+
+    static bool IsTrustedCommandShellPath(string? processPath)
+    {
+        if (string.IsNullOrWhiteSpace(processPath) ||
+            !string.Equals(Path.GetFileName(processPath), "cmd.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return TrustedCommandShellPaths().Any(path => PathsEqual(processPath, path));
+    }
+
+    static IEnumerable<string> TrustedCommandShellPaths()
+    {
+        var windowsDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+        var systemDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+
+        var paths = new[]
+        {
+            !string.IsNullOrWhiteSpace(systemDirectory) ? Path.Combine(systemDirectory, "cmd.exe") : null,
+            !string.IsNullOrWhiteSpace(windowsDirectory) ? Path.Combine(windowsDirectory, "System32", "cmd.exe") : null,
+            !string.IsNullOrWhiteSpace(windowsDirectory) ? Path.Combine(windowsDirectory, "SysWOW64", "cmd.exe") : null,
+        };
+
+        return paths.Where(path => !string.IsNullOrWhiteSpace(path)).Cast<string>();
     }
 
     static bool PathsEqual(string left, string right)

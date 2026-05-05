@@ -33,14 +33,9 @@ const DESKTOP_RECONNECT_MS = 10000
 const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
 const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
 const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
-  'list-logins',
-  'list-field-suggestions',
   'get-login',
   'get-identity',
   'get-card',
-  'passkeys-status',
-  'passkey-create-plan',
-  'passkey-get-plan',
   'passkey-create-credential',
   'passkey-get-credential',
 ])
@@ -168,6 +163,22 @@ const clearReconnectProbe = () => {
   if (reconnectTimer) {
     globalThis.clearTimeout(reconnectTimer)
     reconnectTimer = undefined
+  }
+}
+
+const resetNativePort = (port) => {
+  if (port && nativePort && nativePort !== port) {
+    return
+  }
+
+  const currentPort = nativePort
+  nativePort = undefined
+  clearHeartbeat()
+  if (currentPort) {
+    try {
+      currentPort.disconnect()
+    } catch {
+    }
   }
 }
 
@@ -357,6 +368,13 @@ async function sendHostRequest(payload) {
     new Promise((resolve, reject) => {
       const timeoutId = globalThis.setTimeout(() => {
         nativePortRequests.delete(id)
+        resetNativePort(port)
+        updateDesktopState({
+          connected: false,
+          availability: 'offline',
+          lastError: 'Timed out while contacting the Klarkey desktop bridge.',
+          retryAfterSeconds: undefined,
+        })
         reject(new Error('Timed out while contacting the Klarkey desktop bridge.'))
       }, HOST_TIMEOUT_MS)
 
@@ -372,6 +390,13 @@ async function sendHostRequest(payload) {
       } catch (error) {
         nativePortRequests.delete(id)
         globalThis.clearTimeout(timeoutId)
+        resetNativePort(port)
+        updateDesktopState({
+          connected: false,
+          availability: 'offline',
+          lastError: safeExtensionErrorMessage(error),
+          retryAfterSeconds: undefined,
+        })
         reject(error instanceof Error ? error : new Error('Klarkey desktop is not connected.'))
       }
     }),

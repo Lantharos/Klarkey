@@ -84,10 +84,14 @@ async function loadPopup() {
       return
     }
 
+    const passkeysLocked = state.passkeys.locked === true || state.passkeys.status === 'locked'
+
     if (state.passkeys.exactMatchCount > 0) {
-      elements.passkeyTitle.textContent = 'Passkeys are ready for this site.'
+      elements.passkeyTitle.textContent = passkeysLocked ? 'Passkeys are available for this site.' : 'Passkeys are ready for this site.'
       elements.passkeyMessage.textContent =
-        state.passkeys.exactMatchCount === 1
+        passkeysLocked
+          ? 'Windows Hello will unlock Klarkey when you choose one.'
+          : state.passkeys.exactMatchCount === 1
           ? 'Klarkey has a saved passkey directly linked to this site.'
           : `Klarkey has ${state.passkeys.exactMatchCount} saved passkeys directly linked to this site.`
       return
@@ -96,7 +100,9 @@ async function loadPopup() {
     if (state.passkeys.linkedMatchCount > 0) {
       elements.passkeyTitle.textContent = 'Site-linked passkeys are available.'
       elements.passkeyMessage.textContent =
-        state.passkeys.linkedMatchCount === 1
+        passkeysLocked
+          ? 'Windows Hello will unlock Klarkey when you choose one.'
+          : state.passkeys.linkedMatchCount === 1
           ? 'Klarkey found one passkey linked through the saved site match.'
           : `Klarkey found ${state.passkeys.linkedMatchCount} passkeys linked through saved site matches.`
       return

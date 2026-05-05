@@ -105,7 +105,7 @@ const handlePagePasskeyGet = async (requestDetailsJson) => {
     return { fallbackToBrowser: true }
   }
 
-  const selectedCredentialId = await promptPasskeyGetChoice(plan.choices)
+  const selectedCredentialId = await promptPasskeyGetChoice(plan.choices, { locked: plan.locked === true })
   if (!selectedCredentialId) {
     return deniedPasskeyRequest('The passkey request was canceled.')
   }

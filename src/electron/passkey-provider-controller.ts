@@ -71,13 +71,7 @@ export class PasskeyProviderBridgeController {
       }
 
       case 'find-credentials': {
-        if (!this.ensureVaultReady()) {
-          return {
-            id: request.id,
-            ok: true,
-            result: this.lockedProviderResult(),
-          }
-        }
+        this.ensureVaultReady()
 
         const result = this.repository.getPasskeysForBrowserRequest(request.url, request.requestDetailsJson)
         if ('status' in result) {

@@ -57,7 +57,7 @@ import { markRuntimeBusy, noteDesktopActivity, notePaletteOpen, resetRuntimeStat
 import { runSshAgentHost } from '@/electron/ssh-agent-host'
 import { KlarkeyUpdater } from '@/electron/updater'
 import { hasAllowedNativeMessagingHostCaller, hasAllowedPasskeyProviderBridgeCaller, hasAllowedSshAgentHostCaller } from '@/electron/process-parent'
-import { createExternalUnlockToken, EXTERNAL_UNLOCK_TOKEN_ENV, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
+import { createExternalUnlockToken, EXTERNAL_UNLOCK_TOKEN_ENV, hasExternalUnlockRequest, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 import { hasAllowedNativeMessagingCaller } from '@/shared/browser-extension'
 import { isAveOAuthCallbackUrl } from '@/shared/ave-oauth'
@@ -80,6 +80,8 @@ let controllerRef: KlarkeyController | null = null
 let sshAgentHostProcess: ChildProcess | null = null
 let updaterRef: KlarkeyUpdater | null = null
 let isQuitting = false
+let externalUnlockInFlight: Promise<void> | null = null
+let lastExternalUnlockPromptAt = 0
 const importExportPathGrants = new ImportExportPathGrants()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const runtimeMode = resolveRuntimeMode({
@@ -90,6 +92,7 @@ const runtimeMode = resolveRuntimeMode({
 const externalUnlockToken = createExternalUnlockToken()
 const isDevMode = runtimeMode.isDevMode
 const shouldOpenPaletteOnStart = process.argv.includes('--open-palette')
+const shouldExternalUnlockOnStart = hasExternalUnlockRequest(process.argv)
 const shouldAutoUnlockOnStart = hasTrustedExternalUnlockArgs(process.argv, externalUnlockToken)
 const isNativeMessagingHostMode = hasAllowedNativeMessagingCaller(process.argv) && hasAllowedNativeMessagingHostCaller({ isPackaged: app.isPackaged })
 const isPasskeyProviderBridgeMode = process.argv.includes('--passkey-provider-bridge') && hasAllowedPasskeyProviderBridgeCaller({ isPackaged: app.isPackaged })
@@ -334,6 +337,11 @@ const createWindow = async () => {
   }
 
   window.once('ready-to-show', () => {
+    if (shouldExternalUnlockOnStart && !shouldOpenPaletteOnStart) {
+      requestExternalUnlock()
+      return
+    }
+
     if (isDevMode || shouldOpenPaletteOnStart) {
       openPalette({ externalUnlock: shouldAutoUnlockOnStart })
     }
@@ -341,6 +349,45 @@ const createWindow = async () => {
 }
 
 const shouldAutoUnlockFromArgs = (argv: string[]) => hasTrustedExternalUnlockArgs(argv, externalUnlockToken)
+const shouldOpenPaletteFromArgs = (argv: string[]) => argv.includes('--open-palette')
+
+const requestExternalUnlock = () => {
+  if (!controllerRef) {
+    return
+  }
+
+  const lockInfo = controllerRef.getLockInfo()
+  if (lockInfo.state === 'unlocked') {
+    return
+  }
+
+  if (!lockInfo.primaryMethods.includes('windowsHello')) {
+    openPalette()
+    return
+  }
+
+  const now = Date.now()
+  if (externalUnlockInFlight || now - lastExternalUnlockPromptAt < 10000) {
+    return
+  }
+  lastExternalUnlockPromptAt = now
+
+  noteDesktopOperation(60_000)
+  controllerRef.recordActivity()
+
+  const wasAlwaysOnTop = windowRef?.isAlwaysOnTop() ?? false
+  windowRef?.setAlwaysOnTop(false)
+  externalUnlockInFlight = controllerRef.unlockWithWindowsHello()
+    .then(() => undefined)
+    .catch((error) => {
+      console.error('External Windows Hello unlock failed:', safeErrorMessage(error))
+    })
+    .finally(() => {
+      windowRef?.setAlwaysOnTop(wasAlwaysOnTop)
+      externalUnlockInFlight = null
+      nudgeInstallCheck()
+    })
+}
 
 const openPalette = (options?: { externalUnlock?: boolean }) => {
   if (!windowRef || !controllerRef) {
@@ -820,6 +867,11 @@ app.on('second-instance', (_event, argv) => {
   const callbackUrl = findOAuthCallbackUrl(argv)
   if (callbackUrl) {
     handleOAuthCallbackUrl(callbackUrl)
+    return
+  }
+
+  if (hasExternalUnlockRequest(argv) && !shouldOpenPaletteFromArgs(argv)) {
+    requestExternalUnlock()
     return
   }
 

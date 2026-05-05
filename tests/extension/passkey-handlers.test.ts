@@ -179,4 +179,55 @@ describe('extension page passkey handlers', () => {
       },
     })
   })
+
+  it('lets locked passkey choices unlock only after the user selects one', async () => {
+    const calls: string[] = []
+    const sendMessage = vi.fn(async (message: ExtensionMessage) => {
+      calls.push(message.type)
+
+      switch (message.type) {
+        case 'plan-passkey-get':
+          return {
+            ok: true,
+            locked: true,
+            choices: [
+              {
+                credentialId: 'credential-1',
+                itemId: 'item-1',
+                itemName: 'Example',
+                userName: 'person@example.com',
+                rpId: 'example.com',
+              },
+            ],
+          }
+        case 'get-passkey-credential':
+          return {
+            ok: true,
+            responseJson: '{"id":"credential-1"}',
+            credentialId: 'credential-1',
+          }
+        default:
+          throw new Error(`Unexpected message: ${message.type}`)
+      }
+    })
+    const { handlePagePasskeyGet } = await loadHandlers({ sendMessage })
+
+    const result = await handlePagePasskeyGet('{"challenge":"abc"}')
+
+    expect(calls).toEqual(['plan-passkey-get', 'get-passkey-credential'])
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        type: 'get-passkey-credential',
+        payload: expect.objectContaining({
+          credentialId: 'credential-1',
+        }),
+      }),
+    )
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        responseJson: '{"id":"credential-1"}',
+      }),
+    )
+  })
 })

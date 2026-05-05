@@ -1,5 +1,5 @@
 param(
-  [string]$ChromiumExtensionId = "gbdmdcmboinmeckelhacpljieaphedgn",
+  [string[]]$ChromiumExtensionId = @("gbdmdcmboinmeckelhacpljieaphedgn"),
   [string]$FirefoxExtensionId = "klarkey@example.local",
   [switch]$Chrome = $true,
   [switch]$Edge = $true,
@@ -14,6 +14,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $hostRoot = Join-Path $repoRoot "dist-extension\native-host"
 $hostWrapper = Join-Path $hostRoot "Klarkey.NativeHostLauncher.exe"
 $manifestRoot = Join-Path $hostRoot "manifests"
+$chromeWebStoreUpdateUrl = "https://clients2.google.com/service/update2/crx"
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
 
 if (-not (Test-Path $hostWrapper)) {
@@ -42,7 +43,8 @@ function Write-NativeManifest {
     $manifest.allowed_extensions = $AllowedExtensions
   }
 
-  $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path $Path -Encoding UTF8
+  $payload = ($manifest | ConvertTo-Json -Depth 5) + "`n"
+  [System.IO.File]::WriteAllText($Path, $payload, [System.Text.UTF8Encoding]::new($false))
 }
 
 function Set-RegistryHost {
@@ -55,9 +57,33 @@ function Set-RegistryHost {
   Set-ItemProperty -Path $RegistryPath -Name "(default)" -Value $ManifestPath
 }
 
+function Set-ExtensionInstall {
+  param(
+    [string]$RegistryRoot,
+    [string[]]$ExtensionIds
+  )
+
+  foreach ($extensionId in $ExtensionIds) {
+    $extensionId = $extensionId.Trim()
+    if (-not $extensionId) {
+      continue
+    }
+
+    $registryPath = Join-Path $RegistryRoot $extensionId
+    try {
+      New-Item -Path $registryPath -Force | Out-Null
+      Set-ItemProperty -Path $registryPath -Name "update_url" -Value $chromeWebStoreUpdateUrl
+    } catch {
+    }
+  }
+}
+
 $chromiumOrigins = @()
-if ($ChromiumExtensionId) {
-  $chromiumOrigins += "chrome-extension://$ChromiumExtensionId/"
+foreach ($extensionId in $ChromiumExtensionId) {
+  $extensionId = $extensionId.Trim()
+  if ($extensionId) {
+    $chromiumOrigins += "chrome-extension://$extensionId/"
+  }
 }
 
 if ($Chrome -or $Edge -or $Brave -or $Chromium) {
@@ -66,6 +92,9 @@ if ($Chrome -or $Edge -or $Brave -or $Chromium) {
 
   if ($Chrome) {
     Set-RegistryHost -RegistryPath "HKCU:\Software\Google\Chrome\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $chromiumManifest
+    Set-ExtensionInstall -RegistryRoot "HKCU:\Software\Google\Chrome\Extensions" -ExtensionIds $ChromiumExtensionId
+    Set-ExtensionInstall -RegistryRoot "HKLM:\Software\Google\Chrome\Extensions" -ExtensionIds $ChromiumExtensionId
+    Set-ExtensionInstall -RegistryRoot "HKLM:\Software\Wow6432Node\Google\Chrome\Extensions" -ExtensionIds $ChromiumExtensionId
   }
 
   if ($Edge) {
@@ -74,17 +103,26 @@ if ($Chrome -or $Edge -or $Brave -or $Chromium) {
 
   if ($Brave) {
     Set-RegistryHost -RegistryPath "HKCU:\Software\BraveSoftware\Brave-Browser\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $chromiumManifest
+    Set-ExtensionInstall -RegistryRoot "HKCU:\Software\BraveSoftware\Brave-Browser\Extensions" -ExtensionIds $ChromiumExtensionId
   }
 
   if ($Chromium) {
     Set-RegistryHost -RegistryPath "HKCU:\Software\Chromium\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $chromiumManifest
+    Set-ExtensionInstall -RegistryRoot "HKCU:\Software\Chromium\Extensions" -ExtensionIds $ChromiumExtensionId
   }
+
+  Set-RegistryHost -RegistryPath "HKCU:\Software\imput\Helium\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $chromiumManifest
+  Set-RegistryHost -RegistryPath "HKCU:\Software\Helium\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $chromiumManifest
+  Set-ExtensionInstall -RegistryRoot "HKCU:\Software\imput\Helium\Extensions" -ExtensionIds $ChromiumExtensionId
+  Set-ExtensionInstall -RegistryRoot "HKCU:\Software\Helium\Extensions" -ExtensionIds $ChromiumExtensionId
 }
 
 if ($Firefox) {
   $firefoxManifest = Join-Path $manifestRoot "firefox.app.klarkey.desktop.json"
   Write-NativeManifest -Path $firefoxManifest -AllowedExtensions @($FirefoxExtensionId)
   Set-RegistryHost -RegistryPath "HKCU:\Software\Mozilla\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $firefoxManifest
+  Set-RegistryHost -RegistryPath "HKCU:\Software\Zen Browser\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $firefoxManifest
+  Set-RegistryHost -RegistryPath "HKCU:\Software\Zen\NativeMessagingHosts\app.klarkey.desktop" -ManifestPath $firefoxManifest
 }
 
 Write-Host "Klarkey native host registration complete."

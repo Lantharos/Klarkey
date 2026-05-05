@@ -1,5 +1,6 @@
 import {
   KLARKEY_CHROMIUM_EXTENSION_ORIGIN,
+  KLARKEY_CHROMIUM_EXTENSION_ORIGINS,
   KLARKEY_FIREFOX_EXTENSION_ID,
   hasAllowedNativeMessagingCaller,
   isAllowedNativeMessagingCaller,
@@ -36,7 +37,9 @@ describe('browser extension site matching', () => {
   })
 
   it('accepts only the known browser native messaging callers', () => {
+    expect(KLARKEY_CHROMIUM_EXTENSION_ORIGINS).toContain(KLARKEY_CHROMIUM_EXTENSION_ORIGIN)
     expect(isAllowedNativeMessagingCaller(KLARKEY_CHROMIUM_EXTENSION_ORIGIN)).toBe(true)
+    expect(isAllowedNativeMessagingCaller(KLARKEY_CHROMIUM_EXTENSION_ORIGIN.replace(/\/$/, ''))).toBe(true)
     expect(isAllowedNativeMessagingCaller(KLARKEY_FIREFOX_EXTENSION_ID)).toBe(true)
     expect(isAllowedNativeMessagingCaller('chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/')).toBe(false)
     expect(isAllowedNativeMessagingCaller('klarkey@example.invalid')).toBe(false)

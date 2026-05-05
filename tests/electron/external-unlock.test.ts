@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EXTERNAL_UNLOCK_FLAG, EXTERNAL_UNLOCK_TOKEN_FLAG, externalUnlockArgs, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
+import { EXTERNAL_UNLOCK_FLAG, EXTERNAL_UNLOCK_TOKEN_FLAG, externalUnlockArgs, hasExternalUnlockRequest, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
 
 describe('external unlock launch policy', () => {
   it('requires the current session token before auto-unlocking', () => {
@@ -14,5 +14,10 @@ describe('external unlock launch policy', () => {
   it('builds the unlock argv passed from helper processes', () => {
     expect(externalUnlockArgs('session-token')).toEqual([EXTERNAL_UNLOCK_FLAG, EXTERNAL_UNLOCK_TOKEN_FLAG, 'session-token'])
     expect(externalUnlockArgs(undefined)).toEqual([EXTERNAL_UNLOCK_FLAG])
+  })
+
+  it('detects direct external unlock requests', () => {
+    expect(hasExternalUnlockRequest([EXTERNAL_UNLOCK_FLAG])).toBe(true)
+    expect(hasExternalUnlockRequest([EXTERNAL_UNLOCK_TOKEN_FLAG, 'session-token'])).toBe(false)
   })
 })

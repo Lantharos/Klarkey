@@ -3,19 +3,38 @@ import { chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, open
 import { join } from 'node:path'
 import { app } from 'electron'
 import {
-  KLARKEY_CHROMIUM_EXTENSION_ORIGIN,
+  KLARKEY_CHROMIUM_EXTENSION_IDS,
+  KLARKEY_CHROMIUM_EXTENSION_ORIGINS,
   KLARKEY_FIREFOX_EXTENSION_ID,
   KLARKEY_NATIVE_HOST_NAME,
 } from '@/shared/browser-extension'
+
+const chromeWebStoreUpdateUrl = 'https://clients2.google.com/service/update2/crx'
 
 const chromiumRegistryRoots = [
   'HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts',
   'HKCU\\Software\\Microsoft\\Edge\\NativeMessagingHosts',
   'HKCU\\Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts',
   'HKCU\\Software\\Chromium\\NativeMessagingHosts',
+  'HKCU\\Software\\imput\\Helium\\NativeMessagingHosts',
+  'HKCU\\Software\\Helium\\NativeMessagingHosts',
 ]
 
-const firefoxRegistryRoot = 'HKCU\\Software\\Mozilla\\NativeMessagingHosts'
+const chromiumWebStoreExtensionRegistryRoots = [
+  'HKCU\\Software\\Google\\Chrome\\Extensions',
+  'HKLM\\Software\\Google\\Chrome\\Extensions',
+  'HKLM\\Software\\Wow6432Node\\Google\\Chrome\\Extensions',
+  'HKCU\\Software\\BraveSoftware\\Brave-Browser\\Extensions',
+  'HKCU\\Software\\Chromium\\Extensions',
+  'HKCU\\Software\\imput\\Helium\\Extensions',
+  'HKCU\\Software\\Helium\\Extensions',
+]
+
+const firefoxRegistryRoots = [
+  'HKCU\\Software\\Mozilla\\NativeMessagingHosts',
+  'HKCU\\Software\\Zen Browser\\NativeMessagingHosts',
+  'HKCU\\Software\\Zen\\NativeMessagingHosts',
+]
 
 const ignoreUnsupportedModeBits = () => undefined
 
@@ -93,6 +112,31 @@ const setRegistryValue = (registryPath: string, manifestPath: string) => {
   )
 }
 
+const setNamedRegistryValue = (registryPath: string, name: string, value: string) => {
+  execFileSync(
+    'reg',
+    ['ADD', registryPath, '/v', name, '/t', 'REG_SZ', '/d', value, '/f'],
+    {
+      windowsHide: true,
+    },
+  )
+}
+
+const trySetNamedRegistryValue = (registryPath: string, name: string, value: string) => {
+  try {
+    setNamedRegistryValue(registryPath, name, value)
+  } catch {
+    return false
+  }
+
+  return true
+}
+
+export const chromiumWebStoreExtensionRegistryPaths = () =>
+  chromiumWebStoreExtensionRegistryRoots.flatMap((registryRoot) =>
+    KLARKEY_CHROMIUM_EXTENSION_IDS.map((extensionId) => `${registryRoot}\\${extensionId}`),
+  )
+
 export const ensureNativeMessagingHostRegistration = () => {
   if (process.platform !== 'win32') {
     return false
@@ -112,11 +156,15 @@ export const ensureNativeMessagingHostRegistration = () => {
     description: 'Klarkey desktop bridge',
     path: hostPath,
     type: 'stdio',
-    allowed_origins: [KLARKEY_CHROMIUM_EXTENSION_ORIGIN],
+    allowed_origins: KLARKEY_CHROMIUM_EXTENSION_ORIGINS,
   })
 
   for (const registryRoot of chromiumRegistryRoots) {
     setRegistryValue(`${registryRoot}\\${KLARKEY_NATIVE_HOST_NAME}`, chromiumManifestPath)
+  }
+
+  for (const registryPath of chromiumWebStoreExtensionRegistryPaths()) {
+    trySetNamedRegistryValue(registryPath, 'update_url', chromeWebStoreUpdateUrl)
   }
 
   const firefoxManifestPath = join(manifestDirectory, 'firefox.app.klarkey.desktop.json')
@@ -128,7 +176,9 @@ export const ensureNativeMessagingHostRegistration = () => {
     allowed_extensions: [KLARKEY_FIREFOX_EXTENSION_ID],
   })
 
-  setRegistryValue(`${firefoxRegistryRoot}\\${KLARKEY_NATIVE_HOST_NAME}`, firefoxManifestPath)
+  for (const registryRoot of firefoxRegistryRoots) {
+    setRegistryValue(`${registryRoot}\\${KLARKEY_NATIVE_HOST_NAME}`, firefoxManifestPath)
+  }
 
   return true
 }

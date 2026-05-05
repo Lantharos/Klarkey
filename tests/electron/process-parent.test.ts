@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { isAllowedNativeMessagingParentPath, isAllowedPasskeyProviderParentPath, isAllowedSshAgentHostParentPath } from '@/electron/process-parent'
+import {
+  isAllowedNativeMessagingParentChain,
+  isAllowedNativeMessagingParentPath,
+  isAllowedPasskeyProviderParentPath,
+  isAllowedSshAgentHostParentPath,
+} from '@/electron/process-parent'
 
 const nativeMessagingParentEnv = {
   ProgramFiles: 'C:\\Program Files',
   'ProgramFiles(x86)': 'C:\\Program Files (x86)',
   LOCALAPPDATA: 'C:\\Users\\person\\AppData\\Local',
+  SystemRoot: 'C:\\Windows',
 }
 
 describe('native process caller policy', () => {
@@ -29,9 +35,37 @@ describe('native process caller policy', () => {
     expect(isAllowedNativeMessagingParentPath('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', options)).toBe(true)
     expect(isAllowedNativeMessagingParentPath('C:\\Users\\person\\AppData\\Local\\Microsoft\\Edge\\Application\\msedge.exe', options)).toBe(true)
     expect(isAllowedNativeMessagingParentPath('C:\\Program Files\\Mozilla Firefox\\firefox.exe', options)).toBe(true)
+    expect(isAllowedNativeMessagingParentPath('C:\\Users\\person\\AppData\\Local\\imput\\Helium\\Application\\chrome.exe', options)).toBe(true)
+    expect(isAllowedNativeMessagingParentPath('C:\\Program Files\\Zen Browser\\zen.exe', options)).toBe(true)
     expect(isAllowedNativeMessagingParentPath('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe', options)).toBe(false)
     expect(isAllowedNativeMessagingParentPath('C:\\Temp\\chrome.exe', options)).toBe(false)
+    expect(isAllowedNativeMessagingParentPath('C:\\Users\\person\\AppData\\Local\\Other\\Helium\\Application\\chrome.exe', options)).toBe(false)
     expect(isAllowedNativeMessagingParentPath('C:\\Temp\\Klarkey.NativeHostLauncher.exe', options)).toBe(false)
+  })
+
+  it('accepts Chrome native hosts launched through the Windows command shell only with a trusted browser grandparent', () => {
+    const options = { isPackaged: true, env: nativeMessagingParentEnv }
+
+    expect(isAllowedNativeMessagingParentChain(
+      'C:\\Windows\\System32\\cmd.exe',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      options,
+    )).toBe(true)
+    expect(isAllowedNativeMessagingParentChain(
+      'C:\\Windows\\SysWOW64\\cmd.exe',
+      'C:\\Users\\person\\AppData\\Local\\imput\\Helium\\Application\\chrome.exe',
+      options,
+    )).toBe(true)
+    expect(isAllowedNativeMessagingParentChain(
+      'C:\\Windows\\System32\\cmd.exe',
+      'C:\\Temp\\chrome.exe',
+      options,
+    )).toBe(false)
+    expect(isAllowedNativeMessagingParentChain(
+      'C:\\Temp\\cmd.exe',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      options,
+    )).toBe(false)
   })
 
   it('accepts the development native host launcher only outside packaged builds', () => {

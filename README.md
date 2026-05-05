@@ -132,9 +132,9 @@ EXPO_PUBLIC_CONVEX_URL=https://your-deployment.convex.cloud
 
 After `bun run build`, unpacked extension builds are written to `dist-extension/chromium` and `dist-extension/firefox`.
 
-`bun run build:extension` regenerates the background and content bundles, stages only the manifest-declared runtime files, and runs `bun run verify:extension` to reject broad URL permissions, loose extension-page CSP, external messaging, or accidental source files in the packaged extension.
+`bun run build:extension` regenerates the background and content bundles and stages only the manifest-declared runtime files.
 
-Opening Klarkey on Windows now registers the native-messaging bridge for the bundled Chromium and Firefox extension IDs automatically.
+Opening Klarkey on Windows registers the native-messaging bridge for the trusted Chromium and Firefox extension IDs automatically. It also writes Chrome Web Store update metadata where the current install has permission, so Chrome-compatible browsers can pick up Klarkey on the next browser start. Browsers still require the user to enable an externally installed extension.
 
 If you want to force a local re-registration by hand, run:
 
@@ -142,7 +142,7 @@ If you want to force a local re-registration by hand, run:
 ./scripts/install-browser-host.ps1
 ```
 
-That writes native-messaging manifests for Chrome, Edge, Brave, Chromium, and Firefox against the local desktop bridge.
+That writes native-messaging manifests for Chrome, Edge, Brave, Chromium, Helium, Firefox, and Zen against the local desktop bridge, plus Chrome Web Store update metadata for the trusted Chromium extension ID.
 
 ## Testing
 
@@ -174,7 +174,7 @@ Build the extension bundles:
 bun run build:extension
 ```
 
-Register the local native host on Windows:
+Klarkey desktop registers the local native host on Windows when it opens. To force a local re-registration:
 
 ```powershell
 ./scripts/install-browser-host.ps1

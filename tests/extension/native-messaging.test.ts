@@ -40,18 +40,18 @@ describe('extension native messaging retry', () => {
     vi.resetModules()
   })
 
-  it('retries retryable request after unlock signal', async () => {
+  it('retries active secret requests after an unlock signal', async () => {
     const requestTypes: string[] = []
 
     const port = createPortMock((payload) => {
       requestTypes.push(payload.type)
-      if (payload.type === 'list-logins' && requestTypes.filter((t) => t === 'list-logins').length === 1) {
+      if (payload.type === 'get-login' && requestTypes.filter((t) => t === 'get-login').length === 1) {
         return { id: payload.id, ok: true, result: { status: 'locked' } }
       }
       if (payload.type === 'ping') {
         return { id: payload.id, ok: true, result: { vaultUnlocked: true } }
       }
-      return { id: payload.id, ok: true, result: { matches: [] } }
+      return { id: payload.id, ok: true, result: { login: { itemId: 'item-1' } } }
     })
 
     ;(globalThis as unknown as { browser: unknown }).browser = {
@@ -66,10 +66,40 @@ describe('extension native messaging retry', () => {
     }
 
     const mod = await import('../../extension/shared/background/native-messaging.js')
-    const response = await mod.requestHost({ type: 'list-logins', url: 'https://example.com' })
+    const response = await mod.requestHost({ type: 'get-login', itemId: 'item-1', url: 'https://example.com' })
 
     expect(response?.ok).toBe(true)
-    expect(requestTypes).toEqual(['list-logins', 'ping', 'list-logins'])
+    expect(requestTypes).toEqual(['get-login', 'ping', 'get-login'])
+  })
+
+  it('does not wait for unlock on passive locked status requests', async () => {
+    const requestTypes: string[] = []
+
+    const port = createPortMock((payload) => {
+      requestTypes.push(payload.type)
+      return { id: payload.id, ok: true, result: { status: 'locked' } }
+    })
+
+    ;(globalThis as unknown as { browser: unknown }).browser = {
+      runtime: {
+        connectNative: vi.fn(() => port),
+        lastError: undefined,
+      },
+      tabs: {
+        query: vi.fn(async () => []),
+        sendMessage: vi.fn(async () => undefined),
+      },
+    }
+
+    const mod = await import('../../extension/shared/background/native-messaging.js')
+    const response = await mod.requestHost({ type: 'passkeys-status', url: 'https://example.com' })
+
+    expect(response?.ok).toBe(true)
+    if (!response?.ok) {
+      throw new Error('Expected passive status request to return a locked result.')
+    }
+    expect(response.result).toEqual({ status: 'locked' })
+    expect(requestTypes).toEqual(['passkeys-status'])
   })
 
   it('does not retry non-retryable request types', async () => {

@@ -135,6 +135,7 @@ export type BrowserExtensionResponse =
           }
         | {
             matches: BrowserSiteMatch[];
+            locked?: boolean;
           }
         | {
             login?: BrowserFillLogin;
@@ -147,15 +148,18 @@ export type BrowserExtensionResponse =
           }
         | {
             suggestions: BrowserFieldSuggestion[];
+            locked?: boolean;
           }
         | {
             settings: UserSettings;
           }
         | {
             plan: BrowserPasskeySavePlan;
+            locked?: boolean;
           }
         | {
             choices: BrowserPasskeyChoice[];
+            locked?: boolean;
           }
         | ActionExecutionResult
         | {

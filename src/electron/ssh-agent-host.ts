@@ -145,8 +145,8 @@ class SshAgentController {
     const appPath = app.getAppPath()
     const unlockArgs = externalUnlockArgs(process.env[EXTERNAL_UNLOCK_TOKEN_ENV])
     const args = appPath && appPath !== process.execPath
-      ? [appPath, '--open-palette', ...unlockArgs]
-      : ['--open-palette', ...unlockArgs]
+      ? [appPath, ...unlockArgs]
+      : unlockArgs
 
     try {
       const child = spawn(process.execPath, args, {
