@@ -1,5 +1,5 @@
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron'
-import { app, safeStorage } from 'electron'
+import { app } from 'electron'
 import { ClipboardManager } from '@/electron/clipboard'
 import { IPC_CHANNELS } from '@/electron/constants'
 import { KeyManager } from '@/electron/crypto'
@@ -13,6 +13,7 @@ import { exportVault } from '@/electron/export'
 import { importVault } from '@/electron/import'
 import { executePaletteAction } from '@/electron/palette-action-execution'
 import { captureForegroundWindow, captureForegroundWindowAsync } from '@/electron/windows'
+import { getLinuxCredentialsdSupport } from '@/electron/linux-credentialsd'
 import { PASSKEY_ORIGIN, PASSKEY_RP_ID } from '@/shared/passkeys'
 import { parseCommand } from '@/shared/command'
 import { resolveSearchResponse } from '@/shared/resolver'
@@ -53,6 +54,7 @@ export class KlarkeyController {
   private lastExternalWindow?: string
   private externalWindow?: ExternalWindowContext
   private actionCache = new Map<string, ResolvedAction>()
+  private disposed = false
   private readonly isDevMode = resolveRuntimeMode({
     isPackaged: app.isPackaged,
     argv: process.argv,
@@ -78,6 +80,10 @@ export class KlarkeyController {
     this.sync = new ControllerSyncCoordinator(this.window, this.lockManager, this.syncManager, this.repository)
 
     this.lockManager.onStateChange((info) => {
+      if (this.disposed || this.window.isDestroyed() || this.window.webContents.isDestroyed()) {
+        return
+      }
+
       this.window.webContents.send(IPC_CHANNELS.vaultLockState, info)
       if (info.state === 'locked') {
         this.clearSensitiveRuntimeState()
@@ -103,6 +109,8 @@ export class KlarkeyController {
   }
 
   dispose() {
+    this.disposed = true
+    this.lockManager.onStateChange(() => undefined)
     this.sync.dispose()
     this.lockManager.lock()
     this.database.close()
@@ -117,7 +125,7 @@ export class KlarkeyController {
   }
 
   async unlockWithWindowsHello(): Promise<VaultOperationResult> {
-    return this.lockManager.unlockWithWindowsHello()
+    return this.lockManager.unlockWithSystemUser()
   }
 
   unlockWithPassword(password: string): VaultOperationResult {
@@ -245,7 +253,8 @@ export class KlarkeyController {
       platformAuthenticatorAvailable: false,
       conditionalMediationAvailable: false,
       platform: process.platform,
-      safeStorageAvailable: safeStorage.isEncryptionAvailable(),
+      safeStorageAvailable: this.keyManager.isSafeStorageAvailable(),
+      systemPasskeyProvider: getLinuxCredentialsdSupport(),
       relyingPartyId: PASSKEY_RP_ID,
       origin: PASSKEY_ORIGIN,
     }
@@ -365,7 +374,7 @@ export class KlarkeyController {
     return {
       status: 'locked',
       title: 'Vault locked',
-      message: 'Use Windows Hello or your master password to unlock.',
+      message: 'Use system authentication or your master password to unlock.',
     }
   }
 

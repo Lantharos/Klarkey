@@ -115,8 +115,9 @@ async function loadController(options: { lockState?: 'locked' | 'unlocked' } = {
     readTrustedDesktopLockState: vi.fn(() => lockState),
   }))
 
-  vi.doMock('@/electron/windows-hello-verifier', () => ({
-    getWindowsHelloAvailability: vi.fn(async () => ({ available: true })),
+  vi.doMock('@/electron/os-user-verification', () => ({
+    getSystemUserVerificationAvailability: vi.fn(async () => ({ available: true, label: 'system authentication' })),
+    getSystemUserVerificationLabel: vi.fn(() => 'system authentication'),
   }))
 
   vi.doMock('@/electron/browser-fill-grants', () => ({

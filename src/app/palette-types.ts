@@ -10,6 +10,7 @@ export type DetailAction = {
   actionId?: string
   modifier?: ModifierKey
   disabled?: boolean
+  disabledReason?: string
   tone?: 'default' | 'success' | 'danger'
   otp?: TotpDetails
 }

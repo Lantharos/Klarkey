@@ -27,6 +27,12 @@ export function VaultLockScreen({
     inputRef.current?.focus();
   }, []);
 
+  const userAgent = navigator.userAgent;
+  const systemAuthLabel = userAgent.includes("Windows")
+    ? "Windows Hello"
+    : userAgent.includes("Mac")
+      ? "Touch ID"
+      : "system authentication";
   const canUseHello = lockInfo.primaryMethods.includes("windowsHello");
   const needsPassword = lockInfo.primaryMethods.includes("masterPassword");
 
@@ -38,10 +44,10 @@ export function VaultLockScreen({
     }
     const result = await onUnlockWithHello();
     if (!result.success) {
-      setError(result.message || "Windows Hello verification failed.");
+      setError(result.message || `${systemAuthLabel} verification failed.`);
     }
     setHelloLoading(false);
-  }, [helloLoading, needsPassword, onUnlockWithHello]);
+  }, [helloLoading, needsPassword, onUnlockWithHello, systemAuthLabel]);
 
   useEffect(() => {
     if (!autoUnlockWithHello) {
@@ -110,19 +116,19 @@ export function VaultLockScreen({
 
       <div className="flex flex-col items-center gap-1 text-center">
         <div className="text-[18px] font-medium text-white">Vault locked</div>
-        <div className="max-w-[280px] text-[14px] text-white/50">
+        <div className="max-w-[360px] text-[14px] text-white/50">
           {helloLoading
-            ? "Verifying with Windows Hello..."
+            ? `Verifying with ${systemAuthLabel}...`
             : needsPassword
               ? "Enter your master password to unlock."
               : canUseHello
-                ? "Press Enter to unlock with Windows Hello."
+                ? `Press Enter to unlock with ${systemAuthLabel}.`
                 : "Set up a master password to protect your vault."}
         </div>
       </div>
 
       {(canUseHello || needsPassword) && (
-        <div className="flex w-full max-w-[280px] flex-col gap-3">
+        <div className="flex w-full max-w-[360px] flex-col gap-3">
           {needsPassword && (
             <div className="flex flex-col gap-2">
               <input
@@ -158,14 +164,14 @@ export function VaultLockScreen({
               type="button"
               onClick={() => void handleHello()}
               disabled={helloLoading}
-              className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-white/10 text-[14px] font-medium text-white transition hover:bg-white/14 disabled:opacity-60"
+              className="flex h-10 w-full items-center justify-center gap-2 rounded-[10px] bg-white/10 px-4 text-[14px] font-medium text-white transition hover:bg-white/14 disabled:opacity-60"
             >
-              <FingerprintIcon width={16} height={16} />
-              <span>
-                {helloLoading ? "Verifying..." : "Unlock with Windows Hello"}
+              <FingerprintIcon width={16} height={16} className="shrink-0" />
+              <span className="whitespace-nowrap">
+                {helloLoading ? "Verifying..." : `Unlock with ${systemAuthLabel}`}
               </span>
               {!helloLoading && (
-                <kbd className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded bg-white/15 px-1 text-[16px] font-medium text-white/70">
+                <kbd className="ml-0.5 inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded bg-white/15 px-1 text-[16px] font-medium text-white/70">
                   ↵
                 </kbd>
               )}

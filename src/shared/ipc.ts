@@ -3,6 +3,7 @@ import type {
   ActionExecutionResult,
   CommandQuery,
   CreateItemInput,
+  DesktopIntegrationSupport,
   CreateVaultPasskeyInput,
   ExternalWindowContext,
   ItemDetails,
@@ -32,6 +33,9 @@ export interface KlarkeyApi {
   }
   action: {
     execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>
+  }
+  desktop: {
+    getSupport: () => Promise<DesktopIntegrationSupport>
   }
   clipboard: {
     copySecret: (value: string) => Promise<ActionExecutionResult>

@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   commandParse: 'command.parse',
   searchResolve: 'search.resolve',
   actionExecute: 'action.execute',
+  desktopSupport: 'desktop.support',
   clipboardCopySecret: 'clipboard.copySecret',
   itemGet: 'item.get',
   itemCreate: 'item.create',

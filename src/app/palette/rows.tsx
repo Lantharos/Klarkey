@@ -115,26 +115,29 @@ export function ResultRow({
         }
       }}
       onFocus={onHover}
+      disabled={action.disabled}
       className={clsx(
         'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition',
-        selected ? 'bg-white/10 text-white' : 'text-white/74',
-        pointerActive ? 'hover:bg-white/5' : '',
+        action.disabled ? 'cursor-default text-white/30' : selected ? 'bg-white/10 text-white' : 'text-white/74',
+        pointerActive && !action.disabled ? 'hover:bg-white/5' : '',
       )}
     >
       <RowIcon action={action} />
       <div className="min-w-0">
         <div className="flex min-w-0 items-baseline gap-3">
-          <span className="truncate text-[16px] font-medium text-white">{action.title}</span>
-          <span className="truncate text-[14px] text-white/40">{action.subtitle}</span>
+          <span className={clsx('truncate text-[16px] font-medium', action.disabled ? 'text-white/34' : 'text-white')}>{action.title}</span>
+          <span className="truncate text-[14px] text-white/40">{action.disabledReason || action.subtitle}</span>
         </div>
       </div>
       <div className="flex items-center gap-3 text-[13px] text-white/38">
         <span>
-          {action.kind === 'create-item' && action.itemType
+          {action.disabled
+            ? 'Setup'
+            : action.kind === 'create-item' && action.itemType
             ? getCreateTitle(action.itemType)
             : actionKindLabel(action)}
         </span>
-        <ReturnHint />
+        {action.disabled ? null : <ReturnHint />}
       </div>
     </button>
   )
@@ -209,10 +212,13 @@ export function DetailRow({
           <Icon size={15} />
         )}
       </div>
-      <div className="truncate text-[15px] font-medium text-white">{action.title}</div>
+      <div className={clsx('min-w-0', action.disabled ? '' : 'truncate')}>
+        <div className={clsx('truncate text-[15px] font-medium', action.disabled ? 'text-white/36' : 'text-white')}>{action.title}</div>
+        {action.disabledReason ? <div className="mt-0.5 truncate text-[12px] text-white/28">{action.disabledReason}</div> : null}
+      </div>
       <div className="flex items-center justify-end gap-3 text-[13px] text-white/34">
         {action.otp ? <OtpRowTimer otp={action.otp} /> : null}
-        {action.disabled ? 'Soon' : <ReturnHint />}
+        {action.disabled ? 'Setup' : <ReturnHint />}
       </div>
     </button>
   )

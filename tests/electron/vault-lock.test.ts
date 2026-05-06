@@ -232,7 +232,8 @@ describe('VaultLockManager passcode removal', () => {
     const result = manager.unlockWithPassword('anything')
 
     expect(result.success).toBe(false)
-    expect(result.message).toBe('Use Windows Hello to unlock this vault, or set a master password first.')
+    const authLabel = process.platform === 'win32' ? 'Windows Hello' : process.platform === 'darwin' ? 'Touch ID' : 'system authentication'
+    expect(result.message).toBe(`Use ${authLabel} to unlock this vault, or set a master password first.`)
     expect(db.settings.get('unlock_failed_attempts')).toBeUndefined()
     expect(db.settings.get('vault_lock_state')).toBe('locked')
   })

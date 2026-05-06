@@ -37,6 +37,14 @@ describe('Electron IPC validation', () => {
       actionId: 'copy:item_123:password',
       modifier: 'control',
     })
+    expect(sanitizeActionExecutionRequest('paste:item-123:password', 'none')).toEqual({
+      actionId: 'paste:item-123:password',
+      modifier: 'none',
+    })
+    expect(sanitizeActionExecutionRequest('paste:sync:item-123:password', 'none')).toEqual({
+      actionId: 'paste:sync:item-123:password',
+      modifier: 'none',
+    })
     expect(() => sanitizeActionExecutionRequest('copy:item_123:script', 'control')).toThrow('Invalid IPC payload')
     expect(() => sanitizeActionExecutionRequest('copy:item_123:password:extra', 'control')).toThrow('Invalid IPC payload')
     expect(() => sanitizeActionExecutionRequest('copy:item_123:password', 'meta')).toThrow('Invalid IPC payload')

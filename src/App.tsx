@@ -36,6 +36,12 @@ import { ImportLoadingPage } from "@/app/import-loading-page";
 import { RecoveryCodesPage } from "@/app/recovery-codes-page";
 import { DEFAULT_SETTINGS, type UpdateItemInput } from "@/shared/types";
 
+const paletteShellClassName =
+  "flex h-full min-h-full flex-col bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
+
+const mainPaletteShellClassName =
+  "relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
+
 function App() {
   const hydrated = usePaletteStore((state) => state.hydrated);
   const bootError = usePaletteStore((state) => state.bootError);
@@ -48,6 +54,7 @@ function App() {
   const execution = usePaletteStore((state) => state.execution);
   const settings = usePaletteStore((state) => state.settings);
   const syncStatus = usePaletteStore((state) => state.syncStatus);
+  const desktopSupport = usePaletteStore((state) => state.desktopSupport);
   const hasMoreResults = usePaletteStore((state) => state.hasMoreResults);
   const isLoadingMore = usePaletteStore((state) => state.isLoadingMore);
   const boot = usePaletteStore((state) => state.boot);
@@ -134,10 +141,28 @@ function App() {
   const selection = actions[selectedIndex];
   const activeDetailItem =
     detailAction?.itemId === detailItem?.itemId ? detailItem : undefined;
-  const detailActions = useMemo(
-    () => buildDetailActions(activeDetailItem, targetWindow),
-    [activeDetailItem, targetWindow],
-  );
+  const detailActions = useMemo(() => {
+    const actions = buildDetailActions(activeDetailItem, targetWindow);
+    const insertUnavailableReason =
+      desktopSupport && !desktopSupport.autoPaste.available
+        ? desktopSupport.autoPaste.message ||
+          "Install ydotool or wtype on Wayland. On X11, install xdotool."
+        : undefined;
+
+    if (!insertUnavailableReason) {
+      return actions;
+    }
+
+    return actions.map((action) =>
+      action.actionId?.startsWith("paste:")
+        ? {
+            ...action,
+            disabled: true,
+            disabledReason: insertUnavailableReason,
+          }
+        : action,
+    );
+  }, [activeDetailItem, desktopSupport, targetWindow]);
   const selectedDetailAction = detailActions[selectedIndex];
   const formLoading =
     page === "form" &&
@@ -407,7 +432,7 @@ function App() {
 
   if (lockInfo?.state === "locked" && page !== "locked") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={lockInfo}
           onUnlockWithHello={unlockWithHello}
@@ -420,7 +445,7 @@ function App() {
 
   if (lockInfo?.state === "passcode" && page !== "passcode") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -431,7 +456,7 @@ function App() {
 
   if (page === "locked") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={
             lockInfo ?? {
@@ -454,7 +479,7 @@ function App() {
 
   if (page === "passcode") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo?.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -465,7 +490,7 @@ function App() {
 
   if (page === "set-passcode") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <PasscodeSetupScreen
           onSubmit={submitSetPasscode}
           onCancel={() => void goBackOrClose()}
@@ -476,7 +501,7 @@ function App() {
 
   if (page === "set-master-password") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <MasterPasswordSetupScreen
           onSubmit={submitSetMasterPassword}
           onCancel={() => void goBackOrClose()}
@@ -513,7 +538,7 @@ function App() {
 
   return (
     <div
-      className="relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]"
+      className={mainPaletteShellClassName}
       onMouseMove={() => {
         if (!pointerActive) {
           setPointerActive(true);
@@ -860,6 +885,7 @@ function App() {
                 <>
                   <span>
                     {footerMessage ??
+                      selectedDetailAction?.disabledReason ??
                       selectedDetailAction?.title ??
                       detailAction?.title ??
                       "Select an action."}
@@ -962,6 +988,7 @@ function App() {
               }
             >
               {footerMessage ??
+                selection?.disabledReason ??
                 selection?.primaryHint ??
                 "Type an item or action."}
             </span>

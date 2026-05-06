@@ -133,6 +133,9 @@ const api: KlarkeyApi = {
   action: {
     execute: (actionId, modifier) => ipcRenderer.invoke(IPC_CHANNELS.actionExecute, actionId, modifier),
   },
+  desktop: {
+    getSupport: () => ipcRenderer.invoke(IPC_CHANNELS.desktopSupport),
+  },
   clipboard: {
     copySecret: (value) => ipcRenderer.invoke(IPC_CHANNELS.clipboardCopySecret, value),
   },

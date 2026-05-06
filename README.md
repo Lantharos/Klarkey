@@ -1,6 +1,6 @@
 # Klarkey
 
-Klarkey is a Windows-first Electron command palette for local item and credential flows. Press `Alt+S`, search by item or action, and execute identity actions without opening a traditional vault.
+Klarkey is a cross-platform Electron command palette for local item and credential flows. Press `Alt+S`, search by item or action, and execute identity actions without opening a traditional vault.
 
 ## Stack
 
@@ -23,7 +23,7 @@ Klarkey is a Windows-first Electron command palette for local item and credentia
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
 - Browser extension foundation for desktop-only native-messaging autofill and save flows, with origin-only site matching, public-suffix checks, and click-scoped identity/card fill access
 - Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge, attached to login items, and finalized within a short pending window
-- Windows Hello-backed user verification for browser passkeys on Windows when a site asks for platform verification
+- OS-backed user verification for browser passkeys when a site asks for platform verification: Windows Hello on Windows, Touch ID on macOS, and Polkit system authentication on Linux
 - Ave-authenticated Convex cloud sync foundation with encrypted vault records, per-device metadata, conflict copies, and a future entitlement gate
 - Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
 - Clipboard auto-clear for copied secrets
@@ -80,7 +80,7 @@ bun run build
 
 ## Desktop release
 
-Windows desktop releases use the NSIS target and GitHub release metadata for updater support. Before packaging a release, set code-signing material and run the release policy verifier:
+Desktop releases use a platform-specific Electron Builder target: NSIS on Windows, AppImage on Linux, and dmg/zip on macOS. Before packaging a Windows release, set code-signing material and run the release policy verifier:
 
 ```powershell
 $env:CSC_LINK="file://C:/path/to/klarkey.pfx"
@@ -88,17 +88,18 @@ $env:CSC_KEY_PASSWORD="certificate_password"
 bun run verify:desktop-release
 ```
 
-`bun run build:desktop` runs this verifier before `electron-builder`. The GitHub release workflow expects the same signing values in `WINDOWS_CODESIGN_CERTIFICATE` and `WINDOWS_CODESIGN_PASSWORD` secrets.
+`bun run build:desktop` runs this verifier, builds the app, and packages for the current OS. The GitHub release workflow expects the same signing values in `WINDOWS_CODESIGN_CERTIFICATE` and `WINDOWS_CODESIGN_PASSWORD` secrets for Windows builds.
 
 ## Notes
 
-- Existing desktop vaults start locked. Sensitive actions use an in-memory unlock window on top of OS-backed key protection, and OS-backed keys are released only after Windows Hello verification or a configured master-password unlock.
+- Existing desktop vaults start locked. Sensitive actions use an in-memory unlock window on top of OS-backed key protection, and OS-backed keys are released only after OS user verification or a configured master-password unlock.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
-- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses the native Windows Hello helper for UV-capable Windows flows.
+- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses OS user verification for UV-capable flows.
 - Local and synced settings are validated before use; unsafe hotkeys and out-of-range lock or clipboard timings fall back to defaults instead of being applied.
 - Browser fill suggestions are available by default, but login auto-submit is opt-in from settings so filling and submitting remain separate decisions unless the user enables it.
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode, and bridge errors are bounded and redacted before they cross process boundaries.
 - The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
+- Linux system-wide passkey picker integration is tracked against the emerging credentialsd D-Bus portal work. Current Linux desktop support uses the browser extension plus Polkit for local user verification.
 - Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
 - The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, screenshot protection, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped synced passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and synced passkey source.
 
@@ -134,7 +135,7 @@ After `bun run build`, unpacked extension builds are written to `dist-extension/
 
 `bun run build:extension` regenerates the background and content bundles and stages only the manifest-declared runtime files.
 
-Opening Klarkey on Windows registers the native-messaging bridge for the trusted Chromium and Firefox extension IDs automatically. It also writes Chrome Web Store update metadata where the current install has permission, so Chrome-compatible browsers can pick up Klarkey on the next browser start. Browsers still require the user to enable an externally installed extension.
+Opening Klarkey registers the native-messaging bridge for the trusted Chromium and Firefox extension IDs automatically on Windows, Linux, and macOS. On Windows it also writes Chrome Web Store update metadata where the current install has permission, so Chrome-compatible browsers can pick up Klarkey on the next browser start. Browsers still require the user to enable an externally installed extension.
 
 If you want to force a local re-registration by hand, run:
 
@@ -174,7 +175,7 @@ Build the extension bundles:
 bun run build:extension
 ```
 
-Klarkey desktop registers the local native host on Windows when it opens. To force a local re-registration:
+Klarkey desktop registers the local native host when it opens. On Linux and macOS it writes browser native-messaging manifests into the standard per-user browser locations. To force a local Windows re-registration:
 
 ```powershell
 ./scripts/install-browser-host.ps1

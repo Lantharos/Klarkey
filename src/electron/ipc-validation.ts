@@ -308,24 +308,37 @@ function isKnownDirectAction(actionId: string) {
     return true
   }
 
-  const parts = actionId.split(':')
-  const [kind, itemId, field] = parts
-  if ((kind === 'open' || kind === 'switch') && parts.length === 2 && itemId) {
-    expectItemId(itemId)
+  const firstSeparator = actionId.indexOf(':')
+  const kind = firstSeparator === -1 ? actionId : actionId.slice(0, firstSeparator)
+  const rest = firstSeparator === -1 ? '' : actionId.slice(firstSeparator + 1)
+  const expectActionItemId = (value: string) => expectString(value, ITEM_ID_MAX, false)
+
+  if ((kind === 'open' || kind === 'switch') && rest) {
+    expectActionItemId(rest)
     return true
   }
-  if ((kind === 'copy' || kind === 'show' || kind === 'paste') && parts.length === 3 && itemId && field && directActionFields.has(field)) {
-    expectItemId(itemId)
+
+  const lastSeparator = rest.lastIndexOf(':')
+  const itemId = lastSeparator === -1 ? '' : rest.slice(0, lastSeparator)
+  const field = lastSeparator === -1 ? '' : rest.slice(lastSeparator + 1)
+
+  if ((kind === 'copy' || kind === 'show' || kind === 'paste') && itemId && field && directActionFields.has(field)) {
+    expectActionItemId(itemId)
     return true
   }
-  if (kind === 'configure' && parts.length === 3 && itemId && field === 'gitSigning') {
-    expectItemId(itemId)
+
+  if (kind === 'configure' && itemId && field === 'gitSigning') {
+    expectActionItemId(itemId)
     return true
   }
+
   if (kind === 'create') {
+    const parts = actionId.split(':')
     return parts.length >= 3 && itemTypes.has(parts[1] as ItemType) && parts.slice(2).join(':').length <= COMMAND_TEXT_MAX
   }
+
   if (kind === 'coming-soon') {
+    const parts = actionId.split(':')
     return parts.length === 2 && itemTypes.has(parts[1] as ItemType)
   }
 

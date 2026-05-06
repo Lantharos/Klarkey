@@ -3,7 +3,7 @@ import type { BrowserWindow } from 'electron'
 import { ClipboardManager } from '@/electron/clipboard'
 import type { VaultRepository } from '@/electron/repository'
 import { createGitSigningSnippet } from '@/electron/ssh'
-import { pasteIntoWindow } from '@/electron/windows'
+import { canPasteIntoExternalWindow, pasteIntoWindow } from '@/electron/windows'
 import { parseCommand } from '@/shared/command'
 import { resolveActions } from '@/shared/resolver'
 import type { ActionExecutionResult, ItemDetails, ModifierKey, ResolvedAction } from '@/shared/types'
@@ -27,7 +27,13 @@ export function executePaletteAction(
 ): ActionExecutionResult {
   const settings = ctx.repository.getSettings()
   const parseAction = () => {
-    const [kind, itemId, field] = actionId.split(':')
+    const firstSeparator = actionId.indexOf(':')
+    const kind = firstSeparator === -1 ? actionId : actionId.slice(0, firstSeparator)
+    const rest = firstSeparator === -1 ? '' : actionId.slice(firstSeparator + 1)
+    const lastSeparator = rest.lastIndexOf(':')
+    const itemId = lastSeparator === -1 ? rest : rest.slice(0, lastSeparator)
+    const field = lastSeparator === -1 ? undefined : rest.slice(lastSeparator + 1)
+
     return { kind, itemId, field }
   }
   const getItemField = (item: ItemDetails | undefined, field: string) => {
@@ -124,7 +130,7 @@ export function executePaletteAction(
       }
     }
 
-    if (!ctx.getLastExternalWindow()) {
+    if (process.platform === 'win32' && !ctx.getLastExternalWindow()) {
       return {
         status: 'error',
         title: 'No previous field',
@@ -132,19 +138,34 @@ export function executePaletteAction(
       }
     }
 
+    const lastExternalWindow = ctx.getLastExternalWindow()
     ctx.clipboard.copy(value, INSERT_CLIPBOARD_CLEAR_SECONDS)
+    if (!canPasteIntoExternalWindow(lastExternalWindow)) {
+      return {
+        status: process.platform === 'win32' ? 'error' : 'success',
+        title: process.platform === 'win32' ? 'Insert failed' : 'Value ready',
+        message:
+          process.platform === 'linux'
+            ? 'Install xdotool, ydotool, or wtype to paste automatically. Clipboard clears shortly.'
+            : 'Paste it into the field. Clipboard clears shortly.',
+      }
+    }
+
     ctx.window.hide()
-    const pasted = pasteIntoWindow(ctx.getLastExternalWindow()!)
+    const pasted = pasteIntoWindow(lastExternalWindow ?? '')
     return pasted
       ? {
           status: 'success',
           title: 'Value inserted',
-          message: 'Pasted into the last selected field.',
+          message: process.platform === 'win32' ? 'Pasted into the last selected field.' : 'Pasted into the active field.',
         }
       : {
-          status: 'error',
-          title: 'Insert failed',
-          message: 'Could not focus the previous window.',
+          status: process.platform === 'win32' ? 'error' : 'success',
+          title: process.platform === 'win32' ? 'Insert failed' : 'Value ready',
+          message:
+            process.platform === 'win32'
+              ? 'Could not focus the previous window.'
+              : 'Paste it into the field. Clipboard clears shortly.',
         }
   }
 
@@ -217,7 +238,7 @@ export function executePaletteAction(
   }
 
   if (actionId.startsWith('configure:')) {
-    const [, itemId, field] = actionId.split(':')
+    const { itemId, field } = parseAction()
     const item = itemId ? ctx.repository.getItemDetails(itemId) : undefined
 
     if (!item || field !== 'gitSigning' || !item.sshPublicKey) {

@@ -235,7 +235,15 @@ export class KeyManager {
   }
 
   isSafeStorageAvailable(): boolean {
-    return safeStorage.isEncryptionAvailable()
+    if (!safeStorage.isEncryptionAvailable()) {
+      return false
+    }
+
+    if (process.platform === 'linux' && typeof safeStorage.getSelectedStorageBackend === 'function') {
+      return safeStorage.getSelectedStorageBackend() !== 'basic_text'
+    }
+
+    return true
   }
 
   hasKeyFile(): boolean {
@@ -272,7 +280,7 @@ export class KeyManager {
 
     try {
       const parsed = JSON.parse(raw) as KeyFileFormat
-      if (parsed.version !== KEY_FILE_VERSION || parsed.method !== 'safeStorage' || !safeStorage.isEncryptionAvailable()) {
+      if (parsed.version !== KEY_FILE_VERSION || parsed.method !== 'safeStorage' || !this.isSafeStorageAvailable()) {
         return false
       }
       const key = decode(safeStorage.decryptString(Buffer.from(parsed.data, 'base64')))
@@ -320,6 +328,13 @@ export class KeyManager {
     return key
   }
 
+  replaceEmptyVaultSystemKey(): Buffer {
+    const key = randomBytes(32)
+    this.persistKey(key)
+    this.cachedKey = key
+    return key
+  }
+
   setupWithMasterPassword(password: string): Buffer {
     if (this.isKeyInMemory()) {
       this.persistKeyWithPassword(this.cachedKey!, password)
@@ -357,7 +372,7 @@ export class KeyManager {
   }
 
   removeMasterPassword(currentPassword: string): boolean {
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.isSafeStorageAvailable()) {
       return false
     }
 
@@ -428,7 +443,7 @@ export class KeyManager {
     const filePath = this.getPath()
     mkdirSync(dirname(filePath), { recursive: true })
 
-    if (safeStorage.isEncryptionAvailable()) {
+    if (this.isSafeStorageAvailable()) {
       this.persistKeyWithSafeStorage(key)
       return
     }

@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { rmSync } from 'node:fs'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import {
   app,
   BrowserWindow,
@@ -21,6 +21,8 @@ import {
 import { ensureNativeMessagingHostRegistration } from '@/electron/browser-host-registration'
 import { KlarkeyController } from '@/electron/controller'
 import { IPC_CHANNELS } from '@/electron/constants'
+import { ensureLinuxProtocolClientRegistration } from '@/electron/linux-protocol-client'
+import { getDesktopIntegrationSupport } from '@/electron/windows'
 import { resolveRuntimeMode } from '@/electron/app-mode'
 import { ImportExportPathGrants } from '@/electron/import-export-access'
 import {
@@ -58,6 +60,7 @@ import { runSshAgentHost } from '@/electron/ssh-agent-host'
 import { KlarkeyUpdater } from '@/electron/updater'
 import { hasAllowedNativeMessagingHostCaller, hasAllowedPasskeyProviderBridgeCaller, hasAllowedSshAgentHostCaller } from '@/electron/process-parent'
 import { createExternalUnlockToken, EXTERNAL_UNLOCK_TOKEN_ENV, hasExternalUnlockRequest, hasTrustedExternalUnlockArgs } from '@/electron/external-unlock'
+import { ensureLinuxDesktopShortcutFallback } from '@/electron/linux-global-shortcut'
 import { PASSKEY_HOST, PASSKEY_ORIGIN, PASSKEY_SCHEME } from '@/shared/passkeys'
 import { hasAllowedNativeMessagingCaller } from '@/shared/browser-extension'
 import { isAveOAuthCallbackUrl } from '@/shared/ave-oauth'
@@ -74,6 +77,10 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ])
+
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal')
+}
 
 let windowRef: BrowserWindow | null = null
 let controllerRef: KlarkeyController | null = null
@@ -107,8 +114,47 @@ const rendererTrustOptions = () => ({
 const appIconPath = () =>
   isDevMode ? join(app.getAppPath(), 'public', 'klarkey.png') : join(app.getAppPath(), 'dist', 'klarkey.png')
 const appIcon = () => nativeImage.createFromPath(appIconPath())
+const supportsAcrylicWindowBackground = () => process.platform === 'win32' || process.platform === 'darwin'
 const hasSingleInstanceLock = isNativeMessagingHostMode || isPasskeyProviderBridgeMode || isSshAgentHostMode ? true : app.requestSingleInstanceLock()
 const findOAuthCallbackUrl = (argv: string[]) => argv.find(isAveOAuthCallbackUrl)
+
+const hasCommand = (command: string) => {
+  try {
+    execFileSync('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const toZenityFileFilters = (filters: Electron.FileFilter[]) =>
+  filters.map((filter) => `${filter.name} | ${filter.extensions.map((extension) => (extension === '*' ? '*' : `*.${extension}`)).join(' ')}`)
+
+const pickFileWithZenity = (mode: 'open' | 'save', filters: Electron.FileFilter[]) => {
+  if (process.platform !== 'linux' || !hasCommand('zenity')) {
+    return undefined
+  }
+
+  const args = ['--file-selection', mode === 'save' ? '--save' : '', mode === 'save' ? '--confirm-overwrite' : '']
+    .filter(Boolean)
+    .concat(toZenityFileFilters(filters).flatMap((filter) => ['--file-filter', filter]))
+
+  try {
+    return execFileSync('zenity', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined
+  } catch {
+    return undefined
+  }
+}
+
+const withFileDialogWindowState = async <T>(picker: () => Promise<T>) => {
+  const wasAlwaysOnTop = windowRef?.isAlwaysOnTop() ?? false
+  windowRef?.setAlwaysOnTop(false)
+  try {
+    return await picker()
+  } finally {
+    windowRef?.setAlwaysOnTop(wasAlwaysOnTop)
+  }
+}
 
 const spawnBackgroundHost = (modeFlag: '--ssh-agent-host') => {
   const appPath = app.getAppPath()
@@ -206,6 +252,13 @@ const registerAppProtocol = () => {
 }
 
 const registerOAuthProtocolClient = () => {
+  if (process.platform === 'linux') {
+    const registered = ensureLinuxProtocolClientRegistration()
+    if (!registered) {
+      console.warn('Could not register the Linux klarkey:// protocol handler.')
+    }
+  }
+
   if (process.defaultApp) {
     app.setAsDefaultProtocolClient(PASSKEY_SCHEME, process.execPath, [app.getAppPath()])
     return
@@ -266,7 +319,7 @@ const createWindow = async () => {
     minWidth: 720,
     minHeight: 460,
     frame: false,
-    transparent: false,
+    transparent: supportsAcrylicWindowBackground(),
     show: false,
     resizable: false,
     maximizable: false,
@@ -275,8 +328,8 @@ const createWindow = async () => {
     skipTaskbar: true,
     alwaysOnTop: true,
     titleBarStyle: 'hidden',
-    backgroundColor: '#0f1011',
-    backgroundMaterial: 'acrylic',
+    backgroundColor: supportsAcrylicWindowBackground() ? '#0f1011cc' : '#1a1a1b',
+    backgroundMaterial: supportsAcrylicWindowBackground() ? 'acrylic' : 'none',
     roundedCorners: true,
     icon: appIconPath(),
     webPreferences: {
@@ -324,7 +377,9 @@ const createWindow = async () => {
     console.error('Klarkey renderer crashed', safeRendererProcessGoneDetails(details))
   })
 
-  window.setBackgroundMaterial?.('acrylic')
+  if (supportsAcrylicWindowBackground()) {
+    window.setBackgroundMaterial?.('acrylic')
+  }
 
   windowRef = window
   controllerRef = new KlarkeyController(window)
@@ -401,13 +456,22 @@ const openPalette = (options?: { externalUnlock?: boolean }) => {
   const x = Math.round(display.workArea.x + (display.workArea.width - bounds.width) / 2)
   const y = Math.round(display.workArea.y + display.workArea.height * 0.12)
 
+  windowRef.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  windowRef.setAlwaysOnTop(false)
+  windowRef.setAlwaysOnTop(true, 'screen-saver')
+  windowRef.setFocusable(true)
   windowRef.setPosition(x, y, false)
+  if (windowRef.isMinimized()) {
+    windowRef.restore()
+  }
   windowRef.moveTop()
   controllerRef?.rememberExternalWindow()
   windowRef.webContents.send(IPC_CHANNELS.palettePrepare, options?.externalUnlock ? { externalUnlock: true } : undefined)
 
   setTimeout(() => {
-    windowRef?.showInactive()
+    windowRef?.show()
+    windowRef?.setAlwaysOnTop(true, 'screen-saver')
+    windowRef?.moveTop()
     windowRef?.focus()
     windowRef?.webContents.focus()
     controllerRef?.focus()
@@ -430,7 +494,15 @@ const shouldKeepPaletteVisibleOnBlur = () => {
 const registerHotkey = () => {
   const hotkey = controllerRef?.getSettings().hotkey ?? 'Alt+S'
   globalShortcut.unregisterAll()
-  globalShortcut.register(hotkey, openPaletteFromUser)
+  const registered = globalShortcut.register(hotkey, openPaletteFromUser)
+  if (!registered) {
+    const installedDesktopFallback = ensureLinuxDesktopShortcutFallback(hotkey)
+    console.warn(
+      installedDesktopFallback
+        ? `Electron could not register ${hotkey}; installed a desktop shortcut fallback.`
+        : `Could not register global shortcut ${hotkey}.`,
+    )
+  }
 }
 
 const createTray = () => {
@@ -516,6 +588,10 @@ const bindIpc = () => {
       return controllerRef?.execute(event, request.actionId, request.modifier) ?? vaultLockedResult
     })),
   )
+  ipcMain.handle(IPC_CHANNELS.desktopSupport, (event) => {
+    validateIpcSender(event)
+    return getDesktopIntegrationSupport()
+  })
   ipcMain.handle(
     IPC_CHANNELS.clipboardCopySecret,
     withDesktopInteraction(15_000, withVaultUnlocked(vaultLockedResult, (_event, value) =>
@@ -598,7 +674,10 @@ const bindIpc = () => {
       globalShortcut.unregisterAll()
       const ok = globalShortcut.register(update.hotkey, openPaletteFromUser)
       if (!ok) {
-        globalShortcut.register(previous.hotkey, openPaletteFromUser)
+        const restored = globalShortcut.register(previous.hotkey, openPaletteFromUser)
+        if (!restored) {
+          console.warn(`Could not restore global shortcut ${previous.hotkey}.`)
+        }
         throw new Error('Could not register shortcut')
       }
     } else {
@@ -680,8 +759,18 @@ const bindIpc = () => {
     }
     filters.push({ name: 'All files', extensions: ['*'] })
 
-    const result = await dialog.showOpenDialog(windowRef!, { filters, properties: ['openFile'] })
-    return result.canceled || !result.filePaths[0] ? undefined : importExportPathGrants.grantImportPath(result.filePaths[0], safeFormat)
+    const filePath = await withFileDialogWindowState(async () => {
+      const zenityPath = pickFileWithZenity('open', filters)
+      if (zenityPath) {
+        return zenityPath
+      }
+
+      const result = process.platform === 'linux'
+        ? await dialog.showOpenDialog({ filters, properties: ['openFile'] })
+        : await dialog.showOpenDialog(windowRef!, { filters, properties: ['openFile'] })
+      return result.canceled ? undefined : result.filePaths[0]
+    })
+    return filePath ? importExportPathGrants.grantImportPath(filePath, safeFormat) : undefined
   })
   ipcMain.handle(IPC_CHANNELS.pickExportFile, async (event, format: string) => {
     validateIpcSender(event)
@@ -693,8 +782,18 @@ const bindIpc = () => {
       filters.push({ name: 'CSV', extensions: ['csv'] })
     }
 
-    const result = await dialog.showSaveDialog(windowRef!, { filters, properties: ['createDirectory', 'showOverwriteConfirmation'] })
-    return result.canceled || !result.filePath ? undefined : importExportPathGrants.grantExportPath(result.filePath, safeFormat)
+    const filePath = await withFileDialogWindowState(async () => {
+      const zenityPath = pickFileWithZenity('save', filters)
+      if (zenityPath) {
+        return zenityPath
+      }
+
+      const result = process.platform === 'linux'
+        ? await dialog.showSaveDialog({ filters, properties: ['createDirectory', 'showOverwriteConfirmation'] })
+        : await dialog.showSaveDialog(windowRef!, { filters, properties: ['createDirectory', 'showOverwriteConfirmation'] })
+      return result.canceled ? undefined : result.filePath
+    })
+    return filePath ? importExportPathGrants.grantExportPath(filePath, safeFormat) : undefined
   })
 
   if (isDevMode) {

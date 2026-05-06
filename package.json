@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && bun run build:extension",
-    "build:desktop": "bun run verify:desktop-release && bun run build && electron-builder --win nsis",
+    "build:desktop": "node scripts/build-desktop.mjs",
     "build:extension": "node scripts/build-browser-extension.mjs",
     "bundle:extension": "bun build extension/shared/background/index.js --outfile=extension/shared/background.js --target=browser ; bun build extension/shared/content/index.js --outfile=extension/shared/content.js --target=browser",
     "lint": "eslint .",
@@ -113,6 +113,10 @@
     "follow-redirects": "^1.15.12"
   },
   "trustedDependencies": [
+    "better-sqlite3",
+    "electron",
+    "electron-winstaller",
+    "esbuild",
     "koffi"
   ]
 }

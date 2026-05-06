@@ -6,6 +6,7 @@ import {
   type ActionExecutionResult,
   type CommandQuery,
   type CreateItemInput,
+  type DesktopIntegrationSupport,
   type ModifierKey,
   type ResolvedAction,
   type SettingsUpdate,
@@ -31,6 +32,16 @@ const fallbackApi: KlarkeyApi = {
   },
   action: {
     execute: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
+  },
+  desktop: {
+    getSupport: async () => ({
+      platform: 'linux',
+      autoPaste: {
+        available: false,
+        tools: { xdotool: false, ydotool: false, wtype: false, osascript: false },
+        message: 'Install xdotool, ydotool, or wtype to enable automatic insert.',
+      },
+    }),
   },
   clipboard: {
     copySecret: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
@@ -155,6 +166,33 @@ function preserveSelectedIndex(actions: ResolvedAction[], selectedActionId: stri
   return Math.max(0, Math.min(previousIndex, Math.max(0, actions.length - 1)))
 }
 
+const linuxInsertInstallHint = 'Install ydotool or wtype on Wayland. On X11, install xdotool.'
+
+function disabledInsertReason(support?: DesktopIntegrationSupport) {
+  if (!support || support.autoPaste.available) {
+    return undefined
+  }
+
+  return support.autoPaste.message || linuxInsertInstallHint
+}
+
+function decorateActions(actions: ResolvedAction[], support?: DesktopIntegrationSupport) {
+  const reason = disabledInsertReason(support)
+  if (!reason) {
+    return actions
+  }
+
+  return actions.map((action) =>
+    action.id.startsWith('paste:')
+      ? {
+          ...action,
+          disabled: true,
+          disabledReason: reason,
+        }
+      : action,
+  )
+}
+
 interface PaletteState {
   hydrated: boolean
   isLoadingResults: boolean
@@ -174,6 +212,7 @@ interface PaletteState {
   settings?: UserSettings
   lockInfo?: VaultLockInfo
   syncStatus?: SyncStatus
+  desktopSupport?: DesktopIntegrationSupport
   boot: () => Promise<void>
   primeHome: () => void
   resetToHome: () => Promise<void>
@@ -299,10 +338,11 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
 
     try {
       const resolveKey = ++nextResolveKey
-      const [settings, lockInfo, syncStatus] = await Promise.all([
+      const [settings, lockInfo, syncStatus, desktopSupport] = await Promise.all([
         api.settings.get(),
         api.vault.lockState(),
         safeSyncStatus(),
+        api.desktop.getSupport(),
       ])
       const startPage = lockInfo.state === 'locked' ? 'locked' as const : lockInfo.state === 'passcode' ? 'passcode' as const : 'home' as const
         set({
@@ -310,6 +350,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
           settings,
           lockInfo,
           syncStatus,
+          desktopSupport,
           page: startPage,
           detailAction: undefined,
           formMode: undefined,
@@ -328,7 +369,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         return
       }
       set({
-        actions: response.actions,
+        actions: decorateActions(response.actions, get().desktopSupport),
         hasMoreResults: response.hasMore,
         isLoadingResults: false,
       })
@@ -364,7 +405,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         return
       }
       set({
-        actions: response.actions,
+        actions: decorateActions(response.actions, get().desktopSupport),
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         isLoadingResults: false,
@@ -403,12 +444,13 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       if (get().resolveKey !== resolveKey) {
         return
       }
+      const decoratedActions = decorateActions(response.actions, get().desktopSupport)
       set({
-        actions: response.actions,
+        actions: decoratedActions,
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         selectedIndex: options?.preserveSelection
-          ? preserveSelectedIndex(response.actions, selectedActionId, previousIndex)
+          ? preserveSelectedIndex(decoratedActions, selectedActionId, previousIndex)
           : get().selectedIndex,
         isLoadingResults: false,
       })
@@ -443,6 +485,17 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
   async executeSelection() {
     const action = get().actions[get().selectedIndex]
     if (!action) {
+      return
+    }
+
+    if (action.disabled) {
+      set({
+        execution: {
+          status: 'info',
+          title: 'Insert unavailable',
+          message: action.disabledReason || linuxInsertInstallHint,
+        },
+      })
       return
     }
 
@@ -865,7 +918,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       }
 
       set((state) => ({
-        actions: [...state.actions, ...response.actions],
+        actions: [...state.actions, ...decorateActions(response.actions, state.desktopSupport)],
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         isLoadingMore: false,

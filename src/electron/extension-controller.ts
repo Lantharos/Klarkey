@@ -3,7 +3,7 @@ import { KeyManager } from '@/electron/crypto'
 import { createDatabase } from '@/electron/database'
 import { markRuntimeBusy, noteExtensionActivity, readRuntimeState } from '@/electron/runtime-state'
 import { readTrustedDesktopLockState } from '@/electron/desktop-lock-lease'
-import { getWindowsHelloAvailability } from '@/electron/windows-hello-verifier'
+import { getSystemUserVerificationAvailability, getSystemUserVerificationLabel } from '@/electron/os-user-verification'
 import { resolveBrowserUserVerification } from '@/electron/browser-user-verification'
 import { BrowserFillGrantStore } from '@/electron/browser-fill-grants'
 import { hasBrowserSiteAccess } from '@/electron/repository/browser-site-matches'
@@ -75,7 +75,7 @@ export class BrowserExtensionController {
       status: 'locked',
       locked: true,
       reason: hasSitePasskeys
-        ? 'Windows Hello will unlock Klarkey when you use a saved passkey.'
+        ? `${getSystemUserVerificationLabel()} will unlock Klarkey when you use a saved passkey.`
         : status.reason,
     } as const
   }
@@ -199,7 +199,7 @@ export class BrowserExtensionController {
         }
       }
 
-      const availability = await getWindowsHelloAvailability()
+      const availability = await getSystemUserVerificationAvailability()
       const vaultUnlocked = this.readDesktopLockState() === 'unlocked' && this.ensureVaultReady()
       return {
         id: request.id,

@@ -147,6 +147,10 @@ export interface PasskeySupport {
   conditionalMediationAvailable: boolean
   platform: NodeJS.Platform | 'unknown'
   safeStorageAvailable: boolean
+  systemPasskeyProvider?: {
+    available: boolean
+    busName?: string
+  }
   relyingPartyId: string
   origin: string
 }
@@ -316,6 +320,8 @@ export interface ResolvedAction {
   modifiers?: Partial<Record<Exclude<ModifierKey, 'none'>, string>>
   requiresUnlock: boolean
   score: number
+  disabled?: boolean
+  disabledReason?: string
 }
 
 export interface ExternalWindowContext {
@@ -324,6 +330,21 @@ export interface ExternalWindowContext {
   windowTitle?: string
   iconDataUrl?: string
   processPath?: string
+}
+
+export interface DesktopIntegrationSupport {
+  platform: NodeJS.Platform
+  sessionType?: string
+  autoPaste: {
+    available: boolean
+    tools: {
+      xdotool: boolean
+      ydotool: boolean
+      wtype: boolean
+      osascript: boolean
+    }
+    message?: string
+  }
 }
 
 export interface ActionExecutionResult {

@@ -1,5 +1,9 @@
 import { readCreateUserVerification, readGetUserVerification } from '@/electron/passkey-user-verification'
-import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
+import {
+  getSystemUserVerificationAvailability,
+  getSystemUserVerificationLabel,
+  verifyWithSystemUser,
+} from '@/electron/os-user-verification'
 import type { ActionExecutionResult } from '@/shared/types'
 
 type BrowserUserVerificationResult =
@@ -12,7 +16,7 @@ type BrowserUserVerificationResult =
       result: ActionExecutionResult
     }
 
-const buildWindowsHelloMessage = (operation: 'create' | 'get', url: string) => {
+const buildSystemVerificationMessage = (operation: 'create' | 'get', url: string) => {
   const hostname = (() => {
     try {
       return new URL(url).hostname
@@ -21,9 +25,10 @@ const buildWindowsHelloMessage = (operation: 'create' | 'get', url: string) => {
     }
   })()
 
+  const label = getSystemUserVerificationLabel()
   return operation === 'create'
-    ? `Verify with Windows Hello to create a passkey for ${hostname} in Klarkey.`
-    : `Verify with Windows Hello to sign in to ${hostname} with Klarkey.`
+    ? `Verify with ${label} to create a passkey for ${hostname} in Klarkey.`
+    : `Verify with ${label} to sign in to ${hostname} with Klarkey.`
 }
 
 export async function resolveBrowserUserVerification(
@@ -41,15 +46,15 @@ export async function resolveBrowserUserVerification(
     }
   }
 
-  const availability = await getWindowsHelloAvailability()
+  const availability = await getSystemUserVerificationAvailability()
   if (!availability.available) {
     if (requestedVerification === 'required') {
       return {
         ok: false,
         result: {
           status: 'error',
-          title: 'Windows Hello required',
-          message: availability.message || 'Klarkey could not reach Windows Hello for this passkey request.',
+          title: `${availability.label} required`,
+          message: availability.message || `Klarkey could not reach ${availability.label} for this passkey request.`,
         },
       }
     }
@@ -60,7 +65,7 @@ export async function resolveBrowserUserVerification(
     }
   }
 
-  const verification = await verifyWithWindowsHello(buildWindowsHelloMessage(operation, url))
+  const verification = await verifyWithSystemUser(buildSystemVerificationMessage(operation, url))
   if (verification.verified) {
     return {
       ok: true,
@@ -73,8 +78,8 @@ export async function resolveBrowserUserVerification(
       ok: false,
       result: {
         status: 'error',
-        title: 'Windows Hello canceled',
-        message: verification.message || 'Windows Hello verification was canceled.',
+        title: `${availability.label} canceled`,
+        message: verification.message || `${availability.label} verification was canceled.`,
       },
     }
   }
@@ -84,8 +89,8 @@ export async function resolveBrowserUserVerification(
       ok: false,
       result: {
         status: 'error',
-        title: 'Windows Hello required',
-        message: verification.message || 'Windows Hello verification did not complete.',
+        title: `${availability.label} required`,
+        message: verification.message || `${availability.label} verification did not complete.`,
       },
     }
   }

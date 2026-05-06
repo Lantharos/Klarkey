@@ -55,6 +55,10 @@
     },
   },
   "trustedDependencies": [
+    "electron",
+    "better-sqlite3",
+    "esbuild",
+    "electron-winstaller",
     "koffi",
   ],
   "overrides": {

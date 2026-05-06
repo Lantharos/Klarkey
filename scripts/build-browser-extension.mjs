@@ -64,29 +64,31 @@ const nativeHostStagingRoot = join(distRoot, 'native-host-build')
 safeRemove(nativeHostStagingRoot)
 mkdirSync(nativeHostStagingRoot, { recursive: true })
 
-execFileSync(
-  'dotnet',
-  [
-    'publish',
-    join(root, 'scripts', 'Klarkey.NativeHostLauncher', 'Klarkey.NativeHostLauncher.csproj'),
-    '-c',
-    'Release',
-    '-o',
-    nativeHostStagingRoot,
-  ],
-  {
-    cwd: root,
-    stdio: 'inherit',
-  },
-)
+if (process.platform === 'win32') {
+  execFileSync(
+    'dotnet',
+    [
+      'publish',
+      join(root, 'scripts', 'Klarkey.NativeHostLauncher', 'Klarkey.NativeHostLauncher.csproj'),
+      '-c',
+      'Release',
+      '-o',
+      nativeHostStagingRoot,
+    ],
+    {
+      cwd: root,
+      stdio: 'inherit',
+    },
+  )
 
-writeFileSync(
-  join(nativeHostStagingRoot, 'klarkey-native-host.cmd'),
-  `@echo off
+  writeFileSync(
+    join(nativeHostStagingRoot, 'klarkey-native-host.cmd'),
+    `@echo off
 setlocal
 "%~dp0\\Klarkey.NativeHostLauncher.exe" %*
 `,
-)
+  )
+}
 
 writeFileSync(
   join(nativeHostStagingRoot, 'klarkey-native-host.sh'),

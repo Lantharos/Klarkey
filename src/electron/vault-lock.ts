@@ -2,7 +2,11 @@ import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { UserSettings, VaultLockInfo, VaultUnlockMethod } from '@/shared/types'
 import { KeyManager } from '@/electron/crypto'
-import { getWindowsHelloAvailability, verifyWithWindowsHello } from '@/electron/windows-hello-verifier'
+import {
+  getSystemUserVerificationAvailability,
+  getSystemUserVerificationLabel,
+  verifyWithSystemUser,
+} from '@/electron/os-user-verification'
 import { LOCK_LEASE_UNTIL_KEY, LOCK_OWNER_PID_KEY, LOCK_STATE_KEY } from '@/electron/desktop-lock-lease'
 
 const PASSCODE_SALT_KEY = 'passcode_salt'
@@ -195,16 +199,28 @@ export class VaultLockManager {
     this.db.prepare('DELETE FROM settings WHERE key IN (?, ?)').run(LOCK_LEASE_UNTIL_KEY, LOCK_OWNER_PID_KEY)
   }
 
-  async unlockWithWindowsHello(): Promise<{ success: boolean; message: string }> {
-    const availability = await getWindowsHelloAvailability()
+  private hasEncryptedVaultRecords() {
+    const tables = ['identities', 'passkeys', 'pending_passkeys', 'vault_passkeys']
+    return tables.some((table) => {
+      try {
+        const row = this.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number } | undefined
+        return (row?.count ?? 0) > 0
+      } catch {
+        return true
+      }
+    })
+  }
+
+  async unlockWithSystemUser(): Promise<{ success: boolean; message: string }> {
+    const availability = await getSystemUserVerificationAvailability()
     if (!availability.available) {
       return {
         success: false,
-        message: availability.message || 'Windows Hello is not available.',
+        message: availability.message || `${availability.label} is not available.`,
       }
     }
 
-    const verification = await verifyWithWindowsHello('Verify your identity to unlock Klarkey.')
+    const verification = await verifyWithSystemUser('Verify your identity to unlock Klarkey.')
     if (!verification.verified) {
       return {
         success: false,
@@ -213,6 +229,12 @@ export class VaultLockManager {
     }
 
     if (!this.keyManager.unlockFromSystem()) {
+      if (!this.keyManager.hasMasterPassword() && !this.hasEncryptedVaultRecords() && this.keyManager.isSafeStorageAvailable()) {
+        this.keyManager.replaceEmptyVaultSystemKey()
+        this.transitionAfterUnlock()
+        return { success: true, message: 'Vault unlocked.' }
+      }
+
       return {
         success: false,
         message: 'Could not unlock the vault key. You may need to use your master password.',
@@ -221,6 +243,10 @@ export class VaultLockManager {
 
     this.transitionAfterUnlock()
     return { success: true, message: 'Vault unlocked.' }
+  }
+
+  async unlockWithWindowsHello(): Promise<{ success: boolean; message: string }> {
+    return this.unlockWithSystemUser()
   }
 
   unlockWithPassword(password: string): { success: boolean; message: string } {
@@ -240,7 +266,7 @@ export class VaultLockManager {
         return { success: false, message: 'Incorrect master password.' }
       }
     } else {
-      return { success: false, message: 'Use Windows Hello to unlock this vault, or set a master password first.' }
+      return { success: false, message: `Use ${getSystemUserVerificationLabel()} to unlock this vault, or set a master password first.` }
     }
 
     this.resetFailedAttempts()

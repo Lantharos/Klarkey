@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, writeSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import {
@@ -36,6 +37,35 @@ const firefoxRegistryRoots = [
   'HKCU\\Software\\Zen\\NativeMessagingHosts',
 ]
 
+const linuxConfigHome = () => process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
+const linuxFirefoxHome = () => join(homedir(), '.mozilla')
+
+const linuxChromiumManifestDirectories = () => [
+  join(linuxConfigHome(), 'google-chrome', 'NativeMessagingHosts'),
+  join(linuxConfigHome(), 'chromium', 'NativeMessagingHosts'),
+  join(linuxConfigHome(), 'microsoft-edge', 'NativeMessagingHosts'),
+  join(linuxConfigHome(), 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+  join(linuxConfigHome(), 'vivaldi', 'NativeMessagingHosts'),
+]
+
+const linuxFirefoxManifestDirectories = () => [
+  join(linuxFirefoxHome(), 'native-messaging-hosts'),
+]
+
+const macApplicationSupport = () => join(homedir(), 'Library', 'Application Support')
+
+const macChromiumManifestDirectories = () => [
+  join(macApplicationSupport(), 'Google', 'Chrome', 'NativeMessagingHosts'),
+  join(macApplicationSupport(), 'Chromium', 'NativeMessagingHosts'),
+  join(macApplicationSupport(), 'Microsoft Edge', 'NativeMessagingHosts'),
+  join(macApplicationSupport(), 'BraveSoftware', 'Brave-Browser', 'NativeMessagingHosts'),
+  join(macApplicationSupport(), 'Vivaldi', 'NativeMessagingHosts'),
+]
+
+const macFirefoxManifestDirectories = () => [
+  join(macApplicationSupport(), 'Mozilla', 'NativeMessagingHosts'),
+]
+
 const ignoreUnsupportedModeBits = () => undefined
 
 const resolveNativeHostExecutable = () => {
@@ -44,6 +74,11 @@ const resolveNativeHostExecutable = () => {
   }
 
   const appPath = app.getAppPath()
+  if (process.platform !== 'win32') {
+    const unixHost = join(appPath, 'dist-extension', 'native-host', 'klarkey-native-host.sh')
+    return existsSync(unixHost) ? unixHost : undefined
+  }
+
   const candidates = [
     join(appPath, 'dist-extension', 'native-host', 'Klarkey.NativeHostLauncher.exe'),
     join(appPath, 'scripts', 'Klarkey.NativeHostLauncher', 'bin', 'Release', 'net9.0', 'Klarkey.NativeHostLauncher.exe'),
@@ -137,27 +172,61 @@ export const chromiumWebStoreExtensionRegistryPaths = () =>
     KLARKEY_CHROMIUM_EXTENSION_IDS.map((extensionId) => `${registryRoot}\\${extensionId}`),
   )
 
-export const ensureNativeMessagingHostRegistration = () => {
-  if (process.platform !== 'win32') {
-    return false
-  }
-
-  const hostPath = resolveNativeHostExecutable()
-  if (!hostPath) {
-    return false
-  }
-
-  const manifestDirectory = join(app.getPath('userData'), 'native-messaging-hosts')
-  ensureNativeHostManifestDirectory(manifestDirectory)
-
-  const chromiumManifestPath = join(manifestDirectory, 'chromium.app.klarkey.desktop.json')
-  writeNativeHostManifestFile(chromiumManifestPath, {
+const writeChromiumNativeHostManifest = (directoryPath: string, hostPath: string, fileName = `${KLARKEY_NATIVE_HOST_NAME}.json`) => {
+  ensureNativeHostManifestDirectory(directoryPath)
+  writeNativeHostManifestFile(join(directoryPath, fileName), {
     name: KLARKEY_NATIVE_HOST_NAME,
     description: 'Klarkey desktop bridge',
     path: hostPath,
     type: 'stdio',
     allowed_origins: KLARKEY_CHROMIUM_EXTENSION_ORIGINS,
   })
+}
+
+const writeFirefoxNativeHostManifest = (directoryPath: string, hostPath: string, fileName = `${KLARKEY_NATIVE_HOST_NAME}.json`) => {
+  ensureNativeHostManifestDirectory(directoryPath)
+  writeNativeHostManifestFile(join(directoryPath, fileName), {
+    name: KLARKEY_NATIVE_HOST_NAME,
+    description: 'Klarkey desktop bridge',
+    path: hostPath,
+    type: 'stdio',
+    allowed_extensions: [KLARKEY_FIREFOX_EXTENSION_ID],
+  })
+}
+
+const ensureUnixNativeMessagingHostRegistration = (hostPath: string) => {
+  const chromiumDirectories = process.platform === 'darwin'
+    ? macChromiumManifestDirectories()
+    : linuxChromiumManifestDirectories()
+  const firefoxDirectories = process.platform === 'darwin'
+    ? macFirefoxManifestDirectories()
+    : linuxFirefoxManifestDirectories()
+
+  for (const directoryPath of chromiumDirectories) {
+    writeChromiumNativeHostManifest(directoryPath, hostPath)
+  }
+
+  for (const directoryPath of firefoxDirectories) {
+    writeFirefoxNativeHostManifest(directoryPath, hostPath)
+  }
+
+  return true
+}
+
+export const ensureNativeMessagingHostRegistration = () => {
+  const hostPath = resolveNativeHostExecutable()
+  if (!hostPath) {
+    return false
+  }
+
+  if (process.platform !== 'win32') {
+    return ensureUnixNativeMessagingHostRegistration(hostPath)
+  }
+
+  const manifestDirectory = join(app.getPath('userData'), 'native-messaging-hosts')
+
+  const chromiumManifestPath = join(manifestDirectory, 'chromium.app.klarkey.desktop.json')
+  writeChromiumNativeHostManifest(manifestDirectory, hostPath, 'chromium.app.klarkey.desktop.json')
 
   for (const registryRoot of chromiumRegistryRoots) {
     setRegistryValue(`${registryRoot}\\${KLARKEY_NATIVE_HOST_NAME}`, chromiumManifestPath)
@@ -168,13 +237,7 @@ export const ensureNativeMessagingHostRegistration = () => {
   }
 
   const firefoxManifestPath = join(manifestDirectory, 'firefox.app.klarkey.desktop.json')
-  writeNativeHostManifestFile(firefoxManifestPath, {
-    name: KLARKEY_NATIVE_HOST_NAME,
-    description: 'Klarkey desktop bridge',
-    path: hostPath,
-    type: 'stdio',
-    allowed_extensions: [KLARKEY_FIREFOX_EXTENSION_ID],
-  })
+  writeFirefoxNativeHostManifest(manifestDirectory, hostPath, 'firefox.app.klarkey.desktop.json')
 
   for (const registryRoot of firefoxRegistryRoots) {
     setRegistryValue(`${registryRoot}\\${KLARKEY_NATIVE_HOST_NAME}`, firefoxManifestPath)
