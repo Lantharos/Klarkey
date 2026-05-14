@@ -324,7 +324,23 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     if (!syncListenerAttached) {
       syncListenerAttached = true
       api.onSyncChanged((update) => {
-        set({ syncStatus: update.status })
+        const wasSignedIn = get().syncStatus?.signedIn
+        set({
+          syncStatus: update.status,
+          execution: update.status.lastError
+            ? {
+                status: 'error',
+                title: 'Sync failed',
+                message: safeClientErrorMessage(new Error(update.status.lastError), 'Klarkey could not finish sync.'),
+              }
+            : !wasSignedIn && update.status.signedIn
+              ? {
+                  status: 'success',
+                  title: 'Sync connected',
+                  message: update.status.account?.email ?? update.status.account?.displayName ?? 'Klarkey sync is connected.',
+                }
+              : get().execution,
+        })
         if (update.returnHome && get().page === 'settings') {
           get().primeHome()
           void get().resetToHome()
@@ -804,11 +820,17 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       const syncStatus = await api.sync.signIn()
       set({
         syncStatus,
-        execution: {
-          status: 'info',
-          title: 'Ave opened',
-          message: 'Finish sign-in in the browser to connect sync.',
-        },
+        execution: syncStatus.lastError
+          ? {
+              status: 'error',
+              title: 'Sync sign-in failed',
+              message: safeClientErrorMessage(new Error(syncStatus.lastError), 'Klarkey could not start Ave sign-in.'),
+            }
+          : {
+              status: 'info',
+              title: 'Ave opened',
+              message: 'Finish sign-in in the browser to connect sync.',
+            },
       })
     } catch (error) {
       set({

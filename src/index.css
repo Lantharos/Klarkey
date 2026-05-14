@@ -22,6 +22,13 @@ body,
   min-height: 100%;
 }
 
+#root {
+  overflow: hidden;
+  border-radius: 18px;
+  background: transparent;
+  isolation: isolate;
+}
+
 html,
 body {
   margin: 0;
@@ -36,14 +43,43 @@ body {
   color: white;
 }
 
-button,
-input {
-  font: inherit;
+@layer base {
+  button,
+  input,
+  textarea {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    outline: 0;
+  }
+
+  input,
+  textarea {
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: none;
+  }
 }
 
-button {
-  border: 0;
-  outline: 0;
+.palette-row-selected {
+  background: rgb(58, 58, 60);
+  color: white;
+}
+
+.palette-row-selected-danger {
+  background: rgba(126, 35, 35, 0.72);
+  color: white;
+}
+
+.palette-row-selected-success {
+  background: rgba(30, 103, 76, 0.68);
+  color: white;
+}
+
+.keyboard-only-surface,
+.keyboard-only-surface * {
+  pointer-events: none;
 }
 
 ::-webkit-scrollbar {

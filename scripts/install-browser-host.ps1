@@ -11,14 +11,15 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$hostRoot = Join-Path $repoRoot "dist-extension\native-host"
-$hostWrapper = Join-Path $hostRoot "Klarkey.NativeHostLauncher.exe"
-$manifestRoot = Join-Path $hostRoot "manifests"
+$releaseHost = Join-Path $repoRoot "src-tauri\target\release\klarkey.exe"
+$debugHost = Join-Path $repoRoot "src-tauri\target\debug\klarkey.exe"
+$hostExecutable = if (Test-Path $releaseHost) { $releaseHost } elseif (Test-Path $debugHost) { $debugHost } else { $null }
+$manifestRoot = Join-Path $repoRoot "dist-extension\native-host-manifests"
 $chromeWebStoreUpdateUrl = "https://clients2.google.com/service/update2/crx"
 New-Item -ItemType Directory -Force -Path $manifestRoot | Out-Null
 
-if (-not (Test-Path $hostWrapper)) {
-  throw "Build the project first so dist-extension/native-host/Klarkey.NativeHostLauncher.exe exists."
+if (-not $hostExecutable) {
+  throw "Build the Tauri desktop app first so src-tauri\target\release\klarkey.exe exists."
 }
 
 function Write-NativeManifest {
@@ -31,7 +32,7 @@ function Write-NativeManifest {
   $manifest = @{
     name = "app.klarkey.desktop"
     description = "Klarkey desktop bridge"
-    path = $hostWrapper
+    path = $hostExecutable
     type = "stdio"
   }
 

@@ -305,7 +305,7 @@ export function ItemFormPage({
                 : value.itemType === 'identity'
                   ? 'Personal identity'
                   : value.itemType === 'card'
-                    ? 'Visa ending in 4242'
+                    ? 'Payment card'
                     : value.itemType === 'ssh-key'
                       ? 'GitHub signing key'
                     : 'Netflix'

@@ -36,11 +36,18 @@ import { ImportLoadingPage } from "@/app/import-loading-page";
 import { RecoveryCodesPage } from "@/app/recovery-codes-page";
 import { DEFAULT_SETTINGS, type UpdateItemInput } from "@/shared/types";
 
+const usesNativeWindowMaterial =
+  typeof navigator !== "undefined" &&
+  (navigator.userAgent.includes("Windows") ||
+    navigator.userAgent.includes("Mac"));
+const paletteSurfaceClassName = usesNativeWindowMaterial
+  ? "bg-[#1a1a1b]/88 backdrop-blur-[22px]"
+  : "bg-[#1a1a1b]";
 const paletteShellClassName =
-  "flex h-full min-h-full flex-col bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
+  `keyboard-only-surface flex h-full min-h-full flex-col overflow-hidden rounded-[18px] text-white ${paletteSurfaceClassName}`;
 
 const mainPaletteShellClassName =
-  "relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
+  `keyboard-only-surface relative flex h-full min-h-full flex-col overflow-hidden rounded-[18px] text-white ${paletteSurfaceClassName}`;
 
 function App() {
   const hydrated = usePaletteStore((state) => state.hydrated);
@@ -120,7 +127,6 @@ function App() {
     execution?.itemId,
   );
 
-  const [pointerActive, setPointerActive] = useState(false);
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false);
   const [externalUnlockRequested, setExternalUnlockRequested] = useState(false);
 
@@ -328,7 +334,6 @@ function App() {
         return;
       }
 
-      setPointerActive(false);
       setPendingDeleteConfirm(false);
       resetSettingsChrome();
       setDetailItem(undefined);
@@ -512,7 +517,7 @@ function App() {
 
   if (page === "confirm-passcode-removal") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div className={paletteShellClassName}>
         <PasscodeConfirmScreen
           title="Confirm passcode to turn it off"
           passcodeLength={lockInfo?.passcodeLength ?? 4}
@@ -537,14 +542,7 @@ function App() {
   }
 
   return (
-    <div
-      className={mainPaletteShellClassName}
-      onMouseMove={() => {
-        if (!pointerActive) {
-          setPointerActive(true);
-        }
-      }}
-    >
+    <div className={mainPaletteShellClassName}>
       <div className="flex items-center gap-4 px-5 pt-4 pb-3">
         {page === "home" ? (
           <SearchBar
@@ -707,7 +705,6 @@ function App() {
                   execution: undefined,
                 });
               }}
-              pointerActive={pointerActive}
             />
           </div>
           <div className="h-px bg-white/8" />
@@ -753,7 +750,6 @@ function App() {
               selectedIndex={selectedIndex}
               onSelectRow={setSelectedIndex}
               onPick={(id) => void exportVault(id as "klarkey-json" | "csv")}
-              pointerActive={pointerActive}
             />
           </div>
           <div className="h-px bg-white/8" />
@@ -829,7 +825,6 @@ function App() {
                     | "chrome-csv",
                 )
               }
-              pointerActive={pointerActive}
             />
           </div>
           <div className="h-px bg-white/8" />
@@ -856,7 +851,6 @@ function App() {
                 <DetailRow
                   key={action.id}
                   action={action}
-                  pointerActive={pointerActive}
                   selected={index === selectedIndex}
                   onHover={() => {
                     setPendingDeleteConfirm(false);
@@ -963,7 +957,6 @@ function App() {
                 <ResultRow
                   key={action.id}
                   action={action}
-                  pointerActive={pointerActive}
                   selected={index === selectedIndex}
                   onHover={() => setSelectedIndex(index)}
                 />

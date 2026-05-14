@@ -1,33 +1,30 @@
 # Klarkey
 
-Klarkey is a cross-platform Electron command palette for local item and credential flows. Press `Alt+S`, search by item or action, and execute identity actions without opening a traditional vault.
+Klarkey is a cross-platform Tauri command palette for local item and credential flows. Press `Alt+S`, search by item or action, and execute identity actions without opening a traditional vault.
 
 ## Stack
 
-- Electron 41
+- Tauri 2
 - React 19
 - Vite 8
 - Tailwind CSS 4
 - Bun
-- SQLite with encrypted record payloads
+- Tauri local state file for the desktop vault shell
 
 ## What ships in this MVP
 
-- Global `Alt+S` shortcut with a centered overlay window
+- Tray-backed background process with a global `Alt+S` shortcut and centered overlay window
 - Tokenized command parsing for queries like `twitter`, `new login netflix`, `new identity personal`, `new note ideas`, and `insert password netflix alice`
 - Ranked action results with keyboard navigation
-- Local encrypted item storage
+- Local item storage in the Tauri app data folder
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for login, identity, and note items with item-type-specific fields
-- Vault import and export for Klarkey JSON, CSV, and common password-manager exports with bounded import batches and private local export files
+- Vault import and export for Klarkey JSON, CSV, Bitwarden JSON, Dashlane JSON/CSV, common browser CSV exports, and 1Password `.1pux`
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
-- Browser extension foundation for desktop-only native-messaging autofill and save flows, with origin-only site matching, public-suffix checks, and click-scoped identity/card fill access
-- Browser extension passkey creation and sign-in flows for website passkeys in Chromium and Firefox, backed by the desktop vault through the page bridge, attached to login items, and finalized within a short pending window
-- OS-backed user verification for browser passkeys when a site asks for platform verification: Windows Hello on Windows, Touch ID on macOS, and Polkit system authentication on Linux
-- Ave-authenticated Convex cloud sync foundation with encrypted vault records, per-device metadata, conflict copies, and a future entitlement gate
-- Desktop passkey-provider bridge scaffold for a future Windows 11 third-party provider integration
+- OS keychain-backed system unlock with Windows Hello, macOS system authentication, and GNOME Keyring plus polkit on Linux
+- Browser extension native-messaging autofill, save, and website passkey flows backed by the Tauri state file
 - Clipboard auto-clear for copied secrets
-- Tray/background behavior and lightweight settings
+- Lightweight settings
 
 ## Development
 
@@ -44,17 +41,19 @@ To launch the desktop shell during development:
 bun run dev:desktop
 ```
 
+The desktop app starts in the background with a tray icon. Press `Alt+S` or choose Open Klarkey from the tray menu to show the palette. On Linux Wayland sessions, Klarkey registers its desktop app id with the XDG portal, uses the Global Shortcuts portal when available, and installs a desktop shortcut fallback for desktops that expose shortcut binding through settings.
+
 To build the browser extension bundles:
 
 ```bash
 bun run build:extension
 ```
 
-The extension build runs a release verifier and writes only the runtime files needed by the Chromium and Firefox manifests.
+The extension build writes only the runtime files needed by the Chromium and Firefox manifests.
 
 ## Cloud sync
 
-Cloud sync is optional. Klarkey stays fully usable as a local offline vault when these values are not set or when the user never signs in. Klarkey sync uses Ave for identity and Convex for encrypted record transport. Register a normal Ave app with E2EE enabled, not Quick Ave, and add `klarkey://oauth/callback` as a desktop redirect URI. The app requests `openid profile email offline_access` and sends the Ave `id_token` to Convex.
+Cloud sync is optional and remains part of the shared Klarkey architecture. The current Tauri desktop shell runs as a local offline vault while sync is not configured. Klarkey sync uses Ave for identity and Convex for encrypted record transport. Register a normal Ave app with E2EE enabled, not Quick Ave, and add `klarkey://oauth/callback` as a desktop redirect URI. The app requests `openid profile email offline_access` and sends the Ave `id_token` to Convex.
 
 Set these before running the desktop app. The Convex URL must be an HTTPS origin, such as `https://your-deployment.convex.cloud`, without a path, query, fragment, or embedded credentials:
 
@@ -68,7 +67,7 @@ During development, the desktop app also reads `.env.local` and `.env` from the 
 
 Servers never receive plaintext vault contents. Klarkey derives a sync wrapping key from the Ave E2EE `app_key`, wraps one vault data key per Ave identity, and encrypts each item/passkey/settings record with AES-GCM. Klarkey-created website passkeys are stored as exportable software ES256 keys inside encrypted `site-passkey` records so the same passkey can be used after sync on desktop and mobile. Concurrent item edits are resolved per record; when Klarkey sees a conflict, it keeps a separate conflict copy instead of dropping a secret.
 
-After sign-in, sync runs automatically while the vault is unlocked. Desktop and mobile subscribe to a small Convex sync-status query that only carries the account sequence, then call `pullSince` only when the sequence advances. Local item changes are debounced into background sync batches, and device registration is rate-limited locally so normal editing does not create an extra write every time.
+After sign-in, desktop sync runs while the vault is unlocked when the user connects sync or runs Sync now from settings. Device registration is rate-limited locally so normal editing does not create an extra write every time.
 
 ## Quality checks
 
@@ -80,27 +79,19 @@ bun run build
 
 ## Desktop release
 
-Desktop releases use a platform-specific Electron Builder target: NSIS on Windows, AppImage on Linux, and dmg/zip on macOS. Before packaging a Windows release, set code-signing material and run the release policy verifier:
-
-```powershell
-$env:CSC_LINK="file://C:/path/to/klarkey.pfx"
-$env:CSC_KEY_PASSWORD="certificate_password"
-bun run verify:desktop-release
-```
-
-`bun run build:desktop` runs this verifier, builds the app, and packages for the current OS. The GitHub release workflow expects the same signing values in `WINDOWS_CODESIGN_CERTIFICATE` and `WINDOWS_CODESIGN_PASSWORD` secrets for Windows builds.
+Desktop releases use Tauri's platform bundler for the current OS. `bun run build:desktop` runs the release verifier and packages the Tauri app for the current OS. On Linux it builds the `.deb` and `.rpm` bundles. Windows and macOS builds are unsigned unless code-signing material is added later.
 
 ## Notes
 
-- Existing desktop vaults start locked. Sensitive actions use an in-memory unlock window on top of OS-backed key protection, and OS-backed keys are released only after OS user verification or a configured master-password unlock.
+- Existing desktop vaults start locked when a passcode, master password, or system unlock is configured.
+- On Linux Wayland, Klarkey disables WebKitGTK's DMABUF renderer and accelerated compositing at startup before using an alpha-backed palette window. This keeps rounded corners working while avoiding the upstream `Error 71` Wayland protocol crash and partial invisible rendering seen on some GPU/driver combinations.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
-- Klarkey can now create and use website passkeys through the browser extension on supported Chromium and Firefox pages, stores them on the related login item, and uses OS user verification for UV-capable flows.
+- Website passkeys are handled by the Tauri native-messaging host for the browser extension.
+- System unlock stores its vault unlock key in the OS keychain. Windows and macOS use the platform owner-authentication APIs. Linux uses Secret Service keyring unlock for startup/keyring access and adds a polkit check when timed auto-lock is enabled and the keyring is already open.
 - Local and synced settings are validated before use; unsafe hotkeys and out-of-range lock or clipboard timings fall back to defaults instead of being applied.
 - Browser fill suggestions are available by default, but login auto-submit is opt-in from settings so filling and submitting remain separate decisions unless the user enables it.
 - The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode, and bridge errors are bounded and redacted before they cross process boundaries.
-- The browser extension implements a browser-only passkey authenticator path first. Showing up inside the Windows system passkey picker still depends on the unfinished native provider work.
-- Linux system-wide passkey picker integration is tracked against the emerging credentialsd D-Bus portal work. Current Linux desktop support uses the browser extension plus Polkit for local user verification.
-- Work on a Windows OS-level provider has started as a scaffold in `native/windows-passkey-provider`, backed by a reusable desktop bridge mode.
+- The browser extension passkey path runs through the same Tauri native-messaging host on Windows, macOS, and Linux.
 - The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, screenshot protection, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped synced passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and synced passkey source.
 
 ## Mobile app
@@ -135,15 +126,13 @@ After `bun run build`, unpacked extension builds are written to `dist-extension/
 
 `bun run build:extension` regenerates the background and content bundles and stages only the manifest-declared runtime files.
 
-Opening Klarkey registers the native-messaging bridge for the trusted Chromium and Firefox extension IDs automatically on Windows, Linux, and macOS. On Windows it also writes Chrome Web Store update metadata where the current install has permission, so Chrome-compatible browsers can pick up Klarkey on the next browser start. Browsers still require the user to enable an externally installed extension.
-
-If you want to force a local re-registration by hand, run:
+Klarkey desktop registers the native-messaging bridge for the trusted Chromium and Firefox extension IDs when the Tauri app opens. To force a local Windows registration after building the desktop app:
 
 ```powershell
 ./scripts/install-browser-host.ps1
 ```
 
-That writes native-messaging manifests for Chrome, Edge, Brave, Chromium, Helium, Firefox, and Zen against the local desktop bridge, plus Chrome Web Store update metadata for the trusted Chromium extension ID.
+That writes native-messaging manifests for Chrome, Edge, Brave, Chromium, Helium, Firefox, and Zen against the Tauri executable, plus Chrome Web Store update metadata for the trusted Chromium extension ID where Windows allows it.
 
 ## Testing
 
@@ -161,7 +150,7 @@ Run the renderer:
 bun run dev
 ```
 
-Run the Electron shell:
+Run the Tauri shell:
 
 ```bash
 bun run dev:desktop
@@ -175,7 +164,7 @@ Build the extension bundles:
 bun run build:extension
 ```
 
-Klarkey desktop registers the local native host when it opens. On Linux and macOS it writes browser native-messaging manifests into the standard per-user browser locations. To force a local Windows re-registration:
+Klarkey desktop registers the local native host when it opens. On Windows it writes per-user registry entries and manifests for the current Tauri executable. On Linux and macOS it writes browser native-messaging manifests into the standard per-user browser locations. To force a local Windows re-registration:
 
 ```powershell
 ./scripts/install-browser-host.ps1
@@ -186,29 +175,4 @@ Then:
 1. Load `dist-extension/chromium` as an unpacked extension in Chrome or Edge.
 2. Keep Klarkey desktop running.
 3. Visit a login form and use the inline trigger or the extension popup to fill or save a login.
-4. Visit a site that uses passkeys to create or use a website passkey and confirm that it attaches to the matching login item in Klarkey.
-
-### Windows passkey provider work
-
-The native Windows provider work lives in `native/windows-passkey-provider`.
-
-The native Windows folder now covers three slices:
-
-- desktop bridge probing for the future OS-level provider path
-- the packaged WinUI probe app for the future provider flow
-- the unpackaged `Klarkey.WindowsHelloVerifier` helper for browser passkey UV on Windows
-
-```powershell
-dotnet build .\native\windows-passkey-provider\Klarkey.PasskeyProviderBridge\Klarkey.PasskeyProviderBridge.csproj
-$Platform = if ($env:PROCESSOR_ARCHITECTURE -eq "AMD64") { "x64" } elseif ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "ARM64" } else { "x86" }
-dotnet build .\native\windows-passkey-provider\KlarkeyPasskeyProvider\KlarkeyPasskeyProvider.csproj -c Debug -p:Platform=$Platform
-dotnet build .\native\windows-passkey-provider\Klarkey.WindowsHelloVerifier\Klarkey.WindowsHelloVerifier.csproj
-```
-
-The browser passkey path looks for the built `Klarkey.WindowsHelloVerifier` helper under `native\windows-passkey-provider\Klarkey.WindowsHelloVerifier\bin\Debug\...` and uses it to run Windows Hello before setting the WebAuthn UV flag.
-
-Launch the packaged WinUI app for the bridge probe UI:
-
-```powershell
-.\scripts\run-native-provider.ps1
-```
+4. Use the extension popup or inline trigger to save a login back into Klarkey.

@@ -109,17 +109,15 @@ export function ResultRow({
     <button
       ref={ref}
       type="button"
-      onMouseEnter={() => {
-        if (pointerActive) {
+      onPointerMove={(event) => {
+        if (pointerActive && event.pointerType === 'mouse') {
           onHover()
         }
       }}
-      onFocus={onHover}
       disabled={action.disabled}
       className={clsx(
-        'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition',
-        action.disabled ? 'cursor-default text-white/30' : selected ? 'bg-white/10 text-white' : 'text-white/74',
-        pointerActive && !action.disabled ? 'hover:bg-white/5' : '',
+        'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition-colors',
+        action.disabled ? 'cursor-default text-white/30' : selected ? 'palette-row-selected text-white' : 'text-white/74',
       )}
     >
       <RowIcon action={action} />
@@ -168,30 +166,26 @@ export function DetailRow({
       ref={ref}
       type="button"
       disabled={action.disabled}
-      onMouseEnter={() => {
-        if (pointerActive) {
+      onPointerMove={(event) => {
+        if (pointerActive && event.pointerType === 'mouse') {
           onHover()
         }
       }}
-      onFocus={onHover}
       className={clsx(
-        'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition',
+        'grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] px-3 py-3 text-left transition-colors',
         action.disabled
           ? 'cursor-default text-white/30'
           : selected
             ? action.tone === 'danger'
-              ? 'bg-red-500/12 text-white'
+              ? 'palette-row-selected-danger text-white'
               : action.tone === 'success'
-                ? 'bg-emerald-500/12 text-white'
-                : 'bg-white/10 text-white'
+                ? 'palette-row-selected-success text-white'
+                : 'palette-row-selected text-white'
             : action.tone === 'danger'
               ? 'text-red-200/82'
               : action.tone === 'success'
                 ? 'text-emerald-200/84'
                 : 'text-white/74',
-        !selected && pointerActive && action.tone === 'danger' ? 'hover:bg-red-500/8' : '',
-        !selected && pointerActive && action.tone === 'success' ? 'hover:bg-emerald-500/8' : '',
-        !selected && pointerActive && action.tone === 'default' ? 'hover:bg-white/5' : '',
       )}
     >
       <div

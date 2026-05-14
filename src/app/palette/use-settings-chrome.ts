@@ -141,9 +141,6 @@ export function useSettingsChrome(
 
       if (index === 10) {
         const { syncStatus, syncNow, syncSignIn } = usePaletteStore.getState()
-        if (!syncStatus?.configured) {
-          return
-        }
         void (syncStatus?.signedIn ? syncNow() : syncSignIn())
         return
       }

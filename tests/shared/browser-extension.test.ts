@@ -43,8 +43,8 @@ describe('browser extension site matching', () => {
     expect(isAllowedNativeMessagingCaller(KLARKEY_FIREFOX_EXTENSION_ID)).toBe(true)
     expect(isAllowedNativeMessagingCaller('chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/')).toBe(false)
     expect(isAllowedNativeMessagingCaller('klarkey@example.invalid')).toBe(false)
-    expect(hasAllowedNativeMessagingCaller(['electron.exe', '--native-messaging-host'])).toBe(false)
-    expect(hasAllowedNativeMessagingCaller(['electron.exe', '--native-messaging-host', KLARKEY_CHROMIUM_EXTENSION_ORIGIN, '--parent-window=0'])).toBe(true)
+    expect(hasAllowedNativeMessagingCaller(['klarkey.exe', '--native-messaging-host'])).toBe(false)
+    expect(hasAllowedNativeMessagingCaller(['klarkey.exe', '--native-messaging-host', KLARKEY_CHROMIUM_EXTENSION_ORIGIN, '--parent-window=0'])).toBe(true)
     expect(hasAllowedNativeMessagingCaller(['Klarkey.exe', KLARKEY_FIREFOX_EXTENSION_ID])).toBe(true)
   })
 

@@ -9,17 +9,13 @@ lerna-debug.log*
 
 node_modules
 dist
-dist-electron
 dist-extension
+src-tauri/target
 extension/shared/background.js
 extension/shared/content.js
 dist-ssr
 *.local
 bin
-scripts/Klarkey.NativeHostLauncher/bin/
-scripts/Klarkey.NativeHostLauncher/obj/
-native/windows-passkey-provider/*/bin/
-native/windows-passkey-provider/*/obj/
 
 # Editor directories and files
 .vscode/*

@@ -1,0 +1,53 @@
+[package]
+name = "klarkey"
+version = "0.0.0"
+description = "Klarkey desktop"
+authors = ["Klarkey"]
+edition = "2021"
+
+[lib]
+name = "klarkey_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+aes-gcm = "0.10.3"
+arboard = "3.6.1"
+ashpd = { version = "0.13.10", features = ["global_shortcuts"] }
+base64 = "0.22.1"
+ciborium = "0.2.2"
+futures-util = "0.3.31"
+hex = "0.4.3"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+p256 = "0.13.2"
+rand = "0.9.2"
+rand_core = { version = "0.6", features = ["getrandom"] }
+rfd = "0.17.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11.0"
+sysinfo = "0.39.1"
+tauri = { version = "2", default-features = false, features = ["common-controls-v6", "compression", "custom-protocol", "dynamic-acl", "macos-private-api", "tray-icon", "wry", "x11"] }
+tauri-plugin-deep-link = "2.4.9"
+tauri-plugin-single-instance = { version = "2.4.2", features = ["deep-link"] }
+url = "2.5.8"
+window-vibrancy = "0.7.1"
+zeroize = "1.8.2"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-global-shortcut = "2.3.1"
+
+[target."cfg(windows)".dependencies]
+windows = { version = "0.62.2", features = ["Foundation", "Security_Credentials_UI"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSError"] }
+objc2-local-authentication = { version = "0.3.2", features = ["block2"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus-secret-service = "4.1.0"
+gtk = "0.18.2"

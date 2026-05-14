@@ -35,16 +35,14 @@ function FormatRow({
       ref={ref}
       type="button"
       onClick={onClick}
-      onMouseEnter={() => {
-        if (pointerActive) {
+      onPointerMove={(event) => {
+        if (pointerActive && event.pointerType === 'mouse') {
           onHover()
         }
       }}
-      onFocus={onHover}
       className={clsx(
-        'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition',
-        selected ? 'bg-white/10' : 'text-white/74',
-        !selected && pointerActive ? 'hover:bg-white/5' : '',
+        'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition-colors',
+        selected ? 'palette-row-selected' : 'text-white/74',
       )}
     >
       <div className={clsx('text-[15px] font-medium', selected ? 'text-white' : 'text-white/78')}>{label}</div>

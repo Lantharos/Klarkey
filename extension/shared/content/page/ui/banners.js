@@ -203,7 +203,7 @@ const promptPasskeyGetChoice = async (choices, options = {}) => {
     title: passkeyChoices.length === 1 ? 'Use passkey?' : 'Choose a passkey',
     copy:
       options.locked
-        ? 'Windows Hello will unlock Klarkey after you choose a passkey.'
+        ? 'Unlock Klarkey after you choose a passkey.'
         : passkeyChoices.length === 1
         ? `Klarkey will use ${passkeyChoices[0].title} for ${window.location.hostname}.`
         : `Klarkey found multiple passkeys for ${window.location.hostname}.`,

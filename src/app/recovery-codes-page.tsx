@@ -220,7 +220,7 @@ export function RecoveryCodesPage({
   const remainingCount = useMemo(() => codes.filter((_, index) => !used.has(index)).length, [codes, used])
 
   return (
-    <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+    <div className="keyboard-only-surface flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
       <div className="flex items-center gap-3 px-5 pt-4 pb-3">
         <button
           type="button"

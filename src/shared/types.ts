@@ -147,10 +147,6 @@ export interface PasskeySupport {
   conditionalMediationAvailable: boolean
   platform: NodeJS.Platform | 'unknown'
   safeStorageAvailable: boolean
-  systemPasskeyProvider?: {
-    available: boolean
-    busName?: string
-  }
   relyingPartyId: string
   origin: string
 }
@@ -373,6 +369,7 @@ export interface SearchResponse {
 export type VaultLockState = 'locked' | 'passcode' | 'unlocked'
 
 export type VaultUnlockMethod = 'windowsHello' | 'masterPassword'
+export type SystemUnlockPolicy = 'startup' | 'timed'
 
 export interface VaultOperationResult {
   success: boolean
@@ -400,6 +397,7 @@ export interface UserSettings {
   browserSavePrompts: boolean
   passcodeEnabled: boolean
   autoLockMinutes: number
+  systemUnlockPolicy: SystemUnlockPolicy
   sshAgentEnabled: boolean
 }
 
@@ -412,6 +410,7 @@ export interface SettingsUpdate {
   browserSavePrompts?: boolean
   passcodeEnabled?: boolean
   autoLockMinutes?: number
+  systemUnlockPolicy?: SystemUnlockPolicy
   sshAgentEnabled?: boolean
 }
 
@@ -565,5 +564,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   browserSavePrompts: true,
   passcodeEnabled: true,
   autoLockMinutes: 15,
+  systemUnlockPolicy: 'timed',
   sshAgentEnabled: false,
 }

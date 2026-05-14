@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -58,60 +58,6 @@ for (const browser of browsers) {
   cpSync(join(extensionRoot, browser, 'manifest.json'), join(targetRoot, 'manifest.json'), { force: true })
   cpSync(iconPath, join(targetRoot, 'icons', 'klarkey-128.png'), { force: true })
 }
-
-const nativeHostRoot = join(distRoot, 'native-host')
-const nativeHostStagingRoot = join(distRoot, 'native-host-build')
-safeRemove(nativeHostStagingRoot)
-mkdirSync(nativeHostStagingRoot, { recursive: true })
-
-if (process.platform === 'win32') {
-  execFileSync(
-    'dotnet',
-    [
-      'publish',
-      join(root, 'scripts', 'Klarkey.NativeHostLauncher', 'Klarkey.NativeHostLauncher.csproj'),
-      '-c',
-      'Release',
-      '-o',
-      nativeHostStagingRoot,
-    ],
-    {
-      cwd: root,
-      stdio: 'inherit',
-    },
-  )
-
-  writeFileSync(
-    join(nativeHostStagingRoot, 'klarkey-native-host.cmd'),
-    `@echo off
-setlocal
-"%~dp0\\Klarkey.NativeHostLauncher.exe" %*
-`,
-  )
-}
-
-writeFileSync(
-  join(nativeHostStagingRoot, 'klarkey-native-host.sh'),
-  `#!/usr/bin/env bash
-set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-"$ROOT/node_modules/.bin/electron" "$ROOT" --native-messaging-host "$@"
-`,
-)
-chmodSync(join(nativeHostStagingRoot, 'klarkey-native-host.sh'), 0o755)
-
-safeRemove(nativeHostRoot)
-try {
-  cpSync(nativeHostStagingRoot, nativeHostRoot, { recursive: true, force: true })
-} catch (error) {
-  if (error && typeof error === 'object' && 'code' in error && (error.code === 'EPERM' || error.code === 'EPIPE')) {
-    console.warn(`[build:extension] Skipping native-host overwrite for locked path: ${nativeHostRoot}`)
-  } else {
-    throw error
-  }
-}
-
-safeRemove(nativeHostStagingRoot)
 
 if (!existsSync(join(root, '.gitignore'))) {
   throw new Error('Expected .gitignore to exist.')
