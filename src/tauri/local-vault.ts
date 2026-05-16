@@ -1,3 +1,4 @@
+import { disable as disableAutostart, enable as enableAutostart, isEnabled as isAutostartEnabled } from '@tauri-apps/plugin-autostart'
 import { parseCommand } from '@/shared/command'
 import type { ExportFormat, ExportOptions, ImportFormat, ImportOptions } from '@/shared/import-export'
 import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type ModifierKey, type SettingsUpdate, type UpdateItemInput, type UserSettings, type VaultLockInfo, type VaultPasskeyRecord, type VaultSnapshot } from '@/shared/types'
@@ -5,15 +6,16 @@ import { resolveSearchResponse } from '@/shared/resolver'
 import { getTotpCode, parseTotpInput } from '@/shared/totp'
 import type { KlarkeyApi } from '@/shared/ipc'
 import { copySecret } from '@/tauri/clipboard'
+import { clearDeleteMarkers, deletionMap, markItemDeleted } from '@/tauri/delete-tombstones'
 import { createDevicePasskeyApi } from '@/tauri/device-passkeys'
 import { exportCsv, exportJson } from '@/tauri/export-vault'
 import { parseOnePux } from '@/tauri/import-1pux'
-import { parseVaultImport } from '@/tauri/import-vault'
+import { parseVaultArchive, parseVaultImport } from '@/tauri/import-vault'
 import { lockedResult } from '@/tauri/locked-result'
 import { createSecretHash, shouldUpgradeSecretHash, type StoredSecretHash, verifySecretHash } from '@/tauri/secret-hash'
 import { mergeNativeState } from '@/tauri/state-merge'
 import { bindSyncNormalizer, createTauriSync, type TauriSyncState } from '@/tauri/sync'
-import { deleteSystemUnlock, ensureSystemUnlock, startSystemUnlockRefresh, systemUnlockAvailable, systemUnlockSafeStorageAvailable, unlockWithSystem } from '@/tauri/system-unlock'
+import { deleteSystemUnlock, ensureSystemUnlock, startSystemUnlockRefresh, systemUnlockAvailable, systemUnlockSafeStorageAvailable } from '@/tauri/system-unlock'
 import { checkUnlockAttempt, recordUnlockFailure, resetUnlockRateLimit } from '@/tauri/unlock-rate-limit'
 import { vaultSnapshot } from '@/tauri/vault-snapshot'
 
@@ -25,6 +27,8 @@ type StoredState = {
   systemUnlockEnabled?: boolean
   vaultPasskeys: VaultPasskeyRecord[]
   sitePasskeys: unknown[]; pendingPasskeys: unknown[]
+  deletedItemIds: Record<string, string>
+  deletedSitePasskeyIds: Record<string, string>
   recents: VaultSnapshot['recents']
   sync?: TauriSyncState
   locked: boolean
@@ -37,6 +41,26 @@ type VaultStateMetadata = {
   masterPasswordSet?: boolean
   systemUnlockEnabled?: boolean
   autoLockMinutes?: number
+  systemUnlockPolicy?: UserSettings['systemUnlockPolicy']
+  sshAgentEnabled?: boolean
+}
+
+type NormalizeItemOptions = {
+  ignoreInvalidOtp?: boolean
+  onInvalidOtp?: () => void
+}
+
+type SshAgentStatus = {
+  enabled?: boolean
+  running?: boolean
+  socket?: string
+  message?: string
+}
+
+type NativeVaultUnlockResult = {
+  success: boolean
+  message: string
+  contents?: string
 }
 
 const storageKey = 'klarkey.tauri.vault.v1'
@@ -62,8 +86,11 @@ function emptyState(): StoredState {
   return {
     items: [],
     settings: DEFAULT_SETTINGS,
+    systemUnlockEnabled: true,
     vaultPasskeys: [],
     sitePasskeys: [], pendingPasskeys: [],
+    deletedItemIds: {},
+    deletedSitePasskeyIds: {},
     recents: [],
     locked: false,
   }
@@ -78,11 +105,14 @@ function parseState(raw: string | undefined): StoredState {
       settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
       passcodeHash: parsed.passcodeHash,
       masterPasswordHash: parsed.masterPasswordHash,
+      systemUnlockEnabled: parsed.systemUnlockEnabled ?? true,
       vaultPasskeys: parsed.vaultPasskeys ?? [],
       sitePasskeys: parsed.sitePasskeys ?? [], pendingPasskeys: parsed.pendingPasskeys ?? [],
+      deletedItemIds: deletionMap(parsed.deletedItemIds),
+      deletedSitePasskeyIds: deletionMap(parsed.deletedSitePasskeyIds),
       recents: parsed.recents ?? [],
       sync: parsed.sync,
-      locked: Boolean(parsed.locked && (parsed.passcodeHash || parsed.masterPasswordHash || parsed.systemUnlockEnabled)),
+      locked: Boolean(parsed.locked && (parsed.passcodeHash || parsed.masterPasswordHash || (parsed.systemUnlockEnabled ?? true))),
     }
   } catch {
     return emptyState()
@@ -104,11 +134,13 @@ function strictSystemUnlockRequired(settings: UserSettings): boolean {
 }
 
 function settingsFromMetadata(metadata: VaultStateMetadata | undefined): UserSettings {
+  const autoLockMinutes = metadata?.autoLockMinutes ?? DEFAULT_SETTINGS.autoLockMinutes
   return {
     ...DEFAULT_SETTINGS,
     passcodeEnabled: metadata?.passcodeEnabled ?? DEFAULT_SETTINGS.passcodeEnabled,
-    autoLockMinutes: metadata?.autoLockMinutes ?? DEFAULT_SETTINGS.autoLockMinutes,
-    systemUnlockPolicy: (metadata?.autoLockMinutes ?? DEFAULT_SETTINGS.autoLockMinutes) <= 0 ? 'startup' : 'timed',
+    autoLockMinutes,
+    systemUnlockPolicy: metadata?.systemUnlockPolicy ?? (autoLockMinutes <= 0 ? 'startup' : 'timed'),
+    sshAgentEnabled: metadata?.sshAgentEnabled ?? DEFAULT_SETTINGS.sshAgentEnabled,
   }
 }
 
@@ -147,6 +179,8 @@ function metadataFromState(state: StoredState): VaultStateMetadata {
     masterPasswordSet: Boolean(state.masterPasswordHash),
     systemUnlockEnabled: Boolean(state.systemUnlockEnabled),
     autoLockMinutes: state.settings.autoLockMinutes,
+    systemUnlockPolicy: state.settings.systemUnlockPolicy,
+    sshAgentEnabled: state.settings.sshAgentEnabled,
   }
 }
 
@@ -244,6 +278,9 @@ function snapshot(): VaultSnapshot {
 
 function lockState(): VaultLockInfo {
   if (!stateCache && nativeMetadata) {
+    if (!nativeMetadata.locked && metadataHasLockMethod(nativeMetadata)) {
+      return lockStateFromMetadata({ ...nativeMetadata, locked: true })
+    }
     return lockStateFromMetadata(nativeMetadata)
   }
 
@@ -266,11 +303,11 @@ function lockState(): VaultLockInfo {
 }
 
 function requireUnlocked() {
-  return lockState().state === 'unlocked'
+  return Boolean(stateCache) && lockState().state === 'unlocked'
 }
 
 function guardVaultMutation() {
-  if (stateLoadFailed || !stateLoaded) return { success: false, message: 'Vault state unavailable.' }
+  if (stateLoadFailed || !stateLoaded || !stateCache) return { success: false, message: 'Vault state unavailable.' }
   return requireUnlocked() ? undefined : { success: false, message: lockedResult().message }
 }
 
@@ -282,11 +319,27 @@ function itemValue(item: ItemDetails, field: string) {
   return undefined
 }
 
-function normalizeItem(input: CreateItemInput | UpdateItemInput, current?: ItemDetails): ItemDetails {
+function parseItemOtp(value: string | undefined, fallback: { issuer: string; accountName: string }, options?: NormalizeItemOptions) {
+  try {
+    return parseTotpInput(value, fallback)
+  } catch (error) {
+    if (!options?.ignoreInvalidOtp) {
+      throw error
+    }
+
+    options.onInvalidOtp?.()
+    return undefined
+  }
+}
+
+function normalizeItem(input: CreateItemInput | UpdateItemInput, current?: ItemDetails, options?: NormalizeItemOptions): ItemDetails {
   const itemType = input.itemType ?? current?.itemType ?? 'login'
   const itemName = input.itemName?.trim() || current?.itemName || 'Untitled'
   const otpValue = 'otp' in input ? input.otp : undefined
-  const parsedOtp = otpValue !== undefined ? parseTotpInput(otpValue, { issuer: itemName, accountName: input.username || current?.username || itemName }) : current?.otp
+  const parsedOtp =
+    otpValue !== undefined
+      ? parseItemOtp(otpValue, { issuer: itemName, accountName: input.username || current?.username || itemName }, options)
+      : current?.otp
   return {
     itemId: 'itemId' in input && input.itemId ? input.itemId : current?.itemId ?? id('item'),
     itemType,
@@ -345,11 +398,33 @@ function remember(actionId: string, label: string, itemId?: string) {
 }
 
 function importItems(inputs: CreateItemInput[]) {
+  if (inputs.length === 0) {
+    return { success: false, importedCount: 0, skippedCount: 0, errorCount: 1, message: 'No importable items were found in that file.' }
+  }
   const state = loadState()
-  for (const input of inputs) state.items.push(normalizeItem(input))
+  let invalidOtpCount = 0
+  for (const input of inputs) {
+    const item = normalizeItem(input, undefined, {
+      ignoreInvalidOtp: true,
+      onInvalidOtp: () => {
+        invalidOtpCount += 1
+      },
+    })
+    clearDeleteMarkers(state, item.itemId)
+    state.items.push(item)
+  }
   saveState(state)
   const count = inputs.length
-  return { success: true, importedCount: count, skippedCount: 0, errorCount: 0, message: `Imported ${count} item${count === 1 ? '' : 's'}.` }
+  const otpMessage = invalidOtpCount
+    ? ` Skipped ${invalidOtpCount} invalid authenticator secret${invalidOtpCount === 1 ? '' : 's'}.`
+    : ''
+  return {
+    success: true,
+    importedCount: count,
+    skippedCount: invalidOtpCount,
+    errorCount: 0,
+    message: `Imported ${count} item${count === 1 ? '' : 's'}.${otpMessage}`,
+  }
 }
 
 function base64ToBytes(value: string) {
@@ -369,16 +444,51 @@ function importError(error: unknown) {
   }
 }
 
+async function resolveLaunchOnStartup(fallback: boolean) {
+  try {
+    return await isAutostartEnabled()
+  } catch {
+    return fallback
+  }
+}
+
+async function setLaunchOnStartup(enabled: boolean) {
+  try {
+    if (enabled) {
+      await enableAutostart()
+    } else {
+      await disableAutostart()
+    }
+    return await resolveLaunchOnStartup(enabled)
+  } catch {
+    return false
+  }
+}
+
+async function setSshAgentEnabled(
+  nativeCall: <Result>(command: string, args?: Record<string, unknown>) => Promise<Result>,
+  enabled: boolean,
+) {
+  try {
+    const status = await nativeCall<SshAgentStatus>('ssh_agent_apply', { enabled })
+    return Boolean(status.enabled && status.running)
+  } catch {
+    return false
+  }
+}
+
 export function createLocalVaultApi(nativeCall: <Result>(command: string, args?: Record<string, unknown>) => Promise<Result>): KlarkeyApi {
   const loadNativeState = async () => {
     const contents = await nativeCall<string | null>('load_vault_state')
     if (contents) {
       applyNativeState(contents)
+      void setSshAgentEnabled(nativeCall, parseState(contents).settings.sshAgentEnabled)
       return true
     }
     const legacy = localStorage.getItem(storageKey)
     if (!legacy) { applyNativeState(null); return true }
     applyNativeState(legacy)
+    void setSshAgentEnabled(nativeCall, parseState(legacy).settings.sshAgentEnabled)
     persistState?.(legacy)
     return true
   }
@@ -393,16 +503,6 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
     stateLoaded = true
     stateLoadFailed = true
     publishLockState()
-  }
-
-  const ensureDecryptedState = async () => {
-    if (stateCache) return true
-    try {
-      return await loadNativeState()
-    } catch {
-      markNativeStateUnavailable()
-      return false
-    }
   }
 
   persistState = (contents) => {
@@ -437,7 +537,12 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
         })
         return
       }
-      void loadNativeMetadata().catch(() => undefined)
+      void loadNativeMetadata().then((metadata) => {
+        if (metadata && !metadata.locked) {
+          return loadNativeState()
+        }
+        return undefined
+      }).catch(() => undefined)
     }, 2000)
   }
   startSystemUnlockRefresh(nativeCall, publishLockState)
@@ -470,18 +575,8 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
         remember(actionId, item.itemName, item.itemId)
         if (!value) return { status: 'info', title: item.itemName, message: 'No secret is stored for this action.' }
         if (actionId.startsWith('show:') || modifier === 'alt') return { status: 'success', title: selectedField === 'otp' ? 'Current OTP' : 'Secret', message: value, secret: value, itemId: item.itemId }
-        const isPaste = actionId.startsWith('paste:')
-        const copied = await copySecret(nativeCall, value, isPaste ? 5 : loadState().settings.clearClipboardSeconds)
-        if (!isPaste || copied.status === 'error') return copied
-        const target = await api.targetWindow.get()
-        const pasted = await nativeCall<boolean>('paste_into_target_window', { handle: target?.handle ?? '', value })
-        return pasted
-          ? { status: 'success', title: 'Value inserted', message: 'Pasted into the active field.' }
-          : { status: 'success', title: 'Value ready', message: 'Paste it into the field. Clipboard clears shortly.' }
+        return copySecret(nativeCall, value, loadState().settings.clearClipboardSeconds)
       },
-    },
-    desktop: {
-      getSupport: () => nativeCall('desktop_support'),
     },
     clipboard: {
       copySecret: (value) => copySecret(nativeCall, value, loadState().settings.clearClipboardSeconds),
@@ -492,6 +587,7 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
         if (!requireUnlocked()) return lockedResult()
         const state = loadState()
         const item = normalizeItem(input)
+        clearDeleteMarkers(state, item.itemId)
         state.items.push(item)
         saveState(state)
         return { status: 'success', title: 'Item created', message: `${item.itemName} was saved.`, itemId: item.itemId }
@@ -502,6 +598,7 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
         const index = state.items.findIndex((item) => item.itemId === input.itemId)
         if (index < 0) return { status: 'error', title: 'Item missing', message: 'This item could not be found.' }
         state.items[index] = normalizeItem(input, state.items[index])
+        clearDeleteMarkers(state, state.items[index].itemId)
         saveState(state)
         return { status: 'success', title: 'Item updated', message: `${state.items[index].itemName} was updated.`, itemId: input.itemId }
       },
@@ -509,6 +606,7 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
         if (!requireUnlocked()) return lockedResult()
         const state = loadState()
         const item = state.items.find((candidate) => candidate.itemId === itemId)
+        markItemDeleted(state, itemId, item)
         state.items = state.items.filter((candidate) => candidate.itemId !== itemId)
         saveState(state)
         return { status: 'success', title: 'Item deleted', message: `${item?.itemName ?? 'Item'} was deleted.` }
@@ -519,39 +617,33 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
       lockState: async () => lockState(),
       unlockWithHello: async () => {
         if (stateLoadFailed || !stateLoaded) return { success: false, message: 'Vault state unavailable.' }
-        const result = await unlockWithSystem(
-          nativeCall,
-          strictSystemUnlockRequired(stateCache ? loadState().settings : settingsFromMetadata(nativeMetadata)),
-        )
-        if (result.success) {
-          if (!await ensureDecryptedState()) {
-            return { success: false, message: 'Vault state unavailable.' }
-          }
-          const state = loadState()
-          state.locked = false
-          saveState(state)
-          publishLockState()
+        const result = await nativeCall<NativeVaultUnlockResult>('unlock_vault_with_system', {
+          reason: 'unlock Klarkey',
+          strict: strictSystemUnlockRequired(stateCache ? loadState().settings : settingsFromMetadata(nativeMetadata)),
+        })
+        if (result.success && result.contents) {
+          applyNativeState(result.contents)
         }
         return result
       },
       unlockWithPassword: async (password) => {
         if (stateLoadFailed || !stateLoaded) return { success: false, message: 'Vault state unavailable.' }
-        if (!await ensureDecryptedState()) return { success: false, message: 'Vault state unavailable.' }
         const blocked = checkUnlockAttempt()
         if (blocked) return blocked
-        const state = loadState()
-        if (await verifySecretHash(password, state.masterPasswordHash)) {
+        const result = await nativeCall<NativeVaultUnlockResult>('unlock_vault_with_secret', { kind: 'masterPassword', secret: password })
+        if (result.success && result.contents) {
+          applyNativeState(result.contents)
+          const state = loadState()
           if (shouldUpgradeSecretHash(state.masterPasswordHash)) {
             state.masterPasswordHash = await createSecretHash(password)
+            saveState(state)
           }
           resetUnlockRateLimit()
-          state.locked = false
-          saveState(state)
           publishLockState()
-          return { success: true, message: 'Vault unlocked.' }
+          return result
         }
         recordUnlockFailure()
-        return { success: false, message: 'Incorrect master password.' }
+        return result
       },
       lock: async () => {
         const state = loadState()
@@ -619,33 +711,45 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
       confirmPasscode: async (passcode) => api.vault.verifyPasscode(passcode),
       verifyPasscode: async (passcode) => {
         if (stateLoadFailed || !stateLoaded) return { success: false, message: 'Vault state unavailable.' }
-        if (!await ensureDecryptedState()) return { success: false, message: 'Vault state unavailable.' }
         const blocked = checkUnlockAttempt()
         if (blocked) return blocked
-        const state = loadState()
-        if (await verifySecretHash(passcode, state.passcodeHash)) {
+        const result = await nativeCall<NativeVaultUnlockResult>('unlock_vault_with_secret', { kind: 'passcode', secret: passcode })
+        if (result.success && result.contents) {
+          applyNativeState(result.contents)
+          const state = loadState()
           if (shouldUpgradeSecretHash(state.passcodeHash)) {
             state.passcodeHash = await createSecretHash(passcode)
+            saveState(state)
           }
           resetUnlockRateLimit()
-          state.locked = false
-          saveState(state)
           publishLockState()
-          return { success: true, message: 'Vault unlocked.' }
+          return result
         }
         recordUnlockFailure()
-        return { success: false, message: 'Incorrect passcode.' }
+        return result
       },
     },
     settings: {
-      get: async () => stateCache ? loadState().settings : settingsFromMetadata(nativeMetadata),
+      get: async () => {
+        const current = stateCache ? loadState().settings : settingsFromMetadata(nativeMetadata)
+        return {
+          ...current,
+          launchOnStartup: await resolveLaunchOnStartup(current.launchOnStartup),
+        }
+      },
       set: async (update: SettingsUpdate) => {
         const state = loadState()
-        const normalizedUpdate = {
+        const normalizedUpdate: SettingsUpdate = {
           ...update,
           ...(update.autoLockMinutes !== undefined
             ? { systemUnlockPolicy: update.autoLockMinutes <= 0 ? 'startup' as const : 'timed' as const }
             : {}),
+        }
+        if (update.launchOnStartup !== undefined) {
+          normalizedUpdate.launchOnStartup = await setLaunchOnStartup(update.launchOnStartup)
+        }
+        if (update.sshAgentEnabled !== undefined) {
+          normalizedUpdate.sshAgentEnabled = await setSshAgentEnabled(nativeCall, update.sshAgentEnabled)
         }
         state.settings = { ...state.settings, ...normalizedUpdate }
         saveState(state)
@@ -674,14 +778,24 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
       },
       importVault: async (options: ImportOptions) => {
         if (!requireUnlocked()) return { success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: lockedResult().message }
+        const releaseSync = await syncApi.suspendSync()
         try {
           const isOnePux = options.format === '1pux' || options.filePath.toLowerCase().endsWith('.1pux')
+          const isZipArchive = options.filePath.toLowerCase().endsWith('.zip')
           const inputs = isOnePux
             ? parseOnePux(base64ToBytes(await nativeCall<string>('read_binary_file', { path: options.filePath })))
-            : parseVaultImport(options, await nativeCall<string>('read_text_file', { path: options.filePath }))
-          return importItems(inputs)
+            : isZipArchive
+              ? parseVaultArchive(options, base64ToBytes(await nativeCall<string>('read_binary_file', { path: options.filePath })))
+              : parseVaultImport(options, await nativeCall<string>('read_text_file', { path: options.filePath }))
+          const result = importItems(inputs)
+          if (result.success && loadState().sync?.session) {
+            syncApi.requestSyncAfterSuspension()
+          }
+          return result
         } catch (error) {
           return importError(error)
+        } finally {
+          releaseSync()
         }
       },
       pickImportFile: (format: ImportFormat) => nativeCall('pick_import_file', { format }),

@@ -1,5 +1,5 @@
 import { sendMessage } from '../runtime.js'
-import { promptPasskeyCreateChoice, promptPasskeyGetChoice } from '../ui/banners.js'
+import { promptPasskeyCreateChoice, promptPasskeyGetChoice, promptPasskeyUnlock } from '../ui/banners.js'
 
 const deniedPasskeyRequest = (message) => ({
   ok: false,
@@ -8,6 +8,17 @@ const deniedPasskeyRequest = (message) => ({
     message,
   },
 })
+
+const requestPasskeyGetPlan = (requestDetailsJson, { unlock = false } = {}) =>
+  sendMessage({
+    type: 'plan-passkey-get',
+    payload: {
+      url: window.location.href,
+      title: document.title,
+      requestDetailsJson,
+      ...(unlock ? { unlock: true } : {}),
+    },
+  }).catch(() => undefined)
 
 const handlePagePasskeyCreate = async (requestDetailsJson) => {
   const plan = await sendMessage({
@@ -88,17 +99,22 @@ const handlePagePasskeyCreate = async (requestDetailsJson) => {
 }
 
 const handlePagePasskeyGet = async (requestDetailsJson) => {
-  const plan = await sendMessage({
-    type: 'plan-passkey-get',
-    payload: {
-      url: window.location.href,
-      title: document.title,
-      requestDetailsJson,
-    },
-  }).catch(() => undefined)
+  let plan = await requestPasskeyGetPlan(requestDetailsJson)
 
   if (!plan?.ok) {
     return { fallbackToBrowser: true }
+  }
+
+  if (!plan.choices?.length && plan.locked === true && plan.needsUnlockForChoices === true) {
+    const shouldUnlock = await promptPasskeyUnlock()
+    if (!shouldUnlock) {
+      return deniedPasskeyRequest('The passkey request was canceled.')
+    }
+
+    plan = await requestPasskeyGetPlan(requestDetailsJson, { unlock: true })
+    if (!plan?.ok) {
+      return deniedPasskeyRequest(plan?.message || 'Klarkey could not unlock passkeys for this site.')
+    }
   }
 
   if (!plan.choices?.length) {

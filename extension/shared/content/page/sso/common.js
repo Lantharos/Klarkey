@@ -8,7 +8,6 @@ const SSO_KEYWORDS = [
   'login with',
   'log in with',
   'continue with',
-  'continue to',
   'sign up with',
   'signup with',
   'register with',
@@ -30,6 +29,7 @@ const SSO_PROVIDERS = [
   { name: 'Bitbucket', patterns: [/bitbucket/i] },
   { name: 'Amazon', patterns: [/amazon/i, /aws/i] },
   { name: 'Stripe', patterns: [/stripe/i] },
+  { name: 'Ave', patterns: [/\bave\b/i, /aveid/i] },
   { name: 'Auth0', patterns: [/auth0/i] },
   { name: 'Okta', patterns: [/okta/i] },
   { name: 'SAML', patterns: [/\bsaml\b/i] },
@@ -50,6 +50,7 @@ const SSO_PROVIDER_HOST_PATTERNS = {
   Bitbucket: [/^(.+\.)?bitbucket\.org$/i],
   Amazon: [/^(.+\.)?amazon\.com$/i, /^(.+\.)?amazonaws\.com$/i],
   Stripe: [/^(.+\.)?stripe\.com$/i],
+  Ave: [/^(.+\.)?aveid\.net$/i],
   Auth0: [/^(.+\.)?auth0\.com$/i],
   Okta: [/^(.+\.)?okta\.com$/i],
 }
@@ -94,6 +95,19 @@ function getSsoSignals(element) {
   ].join(' ')
 }
 
+function getVisibleSsoSignals(element) {
+  return [
+    element.textContent || '',
+    element instanceof HTMLElement ? element.innerText || '' : '',
+    element.getAttribute('aria-label') || '',
+    element.getAttribute('title') || '',
+    element.getAttribute('name') || '',
+    element.getAttribute('value') || '',
+    element.getAttribute('data-provider') || '',
+    element.getAttribute('data-testid') || '',
+  ].join(' ')
+}
+
 function providersCompatible(savedProvider, detectedProvider) {
   if (!savedProvider || !detectedProvider) {
     return false
@@ -114,6 +128,31 @@ function isProviderHost(hostname, provider) {
 
   const normalizedHost = hostname.replace(/^www\./i, '').toLowerCase()
   return patterns.some((pattern) => pattern.test(normalizedHost))
+}
+
+function providerForUrl(value) {
+  if (!value) {
+    return undefined
+  }
+
+  try {
+    const { hostname } = new URL(value, window.location.href)
+    return SSO_PROVIDERS.find((provider) => isProviderHost(hostname, provider.name))?.name
+  } catch {
+    return undefined
+  }
+}
+
+function providerForNavigationTarget(element) {
+  return providerForUrl(element.getAttribute('href')) || providerForUrl(element.getAttribute('action'))
+}
+
+function isCurrentProviderPage(tracking) {
+  return Boolean(
+    tracking &&
+      isProviderHost(window.location.hostname, tracking.provider) &&
+      !isSameSiteHost(window.location.hostname, tracking.originHostname),
+  )
 }
 
 function extractAccountIdentifierFromText(value) {
@@ -291,13 +330,18 @@ function isSsoButton(element) {
     return undefined
   }
 
-  const text = getSsoSignals(element)
+  const text = getVisibleSsoSignals(element)
   const lower = text.toLowerCase()
-  if (!SSO_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+  const provider = detectSsoProvider(text) || providerForNavigationTarget(element)
+  if (!provider) {
     return undefined
   }
 
-  return detectSsoProvider(text)
+  if (!SSO_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+    return providerForNavigationTarget(element) === provider ? provider : undefined
+  }
+
+  return provider
 }
 
 function findSsoButtons() {
@@ -448,14 +492,23 @@ function startTrackingSso(provider) {
 
 async function maybeCaptureVisibleProviderAccount() {
   const tracking = await getStoredSsoTracking()
-  if (!tracking || isSameSiteHost(window.location.hostname, tracking.originHostname) || tracking.selectedAccount) {
+  if (!isCurrentProviderPage(tracking)) {
     return
   }
+
+  if (tracking.selectedAccount) {
+    if (!tracking.providerSeen) {
+      updateSsoTracking({ providerSeen: true })
+    }
+    return
+  }
+
+  const basePatch = tracking.providerSeen ? {} : { providerSeen: true }
 
   if (tracking.provider === 'Google' && window.location.hostname.includes('google.com')) {
     const ranked = rankGoogleEmailsForPage()
     if (ranked[0]) {
-      updateSsoTracking({ selectedAccount: ranked[0] })
+      updateSsoTracking({ ...basePatch, selectedAccount: ranked[0] })
       return
     }
   }
@@ -497,11 +550,14 @@ async function maybeCaptureVisibleProviderAccount() {
   }
 
   if (!candidates.length) {
+    if (!tracking.providerSeen) {
+      updateSsoTracking({ providerSeen: true })
+    }
     return
   }
 
   candidates.sort((left, right) => right.score - left.score)
-  updateSsoTracking({ selectedAccount: candidates[0].identifier })
+  updateSsoTracking({ ...basePatch, selectedAccount: candidates[0].identifier })
 }
 
 function captureProviderAccountFromEvent(event) {
@@ -518,13 +574,19 @@ function captureProviderAccountFromEvent(event) {
   }
 
   const tracking = getSsoTracking()
+  if (!isCurrentProviderPage(tracking)) {
+    return
+  }
+
   const accountIdentifier =
     extractProviderSpecificAccount(target, tracking) ||
     extractAccountIdentifierFromPath(event.composedPath?.() || [target]) ||
     extractAccountIdentifierFromTarget(target)
 
   if (accountIdentifier) {
-    updateSsoTracking({ selectedAccount: accountIdentifier })
+    updateSsoTracking({ providerSeen: true, selectedAccount: accountIdentifier })
+  } else if (!tracking.providerSeen) {
+    updateSsoTracking({ providerSeen: true })
   }
 }
 

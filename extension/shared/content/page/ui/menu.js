@@ -213,7 +213,7 @@ const renderFieldMenu = (input, options = {}) => {
         accent: 'New',
         onClick: () => {
           const inputs = getInputs(input)
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           writePasswordGroup(input, generated)
           setPendingOtp('')
           setPendingSavePrompt({
@@ -266,7 +266,7 @@ const renderFieldMenu = (input, options = {}) => {
           title: `Sign in with ${match.ssoProvider}`,
           secondary: match.itemName,
           onClick: () => {
-            suppressInlineMenu(input)
+            suppressInlineMenu(input, { untilUserInteraction: true })
             removeInlineUi()
             clickMatchingSsoControl(match.ssoProvider)
           },
@@ -294,7 +294,7 @@ const renderFieldMenu = (input, options = {}) => {
         secondary: pendingOtp,
         accent: 'OTP',
         onClick: () => {
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           const { splitOtpTargets } = getInputs(input)
           if (splitOtpTargets?.length) {
             writeSplitOtp(splitOtpTargets, pendingOtp)
@@ -388,7 +388,7 @@ const renderFieldMenu = (input, options = {}) => {
             return
           }
 
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           writeValue(input, suggestion.value)
           if (fieldKind === 'username' || fieldKind === 'email') {
             setPendingUsername(suggestion.value)

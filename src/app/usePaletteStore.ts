@@ -1,12 +1,12 @@
 import { create } from 'zustand'
 import { composeCommandRaw } from '@/shared/command'
+import type { ImportFormat } from '@/shared/import-export'
 import type { KlarkeyApi } from '@/shared/ipc'
 import {
   DEFAULT_SETTINGS,
   type ActionExecutionResult,
   type CommandQuery,
   type CreateItemInput,
-  type DesktopIntegrationSupport,
   type ModifierKey,
   type ResolvedAction,
   type SettingsUpdate,
@@ -32,16 +32,6 @@ const fallbackApi: KlarkeyApi = {
   },
   action: {
     execute: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
-  },
-  desktop: {
-    getSupport: async () => ({
-      platform: 'linux',
-      autoPaste: {
-        available: false,
-        tools: { xdotool: false, ydotool: false, wtype: false, osascript: false },
-        message: 'Install xdotool, ydotool, or wtype to enable automatic insert.',
-      },
-    }),
   },
   clipboard: {
     copySecret: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
@@ -166,33 +156,6 @@ function preserveSelectedIndex(actions: ResolvedAction[], selectedActionId: stri
   return Math.max(0, Math.min(previousIndex, Math.max(0, actions.length - 1)))
 }
 
-const linuxInsertInstallHint = 'Install ydotool or wtype on Wayland. On X11, install xdotool.'
-
-function disabledInsertReason(support?: DesktopIntegrationSupport) {
-  if (!support || support.autoPaste.available) {
-    return undefined
-  }
-
-  return support.autoPaste.message || linuxInsertInstallHint
-}
-
-function decorateActions(actions: ResolvedAction[], support?: DesktopIntegrationSupport) {
-  const reason = disabledInsertReason(support)
-  if (!reason) {
-    return actions
-  }
-
-  return actions.map((action) =>
-    action.id.startsWith('paste:')
-      ? {
-          ...action,
-          disabled: true,
-          disabledReason: reason,
-        }
-      : action,
-  )
-}
-
 interface PaletteState {
   hydrated: boolean
   isLoadingResults: boolean
@@ -212,7 +175,6 @@ interface PaletteState {
   settings?: UserSettings
   lockInfo?: VaultLockInfo
   syncStatus?: SyncStatus
-  desktopSupport?: DesktopIntegrationSupport
   boot: () => Promise<void>
   primeHome: () => void
   resetToHome: () => Promise<void>
@@ -257,7 +219,7 @@ interface PaletteState {
   syncNow: () => Promise<void>
   loadMoreActions: () => Promise<void>
   exportVault: (format: 'klarkey-json' | 'csv') => Promise<{ success: boolean; message: string }>
-  importVault: (format: 'auto' | 'klarkey-json' | 'csv' | '1pux' | 'bitwarden-json' | 'lastpass-csv' | 'dashlane-csv' | 'dashlane-json' | 'chrome-csv') => Promise<{ success: boolean; message: string }>
+  importVault: (format: ImportFormat) => Promise<{ success: boolean; message: string }>
 }
 
 const defaultQuery: CommandQuery = {
@@ -354,11 +316,10 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
 
     try {
       const resolveKey = ++nextResolveKey
-      const [settings, lockInfo, syncStatus, desktopSupport] = await Promise.all([
+      const [settings, lockInfo, syncStatus] = await Promise.all([
         api.settings.get(),
         api.vault.lockState(),
         safeSyncStatus(),
-        api.desktop.getSupport(),
       ])
       const startPage = lockInfo.state === 'locked' ? 'locked' as const : lockInfo.state === 'passcode' ? 'passcode' as const : 'home' as const
         set({
@@ -366,7 +327,6 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
           settings,
           lockInfo,
           syncStatus,
-          desktopSupport,
           page: startPage,
           detailAction: undefined,
           formMode: undefined,
@@ -385,7 +345,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         return
       }
       set({
-        actions: decorateActions(response.actions, get().desktopSupport),
+        actions: response.actions,
         hasMoreResults: response.hasMore,
         isLoadingResults: false,
       })
@@ -421,7 +381,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
         return
       }
       set({
-        actions: decorateActions(response.actions, get().desktopSupport),
+        actions: response.actions,
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         isLoadingResults: false,
@@ -460,13 +420,12 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       if (get().resolveKey !== resolveKey) {
         return
       }
-      const decoratedActions = decorateActions(response.actions, get().desktopSupport)
       set({
-        actions: decoratedActions,
+        actions: response.actions,
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         selectedIndex: options?.preserveSelection
-          ? preserveSelectedIndex(decoratedActions, selectedActionId, previousIndex)
+          ? preserveSelectedIndex(response.actions, selectedActionId, previousIndex)
           : get().selectedIndex,
         isLoadingResults: false,
       })
@@ -493,25 +452,14 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     }
 
     const nextIndex = (get().selectedIndex + delta + items) % items
-    set({ selectedIndex: nextIndex, execution: undefined })
+    set({ selectedIndex: nextIndex })
   },
   setSelectedIndex(index) {
-    set({ selectedIndex: index, execution: undefined })
+    set({ selectedIndex: index })
   },
   async executeSelection() {
     const action = get().actions[get().selectedIndex]
     if (!action) {
-      return
-    }
-
-    if (action.disabled) {
-      set({
-        execution: {
-          status: 'info',
-          title: 'Insert unavailable',
-          message: action.disabledReason || linuxInsertInstallHint,
-        },
-      })
       return
     }
 
@@ -530,7 +478,6 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     }
 
     if (
-      action.id.startsWith('paste:') ||
       action.id.startsWith('copy:') ||
       action.id.startsWith('show:') ||
       action.kind === 'copy-password' ||
@@ -652,7 +599,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       return
     }
 
-    if (page === 'export' || page === 'import' || page === 'recovery-codes') {
+    if (page === 'export' || page === 'import' || page === 'import-loading' || page === 'recovery-codes') {
       if (page === 'recovery-codes') {
         set({ page: 'detail', selectedIndex: 0, formMode: undefined, recoveryCodesMode: undefined, execution: undefined })
         return
@@ -890,35 +837,54 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
     }
   },
   async exportVault(format) {
-    const filePath = await api.importExport.pickExportFile(format)
-    if (!filePath) {
-      return { success: false, message: 'Export cancelled.' }
-    }
+    try {
+      const filePath = await api.importExport.pickExportFile(format)
+      if (!filePath) {
+        const message = 'Export cancelled.'
+        set({ page: 'export', execution: { status: 'info', title: 'Export cancelled', message } })
+        return { success: false, message }
+      }
 
-    set({ page: 'import-loading' as const, execution: undefined })
-    const result = await api.importExport.exportVault({ format, filePath })
-    if (result.success) {
-      set({ page: 'settings', selectedIndex: 13, execution: { status: 'success', title: 'Export complete', message: result.message } })
-    } else {
-      set({ page: 'settings', selectedIndex: 13, execution: { status: 'error', title: 'Export failed', message: result.message } })
+      set({ page: 'import-loading' as const, execution: undefined })
+      const result = await api.importExport.exportVault({ format, filePath })
+      if (result.success) {
+        set({ page: 'settings', selectedIndex: 13, execution: { status: 'success', title: 'Export complete', message: result.message } })
+      } else {
+        set({ page: 'settings', selectedIndex: 13, execution: { status: 'error', title: 'Export failed', message: result.message } })
+      }
+      return { success: result.success, message: result.message }
+    } catch (error) {
+      const message = safeClientErrorMessage(error, 'Klarkey could not export that vault file.')
+      set({ page: 'settings', selectedIndex: 13, execution: { status: 'error', title: 'Export failed', message } })
+      return { success: false, message }
     }
-    return { success: result.success, message: result.message }
   },
   async importVault(format) {
-    const filePath = await api.importExport.pickImportFile(format)
-    if (!filePath) {
-      return { success: false, message: 'Import cancelled.' }
-    }
+    try {
+      set({ page: 'import-loading' as const, execution: { status: 'info', title: 'Choose import file', message: 'Select the export file to import.' } })
+      const filePath = await api.importExport.pickImportFile(format)
+      if (!filePath) {
+        const message = 'Import cancelled.'
+        set({ page: 'import', execution: { status: 'info', title: 'Import cancelled', message } })
+        return { success: false, message }
+      }
 
-    set({ page: 'import-loading' as const, execution: undefined })
-    const result = await api.importExport.importVault({ format, filePath })
-    if (result.success) {
-      set({ page: 'settings', selectedIndex: 14, execution: { status: 'success', title: 'Import complete', message: result.message } })
-      await get().resetToHome()
-    } else {
-      set({ page: 'settings', selectedIndex: 14, execution: { status: 'error', title: 'Import failed', message: result.message } })
+      set({ page: 'import-loading' as const, execution: { status: 'info', title: 'Importing items', message: 'Reading and validating the selected file.' } })
+      const result = await api.importExport.importVault({ format, filePath })
+      if (result.success) {
+        const execution = { status: 'success' as const, title: 'Import complete', message: result.message }
+        get().primeHome()
+        await get().resetToHome()
+        set({ page: 'home', execution })
+      } else {
+        set({ page: 'import-loading' as const, execution: { status: 'error', title: 'Import failed', message: result.message } })
+      }
+      return { success: result.success, message: result.message }
+    } catch (error) {
+      const message = safeClientErrorMessage(error, 'Klarkey could not import that vault file.')
+      set({ page: 'import-loading' as const, execution: { status: 'error', title: 'Import failed', message } })
+      return { success: false, message }
     }
-    return { success: result.success, message: result.message }
   },
   async loadMoreActions() {
     const { hasMoreResults, isLoadingMore, isLoadingResults, nextOffset, query, page, resolveKey } = get()
@@ -940,7 +906,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       }
 
       set((state) => ({
-        actions: [...state.actions, ...decorateActions(response.actions, state.desktopSupport)],
+        actions: [...state.actions, ...response.actions],
         hasMoreResults: response.hasMore,
         nextOffset: response.nextOffset,
         isLoadingMore: false,

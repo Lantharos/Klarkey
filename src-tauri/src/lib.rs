@@ -12,7 +12,9 @@ mod native_host_vault;
 mod native_host_webauthn;
 mod native_host_webauthn_crypto;
 mod native_messaging;
+mod secret_hash;
 mod secure_state;
+mod ssh_agent;
 mod sync_config;
 mod system_auth;
 mod system_commands;
@@ -85,8 +87,8 @@ fn system_auth_has_vault_key() -> Value {
 }
 
 #[tauri::command]
-fn system_auth_ensure_vault_key() -> Value {
-    system_auth::ensure_vault_key()
+fn system_auth_ensure_vault_key(app: AppHandle) -> Value {
+    windowing::run_modal_interaction(&app, system_auth::ensure_vault_key)
 }
 
 #[tauri::command]
@@ -95,8 +97,10 @@ fn system_auth_delete_vault_key() -> Value {
 }
 
 #[tauri::command]
-fn system_auth_unlock(reason: String, strict: Option<bool>) -> Value {
-    system_auth::unlock(reason, strict.unwrap_or(false))
+fn system_auth_unlock(app: AppHandle, reason: String, strict: Option<bool>) -> Value {
+    windowing::run_modal_interaction(&app, || {
+        system_auth::unlock(reason, strict.unwrap_or(false))
+    })
 }
 
 #[cfg(desktop)]
@@ -162,6 +166,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if has_open_palette_request(args.iter().map(String::as_str)) {
                 let _ = windowing::open_palette_window(app);
@@ -174,6 +179,7 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .manage(deep_links::DeepLinkState::default())
         .manage(desktop_integration::DesktopIntegrationState::default())
+        .manage(ssh_agent::SshAgentState::default())
         .manage(system_commands::FileAccessState::default())
         .setup(|app| {
             let external_unlock = has_external_unlock_request();
@@ -203,6 +209,7 @@ pub fn run() {
             if external_unlock || open_on_start {
                 let _ = windowing::open_palette_window_with_options(app.handle(), external_unlock);
             }
+            ssh_agent::start_from_metadata(app.handle());
             let _ = browser_host_registration::ensure_native_host_registration(app.handle());
             Ok(())
         })
@@ -210,7 +217,6 @@ pub fn run() {
             palette_open,
             palette_close,
             palette_hotkey_set,
-            desktop_integration::desktop_support,
             system_commands::clipboard_copy_secret,
             system_auth_support,
             system_auth_has_vault_key,
@@ -220,7 +226,6 @@ pub fn run() {
             deep_links::oauth_pending_callbacks,
             sync_config::sync_config,
             desktop_integration::palette_target_get,
-            desktop_integration::paste_into_target_window,
             desktop_integration::open_external_url,
             system_commands::pick_import_file,
             system_commands::pick_export_file,
@@ -229,9 +234,13 @@ pub fn run() {
             system_commands::write_text_file,
             system_commands::load_vault_metadata,
             system_commands::lock_vault_metadata,
+            system_commands::unlock_vault_with_secret,
+            system_commands::unlock_vault_with_system,
             system_commands::load_vault_state,
             system_commands::save_vault_state,
-            system_commands::reset_vault_state
+            system_commands::reset_vault_state,
+            ssh_agent::ssh_agent_apply,
+            ssh_agent::ssh_agent_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Klarkey");

@@ -1,6 +1,9 @@
-import type { ImportOptions, KlarkeyExportVault } from '@/shared/import-export'
+import { strFromU8, unzipSync, type UnzipFileInfo } from 'fflate'
+import type { ImportFormat, ImportOptions, KlarkeyExportVault } from '@/shared/import-export'
 import type { CreateItemInput } from '@/shared/types'
-import { MAX_IMPORT_ITEMS, parseCsv, sanitizeImportInput } from '@/tauri/import-utils'
+import { parseCsvImport } from '@/tauri/import-csv'
+import { MAX_IMPORT_ITEMS, sanitizeImportInput } from '@/tauri/import-utils'
+import { looksLikeProtonPassJson, parseProtonPassJson } from '@/tauri/import-proton-pass'
 
 type BitwardenItem = {
   type?: number
@@ -26,29 +29,12 @@ const BW_TYPE_MAP = new Map<number, CreateItemInput['itemType']>([
   [4, 'identity'],
 ])
 
-const normalizeHeader = (header: string) => header.toLowerCase().trim().replace(/[^a-z0-9]/g, '_')
+const MAX_IMPORT_ARCHIVE_BYTES = 128 * 1024 * 1024
+const MAX_IMPORT_ARCHIVE_ENTRIES = 4096
+const MAX_IMPORT_ARCHIVE_UNCOMPRESSED_BYTES = 96 * 1024 * 1024
+const MAX_IMPORT_ARCHIVE_ENTRY_BYTES = 32 * 1024 * 1024
+
 const stringValue = (value: unknown) => typeof value === 'string' ? value : undefined
-
-function getColumn(row: Record<string, string>, ...candidates: string[]) {
-  for (const key of Object.keys(row)) {
-    if (candidates.includes(normalizeHeader(key))) {
-      const value = row[key]?.trim()
-      if (value) return value
-    }
-  }
-  return undefined
-}
-
-function detectCsvFormat(headers: string[]) {
-  const normalized = headers.map(normalizeHeader)
-  if (normalized.includes('url') && normalized.includes('username') && normalized.includes('password') && normalized.includes('name')) {
-    return normalized.includes('grouping') || normalized.includes('fav') ? 'lastpass' : 'chrome'
-  }
-  if (normalized.includes('name') && normalized.includes('website') && normalized.includes('login') && normalized.includes('password')) return 'dashlane'
-  if (normalized.includes('name') && normalized.includes('url') && normalized.includes('username') && normalized.includes('password') && normalized.includes('note')) return 'nordpass'
-  if (normalized.includes('title') && normalized.includes('login') && normalized.includes('password') && normalized.includes('url')) return 'keeper'
-  return 'generic'
-}
 
 export function parseVaultImport(options: ImportOptions, contents: string): CreateItemInput[] {
   const format = resolveFormat(options, contents)
@@ -56,7 +42,8 @@ export function parseVaultImport(options: ImportOptions, contents: string): Crea
     format === 'klarkey-json' ? parseKlarkeyJson(contents)
       : format === 'bitwarden-json' ? parseBitwardenJson(contents)
         : format === 'dashlane-json' ? parseDashlaneJson(contents)
-          : parseCsvImport(contents, format)
+          : format === 'proton-pass-json' ? parseProtonPassJson(contents)
+            : parseCsvImport(contents, format)
   if (inputs.length > MAX_IMPORT_ITEMS) throw new Error(`That export contains more than ${MAX_IMPORT_ITEMS} items.`)
   return inputs.flatMap((input) => {
     const sanitized = sanitizeImportInput(input)
@@ -64,16 +51,113 @@ export function parseVaultImport(options: ImportOptions, contents: string): Crea
   })
 }
 
-function resolveFormat(options: ImportOptions, contents: string) {
-  if (options.format !== 'auto') return options.format
+export function parseVaultArchive(options: ImportOptions, bytes: Uint8Array): CreateItemInput[] {
+  if (bytes.byteLength > MAX_IMPORT_ARCHIVE_BYTES) throw new Error('That vault export archive is too large to import safely.')
+  const archive = unzipSync(bytes, { filter: importArchiveFilter() })
+  const importableEntries = Object.entries(archive)
+    .map(([name, data]) => ({ name: name.replace(/\\/g, '/'), data }))
+    .filter(({ name }) => isParsableArchiveEntry(name))
+    .sort((a, b) => archiveEntryPriority(a.name) - archiveEntryPriority(b.name) || a.name.localeCompare(b.name))
+
+  if (importableEntries.length === 0) {
+    const encrypted = Object.keys(archive).some((name) => isEncryptedArchiveEntry(name))
+    if (encrypted) throw new Error('Encrypted Proton Pass exports must be decrypted before Klarkey can import them.')
+    throw new Error('That archive does not contain a supported import file.')
+  }
+
+  const inputs: CreateItemInput[] = []
+  const errors: string[] = []
+  for (const entry of importableEntries) {
+    try {
+      const contents = strFromU8(entry.data)
+      const format = archiveEntryFormat(options.format, entry.name)
+      inputs.push(...parseVaultImport({ format, filePath: entry.name }, contents))
+      if (inputs.length > MAX_IMPORT_ITEMS) throw new Error(`That export contains more than ${MAX_IMPORT_ITEMS} items.`)
+    } catch (error) {
+      if (error instanceof Error && error.message.includes(`more than ${MAX_IMPORT_ITEMS} items`)) throw error
+      errors.push(error instanceof Error ? error.message : 'Unsupported archive entry.')
+    }
+  }
+
+  if (inputs.length === 0) {
+    throw new Error(errors[0] ?? 'That archive does not contain any importable vault items.')
+  }
+  return inputs
+}
+
+function resolveFormat(options: ImportOptions, contents: string): Exclude<ImportFormat, 'auto' | '1pux'> {
+  if (options.format !== 'auto') {
+    if (options.format === '1pux') throw new Error('1Password .1pux files must be imported as binary archives.')
+    if (options.format === 'proton-pass') return options.filePath.toLowerCase().endsWith('.json') ? 'proton-pass-json' : 'proton-pass-csv'
+    return options.format
+  }
   const lower = options.filePath.toLowerCase()
   if (lower.endsWith('.csv')) return 'csv'
   if (!lower.endsWith('.json')) return 'csv'
   const parsed = JSON.parse(contents) as Record<string, unknown>
   if (parsed.app === 'klarkey') return 'klarkey-json'
   if (Array.isArray(parsed.credentials) || Array.isArray(parsed.paymentCards)) return 'dashlane-json'
+  if (looksLikeProtonPassJson(parsed)) return 'proton-pass-json'
   if (parsed.encrypted !== undefined || Array.isArray(parsed.items)) return 'bitwarden-json'
   return 'klarkey-json'
+}
+
+function importArchiveFilter() {
+  let entryCount = 0
+  let totalUncompressedBytes = 0
+  return (file: UnzipFileInfo) => {
+    entryCount += 1
+    if (entryCount > MAX_IMPORT_ARCHIVE_ENTRIES) throw new Error('That vault export archive contains too many files.')
+    if (!Number.isSafeInteger(file.originalSize) || file.originalSize < 0) throw new Error('That vault export archive contains an invalid file.')
+    totalUncompressedBytes += file.originalSize
+    if (totalUncompressedBytes > MAX_IMPORT_ARCHIVE_UNCOMPRESSED_BYTES) throw new Error('That vault export archive is too large to import safely.')
+    const normalizedName = file.name.replace(/\\/g, '/')
+    const segments = normalizedName.split('/')
+    if (normalizedName.startsWith('/') || segments.includes('..') || /^[a-z]:/i.test(normalizedName)) {
+      throw new Error('That vault export archive contains an unsafe file path.')
+    }
+    if (file.originalSize > MAX_IMPORT_ARCHIVE_ENTRY_BYTES) return false
+    return isImportArchiveEntry(normalizedName)
+  }
+}
+
+function isImportArchiveEntry(name: string) {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.csv') || lower.endsWith('.json') || lower.endsWith('.pgp')
+}
+
+function isParsableArchiveEntry(name: string) {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.csv') || lower.endsWith('.json')
+}
+
+function isEncryptedArchiveEntry(name: string) {
+  return name.toLowerCase().endsWith('.pgp')
+}
+
+function archiveEntryPriority(name: string) {
+  const lower = name.toLowerCase()
+  if (lower.includes('credential') || lower.includes('login') || lower.includes('password')) return 0
+  if (lower.includes('secure') || lower.includes('note')) return 1
+  if (lower.endsWith('.json')) return 2
+  return 3
+}
+
+function archiveEntryFormat(format: ImportFormat, name: string): ImportFormat {
+  const lower = name.toLowerCase()
+  if (format === 'proton-pass') return lower.endsWith('.json') ? 'proton-pass-json' : 'proton-pass-csv'
+  if (lower.includes('proton pass') || lower.includes('protonpass')) return lower.endsWith('.json') ? 'proton-pass-json' : 'proton-pass-csv'
+  if (lower.includes('note') || lower.includes('identity') || lower.includes('personal') || lower.includes('payment') || lower.includes('card')) return 'csv'
+  if (format !== 'auto' && format !== 'csv') return format
+  if (lower.endsWith('.json')) return 'auto'
+  if (lower.includes('dashlane')) return 'dashlane-csv'
+  if (lower.includes('bitwarden')) return 'bitwarden-csv'
+  if (lower.includes('lastpass')) return 'lastpass-csv'
+  if (lower.includes('keeper')) return 'keeper-csv'
+  if (lower.includes('keepass')) return 'keepass-csv'
+  if (lower.includes('nordpass')) return 'nordpass-csv'
+  if (lower.includes('1password')) return '1password-csv'
+  return 'csv'
 }
 
 function parseKlarkeyJson(contents: string): CreateItemInput[] {
@@ -161,21 +245,4 @@ function parseDashlaneJson(contents: string): CreateItemInput[] {
 function extractUrl(url: unknown) {
   if (typeof url === 'string') return url
   return url && typeof url === 'object' ? stringValue((url as { href?: unknown }).href) : undefined
-}
-
-function parseCsvImport(contents: string, format: string): CreateItemInput[] {
-  const rows = parseCsv(contents, MAX_IMPORT_ITEMS)
-  if (rows.length === 0) throw new Error('CSV file is empty or has no data rows.')
-  const detected = format === 'csv' || format === 'auto' ? detectCsvFormat(Object.keys(rows[0]!)) : format.replace('-csv', '')
-  return rows.map((row) => rowToLoginInput(row, detected))
-}
-
-function rowToLoginInput(row: Record<string, string>, format: string): CreateItemInput {
-  const url = getColumn(row, format === 'dashlane' ? 'website' : 'url', 'website', 'websites', 'uri', 'domain', 'hostname') || ''
-  const username = getColumn(row, format === 'dashlane' || format === 'keeper' ? 'login' : 'username', 'username', 'user', 'email', 'e_mail', 'account') || ''
-  const password = getColumn(row, 'password', 'pass', 'passwd', 'secret', 'pwd') || ''
-  const name = getColumn(row, format === 'keeper' ? 'title' : 'name', 'title', 'item_name', 'sitename', 'site', 'entry') || ''
-  const notes = getColumn(row, 'notes', 'note', 'extra', 'comment', 'comments', 'memo') || ''
-  const otp = getColumn(row, 'otp', 'totp', 'otpauth', '2fa', 'twofactor', 'mfa') || ''
-  return { itemType: 'login', itemName: name || username || url || 'Untitled', username, password, notes, otp: otp || undefined, websites: url ? [url] : undefined }
 }

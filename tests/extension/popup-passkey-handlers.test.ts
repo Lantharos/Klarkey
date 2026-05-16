@@ -85,6 +85,23 @@ describe('extension popup passkey handlers', () => {
     })
   })
 
+  it('reports locked passkey saves as failed saves', async () => {
+    const requestHost = vi.fn(async () => ({
+      ok: true,
+      result: {
+        status: 'locked',
+        message: 'Unlock Klarkey to continue.',
+      },
+    }))
+    const { savePasskeyCredential } = await loadPopupHandlers(requestHost)
+
+    await expect(savePasskeyCredential({ pendingPasskeyId: 'pending-1' })).resolves.toEqual({
+      ok: false,
+      message: 'Unlock Klarkey to continue.',
+      itemId: undefined,
+    })
+  })
+
   it('keeps successful passkey saves successful', async () => {
     const requestHost = vi.fn(async () => ({
       ok: true,

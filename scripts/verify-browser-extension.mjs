@@ -33,7 +33,9 @@ for (const browser of ['chromium', 'firefox']) {
   const manifest = readJson(join(targetRoot, 'manifest.json'))
   const background = readFileSync(join(targetRoot, 'background.js'), 'utf8')
   if (manifest.name !== 'Klarkey') throw new Error(`${browser} manifest name is invalid.`)
+  if (!manifest.permissions?.includes('privacy')) throw new Error(`${browser} manifest is missing the privacy permission.`)
   if (!background.includes('app.klarkey.desktop')) throw new Error(`${browser} background is missing the native host name.`)
+  if (!background.includes('passwordSavingEnabled')) throw new Error(`${browser} background is missing browser autofill control.`)
   if (String(JSON.stringify(manifest.content_security_policy ?? '')).includes('unsafe-eval')) {
     throw new Error(`${browser} extension CSP allows unsafe-eval.`)
   }

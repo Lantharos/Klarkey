@@ -3,7 +3,7 @@ use crate::native_host_items::{
 };
 use crate::native_host_webauthn::{
     create_passkey_credential, discard_passkey_credential, get_passkey_credential, passkeys_status,
-    plan_passkey_create, plan_passkey_get, save_passkey_credential,
+    plan_passkey_create, plan_passkey_get, plan_passkey_get_from_index, save_passkey_credential,
 };
 use crate::secure_state;
 use crate::system_auth;
@@ -193,9 +193,30 @@ pub(crate) fn response_for(request: Value) -> Value {
             ok_response(id, result)
         }
         Some("passkey-get-plan") => {
-            let state = readable_state();
             let url = string_value(&request, "url").unwrap_or_default();
             let request_json = string_value(&request, "requestDetailsJson").unwrap_or_default();
+            let unlock = request
+                .get("unlock")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !unlock {
+                if let Some(metadata) = vault_metadata() {
+                    if metadata.locked {
+                        return ok_response(
+                            id,
+                            plan_passkey_get_from_index(
+                                &metadata.passkey_index,
+                                &url,
+                                &request_json,
+                            ),
+                        );
+                    }
+                }
+            }
+            let state = match checked_state(&id) {
+                Ok(state) => state,
+                Err(response) => return response,
+            };
             ok_response(
                 id,
                 plan_passkey_get(
@@ -337,6 +358,7 @@ fn default_state() -> Value {
         "sitePasskeys": [],
         "pendingPasskeys": [],
         "recents": [],
+        "systemUnlockEnabled": true,
         "locked": false
     })
 }
@@ -367,28 +389,28 @@ fn readable_state() -> Option<Value> {
 }
 
 fn checked_state(id: &str) -> Result<Option<Value>, Value> {
-    if metadata_locked() {
+    if metadata_locked() && !unlock_with_system_auth() {
         return Ok(None);
     }
     read_state().map_err(|message| error_response(id.to_string(), "vault_unavailable", &message))
 }
 
 fn editable_state(id: &str) -> Result<Value, Value> {
-    if metadata_locked() {
+    if metadata_locked() && !unlock_with_system_auth() {
         return Err(locked_response(id.to_string()));
     }
     checked_state(id).map(|state| state.unwrap_or_else(default_state))
 }
 
 fn metadata_locked() -> bool {
-    let Some(path) = state_path() else {
-        return true;
-    };
-    secure_state::read_vault_metadata(&path)
-        .ok()
-        .flatten()
+    vault_metadata()
         .map(|metadata| metadata.locked)
         .unwrap_or(false)
+}
+
+fn vault_metadata() -> Option<secure_state::VaultStateMetadata> {
+    let path = state_path()?;
+    secure_state::read_vault_metadata(&path).ok().flatten()
 }
 
 fn read_state() -> Result<Option<Value>, String> {
@@ -408,6 +430,40 @@ fn write_state(state: &Value) -> Result<(), String> {
     let contents = serde_json::to_string(state)
         .map_err(|_| String::from("Could not serialize vault state."))?;
     secure_state::write_vault_state(&path, &contents)
+}
+
+fn unlock_with_system_auth() -> bool {
+    let Some(path) = state_path() else {
+        return false;
+    };
+    let Ok(Some(metadata)) = secure_state::read_vault_metadata(&path) else {
+        return false;
+    };
+    if !metadata.locked {
+        return true;
+    }
+    if !metadata.system_unlock_enabled {
+        return false;
+    }
+
+    let strict = metadata.system_unlock_policy != "startup" && metadata.auto_lock_minutes > 0;
+    let auth = system_auth::unlock(String::from("unlock Klarkey"), strict);
+    if !auth
+        .get("success")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return false;
+    }
+
+    let Ok(Some(contents)) = secure_state::read_vault_state(&path) else {
+        return false;
+    };
+    let Ok(mut state) = serde_json::from_str::<Value>(&contents) else {
+        return false;
+    };
+    state["locked"] = Value::Bool(false);
+    write_state(&state).is_ok()
 }
 
 fn state_path() -> Option<PathBuf> {

@@ -36,6 +36,12 @@ pub(crate) struct VaultStateMetadata {
     pub(crate) master_password_set: bool,
     pub(crate) system_unlock_enabled: bool,
     pub(crate) auto_lock_minutes: u64,
+    #[serde(default = "default_system_unlock_policy")]
+    pub(crate) system_unlock_policy: String,
+    #[serde(default)]
+    pub(crate) ssh_agent_enabled: bool,
+    #[serde(default)]
+    pub(crate) passkey_index: Vec<Value>,
 }
 
 enum DecodedState {
@@ -180,7 +186,7 @@ fn metadata_from_value(state: &Value) -> VaultStateMetadata {
     let system_unlock_enabled = state
         .get("systemUnlockEnabled")
         .and_then(Value::as_bool)
-        .unwrap_or(false);
+        .unwrap_or(true);
     let has_lock_method = passcode_set || master_password_set || system_unlock_enabled;
     let locked = state
         .get("locked")
@@ -191,6 +197,22 @@ fn metadata_from_value(state: &Value) -> VaultStateMetadata {
         .and_then(|settings| settings.get("autoLockMinutes"))
         .and_then(Value::as_u64)
         .unwrap_or(15);
+    let system_unlock_policy = settings
+        .and_then(|settings| settings.get("systemUnlockPolicy"))
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "startup" | "timed"))
+        .map(ToString::to_string)
+        .unwrap_or_else(|| {
+            if auto_lock_minutes <= 0 {
+                String::from("startup")
+            } else {
+                default_system_unlock_policy()
+            }
+        });
+    let ssh_agent_enabled = settings
+        .and_then(|settings| settings.get("sshAgentEnabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     VaultStateMetadata {
         locked,
@@ -199,6 +221,9 @@ fn metadata_from_value(state: &Value) -> VaultStateMetadata {
         master_password_set,
         system_unlock_enabled,
         auto_lock_minutes,
+        system_unlock_policy,
+        ssh_agent_enabled,
+        passkey_index: passkey_index_from_state(state),
     }
 }
 
@@ -210,7 +235,58 @@ fn legacy_encrypted_metadata() -> VaultStateMetadata {
         master_password_set: false,
         system_unlock_enabled: true,
         auto_lock_minutes: 15,
+        system_unlock_policy: default_system_unlock_policy(),
+        ssh_agent_enabled: false,
+        passkey_index: Vec::new(),
     }
+}
+
+fn default_system_unlock_policy() -> String {
+    String::from("timed")
+}
+
+fn passkey_index_from_state(state: &Value) -> Vec<Value> {
+    state
+        .get("sitePasskeys")
+        .and_then(Value::as_array)
+        .map(|passkeys| {
+            passkeys
+                .iter()
+                .filter_map(passkey_index_entry)
+                .take(200)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn passkey_index_entry(passkey: &Value) -> Option<Value> {
+    let credential_id = bounded_metadata_string(passkey, "credentialId", 2048)?;
+    let rp_id = bounded_metadata_string(passkey, "rpId", 255)?;
+    let mut entry = serde_json::Map::new();
+    entry.insert("credentialId".into(), Value::String(credential_id));
+    entry.insert("rpId".into(), Value::String(rp_id));
+
+    for (key, max_length) in [
+        ("itemId", 256usize),
+        ("label", 256usize),
+        ("userName", 320usize),
+        ("lastUsedAt", 64usize),
+    ] {
+        if let Some(value) = bounded_metadata_string(passkey, key, max_length) {
+            entry.insert(key.into(), Value::String(value));
+        }
+    }
+
+    Some(Value::Object(entry))
+}
+
+fn bounded_metadata_string(value: &Value, key: &str, max_length: usize) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= max_length)
+        .map(ToString::to_string)
 }
 
 fn decrypt_state_with_key(

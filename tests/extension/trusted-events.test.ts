@@ -24,6 +24,24 @@ describe('extension trusted user action guard', () => {
   })
 })
 
+describe('extension inline autofill suppression', () => {
+  it('keeps automatic prompts closed until an explicit user interaction', async () => {
+    vi.resetModules()
+    const input = document.createElement('input')
+    const { suppressInlineMenu, isAutomaticInlineMenuSuppressed, allowAutomaticInlineMenu } = await import(
+      '../../extension/shared/content/page/menu-suppress.js'
+    )
+
+    suppressInlineMenu(input, { untilUserInteraction: true })
+
+    expect(isAutomaticInlineMenuSuppressed(input)).toBe(true)
+
+    allowAutomaticInlineMenu()
+
+    expect(isAutomaticInlineMenuSuppressed(input)).toBe(false)
+  })
+})
+
 describe('extension prompt rendering', () => {
   it('renders page-controlled prompt text without html interpretation', async () => {
     vi.resetModules()
@@ -93,7 +111,9 @@ describe('extension prompt rendering', () => {
 
     expect(settled).toBe(false)
     expect(extensionOverlay().querySelector('.klarkey-save-banner')).not.toBeNull()
-    expect(extensionOverlay().querySelector('.klarkey-save-title')?.textContent).toBe('Use passkey?')
+    expect(extensionOverlay().querySelector('.klarkey-save-title')?.textContent).toBe('Sign in with passkey?')
+    expect(extensionOverlay().querySelector('.klarkey-save-choice-list')).toBeNull()
+    expect(extensionOverlay().querySelector('[data-action="confirm"]')?.textContent).toBe('Sign in')
   })
 
   it('requires a prompt before creating a single suggested passkey', async () => {

@@ -101,7 +101,7 @@ const showSaveBanner = ({ username, password, ssoProvider, reason }) => {
   overlayRoot.appendChild(banner)
 }
 
-const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 'Cancel' }) =>
+const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 'Cancel', primaryLabel }) =>
   new Promise((resolve) => {
     removeInlineUi()
     pageState.activeSaveBannerKey = promptKey
@@ -109,11 +109,15 @@ const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 
     banner.className = 'klarkey-save-banner'
     appendTextElement(banner, 'div', 'klarkey-save-title', title)
     appendTextElement(banner, 'p', 'klarkey-save-copy', copy)
-    const choiceList = document.createElement('div')
-    choiceList.className = 'klarkey-save-choice-list'
-    banner.appendChild(choiceList)
+    const showPrimaryAction = primaryLabel && choices.length === 1
+    const choiceList = showPrimaryAction ? undefined : document.createElement('div')
+    if (choiceList) {
+      choiceList.className = 'klarkey-save-choice-list'
+      banner.appendChild(choiceList)
+    }
     const actions = document.createElement('div')
     actions.className = 'klarkey-save-actions'
+    const primaryButton = showPrimaryAction ? appendButton(actions, 'klarkey-save-button primary', primaryLabel, 'confirm') : undefined
     const dismissButton = appendButton(actions, 'klarkey-save-button', dismissLabel, 'dismiss')
     banner.appendChild(actions)
 
@@ -128,16 +132,22 @@ const presentPasskeyBanner = ({ promptKey, title, copy, choices, dismissLabel = 
       }, 160)
     }
 
-    for (const choice of choices) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'klarkey-save-choice'
-      appendTextElement(button, 'div', 'klarkey-save-choice-title', choice.title)
-      appendTextElement(button, 'div', 'klarkey-save-choice-copy', choice.copy)
-      button.addEventListener('click', (event) => {
-        runTrustedUserAction(event, () => dismiss(choice.value))
+    if (primaryButton) {
+      primaryButton.addEventListener('click', (event) => {
+        runTrustedUserAction(event, () => dismiss(choices[0].value))
       })
-      choiceList.appendChild(button)
+    } else {
+      for (const choice of choices) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'klarkey-save-choice'
+        appendTextElement(button, 'div', 'klarkey-save-choice-title', choice.title)
+        appendTextElement(button, 'div', 'klarkey-save-choice-copy', choice.copy)
+        button.addEventListener('click', (event) => {
+          runTrustedUserAction(event, () => dismiss(choice.value))
+        })
+        choiceList.appendChild(button)
+      }
     }
 
     dismissButton.addEventListener('click', (event) => {
@@ -200,15 +210,33 @@ const promptPasskeyGetChoice = async (choices, options = {}) => {
 
   return presentPasskeyBanner({
     promptKey: passkeyPromptKeyFor('passkey-get', window.location.pathname, choices.map((choice) => choice.credentialId).join(',')),
-    title: passkeyChoices.length === 1 ? 'Use passkey?' : 'Choose a passkey',
+    title: passkeyChoices.length === 1 ? 'Sign in with passkey?' : 'Choose a passkey',
     copy:
-      options.locked
-        ? 'Unlock Klarkey after you choose a passkey.'
-        : passkeyChoices.length === 1
-        ? `Klarkey will use ${passkeyChoices[0].title} for ${window.location.hostname}.`
-        : `Klarkey found multiple passkeys for ${window.location.hostname}.`,
+      passkeyChoices.length === 1
+        ? options.locked
+          ? `Use ${passkeyChoices[0].title} for ${window.location.hostname}.`
+          : `Klarkey will use ${passkeyChoices[0].title} for ${window.location.hostname}.`
+        : options.locked
+          ? 'Unlock Klarkey after you choose a passkey.'
+          : `Klarkey found multiple passkeys for ${window.location.hostname}.`,
     choices: passkeyChoices,
+    primaryLabel: passkeyChoices.length === 1 ? 'Sign in' : undefined,
   })
 }
 
-export { showSaveBanner, presentPasskeyBanner, promptPasskeyCreateChoice, promptPasskeyGetChoice }
+const promptPasskeyUnlock = async () =>
+  presentPasskeyBanner({
+    promptKey: passkeyPromptKeyFor('passkey-unlock', window.location.pathname),
+    title: 'Unlock to use passkey?',
+    copy: `Klarkey needs to unlock before checking passkeys for ${window.location.hostname}.`,
+    choices: [
+      {
+        value: true,
+        title: 'Unlock',
+        copy: 'Continue with your system unlock method.',
+      },
+    ],
+    primaryLabel: 'Unlock',
+  })
+
+export { showSaveBanner, presentPasskeyBanner, promptPasskeyCreateChoice, promptPasskeyGetChoice, promptPasskeyUnlock }

@@ -27,7 +27,7 @@ pub(crate) fn passkeys_status(state: Option<&Value>, url: &str, locked: bool) ->
         "supported": true,
         "browser": "other",
         "mode": "browser-limited",
-        "conditionalUi": false,
+        "conditionalUi": true,
         "availablePasskeyCount": available,
         "exactMatchCount": exact,
         "linkedMatchCount": linked,
@@ -140,25 +140,31 @@ pub(crate) fn plan_passkey_get(
     request_json: &str,
     locked: bool,
 ) -> Value {
-    let choices = usable_passkeys(state, url, request_json)
-        .into_iter()
-        .take(20)
-        .map(|passkey| {
-            json!({
-                "credentialId": string_field(passkey, "credentialId").unwrap_or_default(),
-                "itemId": string_field(passkey, "itemId").unwrap_or_default(),
-                "itemName": string_field(passkey, "label").unwrap_or("Saved passkey"),
-                "userName": string_field(passkey, "userName"),
-                "rpId": string_field(passkey, "rpId"),
-                "lastUsedAt": string_field(passkey, "lastUsedAt")
-            })
-        })
-        .collect::<Vec<_>>();
+    let choices = passkey_choices(usable_passkeys(state, url, request_json));
     let mut result = json!({ "choices": choices });
     if locked {
         result["locked"] = json!(true);
     }
     result
+}
+
+pub(crate) fn plan_passkey_get_from_index(
+    passkey_index: &[Value],
+    url: &str,
+    request_json: &str,
+) -> Value {
+    let choices = passkey_choices(usable_passkey_records(
+        passkey_index,
+        None,
+        url,
+        request_json,
+        false,
+    ));
+    json!({
+        "needsUnlockForChoices": choices.is_empty(),
+        "choices": choices,
+        "locked": true
+    })
 }
 
 pub(crate) fn get_passkey_credential(
@@ -389,7 +395,34 @@ fn update_item_passkey_summary(
     item["updatedAt"] = json!(now_ms().to_string());
 }
 
+fn passkey_choices(passkeys: Vec<&Value>) -> Vec<Value> {
+    passkeys
+        .into_iter()
+        .take(20)
+        .map(|passkey| {
+            json!({
+                "credentialId": string_field(passkey, "credentialId").unwrap_or_default(),
+                "itemId": string_field(passkey, "itemId").unwrap_or_default(),
+                "itemName": string_field(passkey, "label").unwrap_or("Saved passkey"),
+                "userName": string_field(passkey, "userName"),
+                "rpId": string_field(passkey, "rpId"),
+                "lastUsedAt": string_field(passkey, "lastUsedAt")
+            })
+        })
+        .collect()
+}
+
 fn usable_passkeys<'a>(state: Option<&'a Value>, url: &str, request_json: &str) -> Vec<&'a Value> {
+    usable_passkey_records(site_passkeys(state), state, url, request_json, true)
+}
+
+fn usable_passkey_records<'a>(
+    passkeys: &'a [Value],
+    state: Option<&'a Value>,
+    url: &str,
+    request_json: &str,
+    require_linked_item: bool,
+) -> Vec<&'a Value> {
     let request = match parse_json(request_json) {
         Ok(request) => request,
         Err(_) => return Vec::new(),
@@ -411,7 +444,7 @@ fn usable_passkeys<'a>(state: Option<&'a Value>, url: &str, request_json: &str) 
         })
         .unwrap_or_default();
 
-    site_passkeys(state)
+    passkeys
         .iter()
         .filter(|passkey| {
             let Some(credential_id) = string_field(passkey, "credentialId") else {
@@ -419,9 +452,10 @@ fn usable_passkeys<'a>(state: Option<&'a Value>, url: &str, request_json: &str) 
             };
             string_field(passkey, "rpId") == Some(rp_id.as_str())
                 && (requested_ids.is_empty() || requested_ids.iter().any(|id| id == credential_id))
-                && string_field(passkey, "itemId")
-                    .and_then(|item_id| find_item(state, item_id))
-                    .is_some()
+                && (!require_linked_item
+                    || string_field(passkey, "itemId")
+                        .and_then(|item_id| find_item(state, item_id))
+                        .is_some())
         })
         .collect()
 }

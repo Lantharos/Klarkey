@@ -35,7 +35,7 @@ export const browserSettings = {
   browserSavePrompts: true,
 }
 
-export const menuSuppress = { until: 0, input: undefined }
+export const menuSuppress = { until: 0, input: undefined, untilUserInteraction: false }
 
 export const stateCodeToName = {
   AL: 'alabama',

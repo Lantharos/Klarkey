@@ -13,15 +13,16 @@ Klarkey is a cross-platform Tauri command palette for local item and credential 
 
 ## What ships in this MVP
 
-- Tray-backed background process with a global `Alt+S` shortcut and centered overlay window
+- Tray-backed background process with a global `Alt+S` shortcut, centered overlay window, and OS login launch setting
 - Tokenized command parsing for queries like `twitter`, `new login netflix`, `new identity personal`, `new note ideas`, and `insert password netflix alice`
 - Ranked action results with keyboard navigation
 - Local item storage in the Tauri app data folder
 - Item detail actions for insert, copy, reveal, edit, and delete
 - Create and edit flows for login, identity, and note items with item-type-specific fields
-- Vault import and export for Klarkey JSON, CSV, Bitwarden JSON, Dashlane JSON/CSV, common browser CSV exports, and 1Password `.1pux`
+- Vault import and export for Klarkey JSON, generic CSV, 1Password `.1pux`/CSV, Proton Pass ZIP/JSON/CSV, Bitwarden JSON/CSV, Dashlane JSON/CSV/ZIP, LastPass CSV, browser CSV, Keeper CSV, KeePass CSV, and NordPass CSV
 - Login TOTP support with manual secret entry, `otpauth://` import, live code countdown, and on-screen QR capture
-- OS keychain-backed system unlock with Windows Hello, macOS system authentication, and GNOME Keyring plus polkit on Linux
+- OS keychain-backed system unlock with Windows Hello, macOS system authentication, and Secret Service keyring storage plus polkit verification on Linux
+- Optional SSH agent socket/pipe for unlocked SSH key items
 - Browser extension native-messaging autofill, save, and website passkey flows backed by the Tauri state file
 - Clipboard auto-clear for copied secrets
 - Lightweight settings
@@ -87,10 +88,12 @@ Desktop releases use Tauri's platform bundler for the current OS. `bun run build
 - On Linux Wayland, Klarkey disables WebKitGTK's DMABUF renderer and accelerated compositing at startup before using an alpha-backed palette window. This keeps rounded corners working while avoiding the upstream `Error 71` Wayland protocol crash and partial invisible rendering seen on some GPU/driver combinations.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
 - Website passkeys are handled by the Tauri native-messaging host for the browser extension.
-- System unlock stores its vault unlock key in the OS keychain. Windows and macOS use the platform owner-authentication APIs. Linux uses Secret Service keyring unlock for startup/keyring access and adds a polkit check when timed auto-lock is enabled and the keyring is already open.
+- System unlock stores its vault unlock key in the OS keychain. Windows and macOS use the platform owner-authentication APIs. Linux stores the key through Secret Service and treats polkit verification as the separate user-authentication step for timed auto-lock unlocks.
+- The renderer cannot read or write the full local vault while the native vault metadata is locked. Password and passcode unlocks are verified in the Tauri backend and rate-limited before decrypted contents are returned.
+- The SSH agent setting starts a local OpenSSH-compatible agent. It exposes identities only while the vault is unlocked and the setting is enabled, honors RSA SHA-2 signature requests, and restricts Unix socket ownership and permissions to the current user. Use `SSH_AUTH_SOCK=$XDG_RUNTIME_DIR/klarkey/ssh-agent.sock` on Linux, `/tmp/klarkey-$(id -u)/ssh-agent.sock` when no runtime dir exists, or `\\.\pipe\klarkey-ssh-agent` on Windows.
 - Local and synced settings are validated before use; unsafe hotkeys and out-of-range lock or clipboard timings fall back to defaults instead of being applied.
 - Browser fill suggestions are available by default, but login auto-submit is opt-in from settings so filling and submitting remain separate decisions unless the user enables it.
-- The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode, and bridge errors are bounded and redacted before they cross process boundaries.
+- The browser extension talks to Klarkey exclusively through a native-messaging desktop bridge. There is no standalone or cloud-backed mode, website matching is public suffix-aware, and bridge errors are bounded and redacted before they cross process boundaries.
 - The browser extension passkey path runs through the same Tauri native-messaging host on Windows, macOS, and Linux.
 - The Expo mobile app lives in `mobile`. It includes a Klarkey-style vault surface with a bottom search/add dock, avatar settings entry, create flow for logins, identities, cards, notes, and SSH keys, item detail sheets, local secure storage, biometric unlock, screenshot protection, configurable auto-lock, Android Credential Manager and AutofillService registration with encrypted native store sync and username/password save support, website/app-scoped synced passkeys, and an iOS Credential Provider Extension target with app-group vault sync, one-time code fill, text insertion, and synced passkey source.
 

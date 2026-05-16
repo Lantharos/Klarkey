@@ -72,6 +72,68 @@ describe('extension native messaging retry', () => {
     expect(requestTypes).toEqual(['get-login', 'ping', 'get-login'])
   })
 
+  it('retries passkey saves after an unlock signal', async () => {
+    const requestTypes: string[] = []
+
+    const port = createPortMock((payload) => {
+      requestTypes.push(payload.type)
+      if (payload.type === 'passkey-save-credential' && requestTypes.filter((t) => t === 'passkey-save-credential').length === 1) {
+        return { id: payload.id, ok: true, result: { status: 'locked' } }
+      }
+      if (payload.type === 'ping') {
+        return { id: payload.id, ok: true, result: { vaultUnlocked: true } }
+      }
+      return { id: payload.id, ok: true, result: { status: 'success', itemId: 'item-1' } }
+    })
+
+    ;(globalThis as unknown as { browser: unknown }).browser = {
+      runtime: {
+        connectNative: vi.fn(() => port),
+        lastError: undefined,
+      },
+      tabs: {
+        query: vi.fn(async () => []),
+        sendMessage: vi.fn(async () => undefined),
+      },
+    }
+
+    const mod = await import('../../extension/shared/background/native-messaging.js')
+    const response = await mod.requestHost({ type: 'passkey-save-credential', pendingPasskeyId: 'pending-1' })
+
+    expect(response?.ok).toBe(true)
+    expect(requestTypes).toEqual(['passkey-save-credential', 'ping', 'passkey-save-credential'])
+  })
+
+  it('does not unlock before returning passive passkey sign-in plans', async () => {
+    const requestTypes: string[] = []
+
+    const port = createPortMock((payload) => {
+      requestTypes.push(payload.type)
+      return { id: payload.id, ok: true, result: { locked: true, choices: [{ credentialId: 'credential-1' }] } }
+    })
+
+    ;(globalThis as unknown as { browser: unknown }).browser = {
+      runtime: {
+        connectNative: vi.fn(() => port),
+        lastError: undefined,
+      },
+      tabs: {
+        query: vi.fn(async () => []),
+        sendMessage: vi.fn(async () => undefined),
+      },
+    }
+
+    const mod = await import('../../extension/shared/background/native-messaging.js')
+    const response = await mod.requestHost({ type: 'passkey-get-plan', requestDetailsJson: '{}' })
+
+    expect(response?.ok).toBe(true)
+    if (!response?.ok) {
+      throw new Error('Expected passive passkey plan request to succeed.')
+    }
+    expect(response.result).toEqual({ locked: true, choices: [{ credentialId: 'credential-1' }] })
+    expect(requestTypes).toEqual(['passkey-get-plan'])
+  })
+
   it('does not wait for unlock on passive locked status requests', async () => {
     const requestTypes: string[] = []
 

@@ -1,5 +1,6 @@
 import './webauthn-proxy.js'
 import * as handlers from './popup-handlers.js'
+import { initializeBrowserAutofillControl } from './browser-autofill.js'
 import { browserKind, runtimeApi, safeExtensionErrorMessage } from './native-messaging.js'
 
 const ssoTrackingKey = 'klarkey:sso-tracking'
@@ -23,6 +24,7 @@ const ssoProviders = new Set([
   'Bitbucket',
   'Amazon',
   'Stripe',
+  'Ave',
   'Auth0',
   'Okta',
   'SAML',
@@ -42,11 +44,14 @@ const ssoProviderHostPatterns = {
   Bitbucket: [/^(.+\.)?bitbucket\.org$/i],
   Amazon: [/^(.+\.)?amazon\.com$/i, /^(.+\.)?amazon\.co\.[a-z]+$/i],
   Stripe: [/^(.+\.)?stripe\.com$/i],
+  Ave: [/^(.+\.)?aveid\.net$/i],
   Auth0: [/^(.+\.)?auth0\.com$/i],
   Okta: [/^(.+\.)?okta\.com$/i, /^(.+\.)?okta-emea\.com$/i, /^(.+\.)?oktapreview\.com$/i],
 }
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+
+initializeBrowserAutofillControl()
 
 const boundedString = (value, maxLength, allowEmpty = false) =>
   typeof value === 'string' &&
@@ -226,6 +231,7 @@ const sanitizeSsoTracking = (value) => {
     originTitle: readOptionalString(value.originTitle, 512) ?? '',
     originHostname: value.originHostname,
     startedAt: value.startedAt,
+    ...(value.providerSeen === true ? { providerSeen: true } : {}),
     selectedAccount: readOptionalString(value.selectedAccount, 320),
   }
 }
@@ -236,9 +242,10 @@ const sanitizeSsoTrackingPatch = (value) => {
   }
 
   const selectedAccount = readOptionalString(value.selectedAccount, 320)
-  return selectedAccount === undefined
-    ? {}
-    : { selectedAccount }
+  return {
+    ...(selectedAccount === undefined ? {} : { selectedAccount }),
+    ...(typeof value.providerSeen === 'boolean' ? { providerSeen: value.providerSeen } : {}),
+  }
 }
 
 const pruneTransientState = () => {

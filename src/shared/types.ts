@@ -328,21 +328,6 @@ export interface ExternalWindowContext {
   processPath?: string
 }
 
-export interface DesktopIntegrationSupport {
-  platform: NodeJS.Platform
-  sessionType?: string
-  autoPaste: {
-    available: boolean
-    tools: {
-      xdotool: boolean
-      ydotool: boolean
-      wtype: boolean
-      osascript: boolean
-    }
-    message?: string
-  }
-}
-
 export interface ActionExecutionResult {
   status: 'success' | 'error' | 'locked' | 'info'
   title: string

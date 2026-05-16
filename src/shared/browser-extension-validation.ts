@@ -107,6 +107,7 @@ export type BrowserExtensionRequest =
       url: string;
       title?: string;
       requestDetailsJson: string;
+      unlock?: boolean;
     }
   | {
       id: string;
@@ -157,10 +158,11 @@ export type BrowserExtensionResponse =
             plan: BrowserPasskeySavePlan;
             locked?: boolean;
           }
-        | {
-            choices: BrowserPasskeyChoice[];
-            locked?: boolean;
-          }
+          | {
+              choices: BrowserPasskeyChoice[];
+              locked?: boolean;
+              needsUnlockForChoices?: boolean;
+            }
         | ActionExecutionResult
         | {
             supported: false;
@@ -411,7 +413,10 @@ export const validateBrowserExtensionRequest = (
       const url = readSecureBrowserPageUrl(input.url);
       return url &&
         hasValidTitle(input) &&
-        hasValidRequestDetailsJson(input)
+        hasValidRequestDetailsJson(input) &&
+        (input.type !== "passkey-get-plan" ||
+          input.unlock === undefined ||
+          typeof input.unlock === "boolean")
         ? validBrowserExtensionRequest({ ...request, url } as BrowserExtensionRequest)
         : invalidBrowserExtensionRequest(id, "invalid_passkey_request", "The passkey request is invalid.");
     }

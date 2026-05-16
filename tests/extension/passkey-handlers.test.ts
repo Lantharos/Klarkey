@@ -11,6 +11,7 @@ type ExtensionMessage = {
 type HandlerLoaderOptions = {
   createChoice?: { itemId?: string; createNew: boolean } | undefined
   getChoice?: string | undefined
+  unlockChoice?: boolean | undefined
   sendMessage: (message: ExtensionMessage) => Promise<unknown>
 }
 
@@ -18,6 +19,7 @@ const loadHandlers = async (options: HandlerLoaderOptions) => {
   const createChoice =
     'createChoice' in options ? options.createChoice : { itemId: 'item-1', createNew: false }
   const getChoice = 'getChoice' in options ? options.getChoice : 'credential-1'
+  const unlockChoice = 'unlockChoice' in options ? options.unlockChoice : true
   const { sendMessage } = options
 
   vi.resetModules()
@@ -25,6 +27,7 @@ const loadHandlers = async (options: HandlerLoaderOptions) => {
   vi.doMock('../../extension/shared/content/page/ui/banners.js', () => ({
     promptPasskeyCreateChoice: vi.fn().mockResolvedValue(createChoice),
     promptPasskeyGetChoice: vi.fn().mockResolvedValue(getChoice),
+    promptPasskeyUnlock: vi.fn().mockResolvedValue(unlockChoice),
   }))
 
   return import('../../extension/shared/content/page/passkey/handlers.js')
@@ -229,5 +232,88 @@ describe('extension page passkey handlers', () => {
         responseJson: '{"id":"credential-1"}',
       }),
     )
+  })
+
+  it('unlocks to refresh passkey choices when locked metadata has no index yet', async () => {
+    const calls: ExtensionMessage[] = []
+    const sendMessage = vi.fn(async (message: ExtensionMessage) => {
+      calls.push(message)
+
+      switch (message.type) {
+        case 'plan-passkey-get':
+          return message.payload?.unlock
+            ? {
+                ok: true,
+                locked: false,
+                choices: [
+                  {
+                    credentialId: 'credential-1',
+                    itemId: 'item-1',
+                    itemName: 'Example',
+                    userName: 'person@example.com',
+                    rpId: 'example.com',
+                  },
+                ],
+              }
+            : {
+                ok: true,
+                locked: true,
+                needsUnlockForChoices: true,
+                choices: [],
+              }
+        case 'get-passkey-credential':
+          return {
+            ok: true,
+            responseJson: '{"id":"credential-1"}',
+            credentialId: 'credential-1',
+          }
+        default:
+          throw new Error(`Unexpected message: ${message.type}`)
+      }
+    })
+    const { handlePagePasskeyGet } = await loadHandlers({ sendMessage })
+
+    const result = await handlePagePasskeyGet('{"challenge":"abc"}')
+
+    expect(calls.map((call) => call.type)).toEqual(['plan-passkey-get', 'plan-passkey-get', 'get-passkey-credential'])
+    expect(calls[1]).toEqual(
+      expect.objectContaining({
+        type: 'plan-passkey-get',
+        payload: expect.objectContaining({ unlock: true }),
+      }),
+    )
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        responseJson: '{"id":"credential-1"}',
+      }),
+    )
+  })
+
+  it('cancels locked passkey checks before falling back to the browser', async () => {
+    const sendMessage = vi.fn(async (message: ExtensionMessage) => {
+      if (message.type === 'plan-passkey-get') {
+        return {
+          ok: true,
+          locked: true,
+          needsUnlockForChoices: true,
+          choices: [],
+        }
+      }
+
+      throw new Error(`Unexpected message: ${message.type}`)
+    })
+    const { handlePagePasskeyGet } = await loadHandlers({ unlockChoice: undefined, sendMessage })
+
+    const result = await handlePagePasskeyGet('{"challenge":"abc"}')
+
+    expect(sendMessage).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        name: 'NotAllowedError',
+        message: 'The passkey request was canceled.',
+      },
+    })
   })
 })

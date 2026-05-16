@@ -23,14 +23,14 @@ const clickMatchingSsoControl = (provider) => {
 
 export const applyLoginFill = (input, login) => {
   if (login.ssoProvider) {
-    suppressInlineMenu(input)
+    suppressInlineMenu(input, { untilUserInteraction: true })
     removeInlineUi()
     clickMatchingSsoControl(login.ssoProvider)
     return
   }
 
   const inputs = getInputs(input)
-  suppressInlineMenu(input)
+  suppressInlineMenu(input, { untilUserInteraction: true })
   writeValue(inputs.username, login.username)
   writePasswordGroup(input, login.password)
   if (inputs.splitOtpTargets?.length && login.otp) {
@@ -48,7 +48,7 @@ export const findFieldByKind = (preferredInput, kind) =>
   getFillableFields(preferredInput).find((field) => fieldKindFor(field) === kind)
 
 export const applyIdentityFill = (input, identity) => {
-  suppressInlineMenu(input)
+  suppressInlineMenu(input, { untilUserInteraction: true })
 
   const fieldMap = {
     username: identity.username,
@@ -104,7 +104,7 @@ export const applyIdentityFill = (input, identity) => {
 }
 
 export const applyCardFill = (input, card) => {
-  suppressInlineMenu(input)
+  suppressInlineMenu(input, { untilUserInteraction: true })
 
   const fieldMap = {
     cardholderName: card.cardholderName,

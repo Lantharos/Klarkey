@@ -83,6 +83,8 @@ describe('browser extension site matching', () => {
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkeys-status', url: 'http://example.com' }).ok).toBe(false)
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-get-plan', url: 'http://example.com', requestDetailsJson: '{}' }).ok).toBe(false)
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-get-plan', url: 'http://localhost:5173', requestDetailsJson: '{}' }).ok).toBe(true)
+    expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-get-plan', url: 'https://example.com', requestDetailsJson: '{}', unlock: true }).ok).toBe(true)
+    expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-get-plan', url: 'https://example.com', requestDetailsJson: '{}', unlock: 'yes' }).ok).toBe(false)
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-save-credential', url: 'http://example.com', requestDetailsJson: '{}', pendingPasskeyId: 'pending' }).ok).toBe(false)
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-save-credential', url: 'http://localhost:5173', requestDetailsJson: '{}', pendingPasskeyId: 'pending' }).ok).toBe(true)
     expect(validateBrowserExtensionRequest({ id: 'req', type: 'passkey-discard-credential', url: 'file:///tmp/passkey.html', pendingPasskeyId: 'pending' }).ok).toBe(false)

@@ -1,4 +1,5 @@
 use serde_json::{json, Map, Value};
+use std::net::IpAddr;
 use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -323,10 +324,17 @@ fn host_match_score(saved_site: &str, request_url: &str) -> Option<i32> {
     if saved == requested {
         return Some(100);
     }
-    if saved.contains('.') && requested.ends_with(&format!(".{saved}")) {
+    if subdomain_match_allowed(&saved) && requested.ends_with(&format!(".{saved}")) {
         return Some(80);
     }
     None
+}
+
+fn subdomain_match_allowed(candidate: &str) -> bool {
+    candidate.contains('.')
+        && !candidate.starts_with('[')
+        && candidate.parse::<IpAddr>().is_err()
+        && psl::suffix_str(candidate).is_some_and(|suffix| suffix != candidate)
 }
 
 pub(crate) fn item_site_score(item: &Value, request_url: &str) -> Option<i32> {

@@ -18,7 +18,7 @@ pub(crate) fn support() -> Value {
 }
 
 pub(crate) fn has_vault_key() -> Value {
-    json!({ "configured": false })
+    json!({ "configured": read_vault_key().is_ok() })
 }
 
 pub(crate) fn ensure_vault_key() -> Value {
@@ -55,7 +55,7 @@ pub(crate) fn unlock(reason: String, strict: bool) -> Value {
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let keyring_locked = default_secret_collection_locked();
-        if strict && keyring_locked == Some(false) {
+        if strict {
             if let Err(message) = platform_authenticate(&reason) {
                 return json!({ "success": false, "message": message });
             }
@@ -69,7 +69,11 @@ pub(crate) fn unlock(reason: String, strict: bool) -> Value {
             }),
             Err(_) => json!({
                 "success": false,
-                "message": "The system keyring is locked or unavailable."
+                "message": if keyring_locked == Some(true) {
+                    "The system keyring is locked."
+                } else {
+                    "The system keyring is unavailable."
+                }
             }),
         };
     }
@@ -247,10 +251,15 @@ fn platform_authenticate(reason: &str) -> Result<(), String> {
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn platform_auth_support() -> AuthSupport {
+    let available = linux_command_available("pkexec");
     AuthSupport {
-        available: true,
-        label: "GNOME Keyring",
-        message: "Secret Service keyring authentication is available.",
+        available,
+        label: "polkit",
+        message: if available {
+            "polkit authentication is available."
+        } else {
+            "Install polkit or start a polkit authentication agent to use system unlock."
+        },
     }
 }
 
@@ -283,6 +292,13 @@ fn default_secret_collection_locked() -> Option<bool> {
     let service = SecretService::connect_with_max_prompt_timeout(EncryptionType::Plain, 0).ok()?;
     let collection = service.get_default_collection().ok()?;
     collection.is_locked().ok()
+}
+
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
+fn linux_command_available(command: &str) -> bool {
+    ["/usr/local/bin", "/usr/bin", "/bin"]
+        .into_iter()
+        .any(|directory| std::path::Path::new(directory).join(command).is_file())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]

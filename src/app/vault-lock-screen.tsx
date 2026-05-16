@@ -32,7 +32,7 @@ export function VaultLockScreen({
     ? "Windows Hello"
     : userAgent.includes("Mac")
       ? "Touch ID"
-      : "GNOME Keyring";
+      : "polkit";
   const canUseHello = lockInfo.primaryMethods.includes("windowsHello");
   const needsPassword = lockInfo.primaryMethods.includes("masterPassword");
 

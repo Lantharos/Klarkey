@@ -6,6 +6,7 @@ import {
   setPendingSavePrompt,
   clearPendingSavePrompt,
   getPendingSavePrompt,
+  hydratePendingSavePrompt,
 } from './pending-save.js'
 import { showSaveBanner } from './ui/banners.js'
 import { highlightSavedSsoButtons } from './sso/index.js'
@@ -124,14 +125,43 @@ const maybePromptToSave = async (preferredInput, force = false) => {
   pageState.lastSavePromptKey = promptKey
 }
 
-const restorePendingSavePrompt = () => {
+const restorePendingSavePrompt = async () => {
   if (!browserSettings.browserSavePrompts) {
     return
   }
 
+  await hydratePendingSavePrompt()
   const pending = getPendingSavePrompt()
   if (!pending) {
     return
+  }
+
+  if (pending.ssoProvider && pending.ssoConfirmed !== true) {
+    clearPendingSavePrompt()
+    return
+  }
+
+  const promptKey = savePromptKeyFor(pending)
+  if (pageState.lastSavePromptKey === promptKey || pageState.activeSaveBannerKey === promptKey) {
+    return
+  }
+
+  if (pending.password) {
+    const matches = pageState.matches.length ? pageState.matches : await refreshMatches()
+    const exact = matches.find((match) => (match.username || '') === (pending.username || ''))
+    if (exact) {
+      const stored = await sendMessage({
+        type: 'fetch-login',
+        itemId: exact.itemId,
+        url: window.location.href,
+        title: document.title,
+      }).catch(() => undefined)
+      if (stored?.ok && (stored.login?.password || '') === pending.password) {
+        pageState.lastSavePromptKey = promptKey
+        clearPendingSavePrompt()
+        return
+      }
+    }
   }
 
   window.setTimeout(() => {

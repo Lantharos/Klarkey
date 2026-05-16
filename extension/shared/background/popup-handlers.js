@@ -342,15 +342,17 @@ export async function savePasskeyCredential(payload) {
     type: 'passkey-save-credential',
   })
 
-  if (!response?.ok) {
+  if (!response?.ok || response.result?.status === 'locked') {
     return {
       ok: false,
       message: response?.error?.message || response?.result?.message || 'Klarkey could not save this passkey.',
     }
   }
 
+  const saved = response.result?.status === 'success'
+
   return {
-    ok: response.result?.status !== 'error',
+    ok: saved,
     message: response.result?.message || 'Passkey saved.',
     itemId: response.result?.itemId,
   }
@@ -392,6 +394,7 @@ export async function planPasskeyGet(payload) {
     ok: true,
     choices: response.result.choices,
     locked: response.result.locked === true,
+    needsUnlockForChoices: response.result.needsUnlockForChoices === true,
   }
 }
 

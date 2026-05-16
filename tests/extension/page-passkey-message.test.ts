@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   buildPagePasskeyResponse,
@@ -8,6 +8,12 @@ import {
   safePagePasskeyErrorMessage,
   sanitizePagePasskeyResponsePayload,
 } from '../../extension/shared/content/page/passkey/page-message.js'
+
+afterEach(() => {
+  delete (globalThis as unknown as { PublicKeyCredential?: unknown }).PublicKeyCredential
+  delete (navigator as unknown as { credentials?: unknown }).credentials
+  vi.restoreAllMocks()
+})
 
 describe('extension page passkey message parsing', () => {
   it('accepts bounded create and get requests', () => {
@@ -205,5 +211,42 @@ describe('extension page passkey message parsing', () => {
     expect(source).toContain('maxAuthenticatorResponseJsonLength')
     expect(source).toContain('isBoundedString(event.data.id, maxAuthenticatorMessageIdLength)')
     expect(source).not.toContain('pending.resolve(event.data.payload)')
+  })
+
+  it('advertises Klarkey passkey support to page capability checks', async () => {
+    const source = readFileSync(resolve(process.cwd(), 'extension/shared/page-bridge.js'), 'utf8')
+    const originalCreate = vi.fn()
+    const originalGet = vi.fn()
+
+    Object.defineProperty(navigator, 'credentials', {
+      configurable: true,
+      value: {
+        create: originalCreate,
+        get: originalGet,
+      },
+    })
+
+    class NativePublicKeyCredential {
+      static async getClientCapabilities() {
+        return { conditionalGet: false, hybridTransport: false }
+      }
+    }
+
+    Object.defineProperty(globalThis, 'PublicKeyCredential', {
+      configurable: true,
+      writable: true,
+      value: NativePublicKeyCredential,
+    })
+
+    Function(source)()
+
+    await expect(PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()).resolves.toBe(true)
+    await expect(PublicKeyCredential.isConditionalMediationAvailable()).resolves.toBe(true)
+    await expect(PublicKeyCredential.getClientCapabilities()).resolves.toEqual({
+      conditionalGet: true,
+      hybridTransport: false,
+      passkeyPlatformAuthenticator: true,
+      userVerifyingPlatformAuthenticator: true,
+    })
   })
 })

@@ -1,15 +1,19 @@
 import { overlayRoot } from './overlay.js'
-import { pageState, matchFetch, timers, menuSuppress, browserSettings } from './state.js'
+import { pageState, matchFetch, timers, browserSettings } from './state.js'
 import { runtime, sendMessage } from './runtime.js'
 import { getDeepActiveElement, isFieldElement, visible } from './dom.js'
-import { suppressInlineMenu } from './menu-suppress.js'
+import {
+  allowAutomaticInlineMenu,
+  hydrateInlineMenuSuppression,
+  isAutomaticInlineMenuSuppressed,
+  suppressInlineMenu,
+} from './menu-suppress.js'
 import { loadBrowserSettings } from './settings.js'
 import {
   getInputs,
   setPendingUsername,
   setPendingOtp,
   getPendingOtp,
-  getPendingUsername,
   injectPageBridge,
   ensurePageBridgeReady,
   isPasswordInput,
@@ -22,6 +26,7 @@ import {
   restorePendingSavePrompt,
   maybePromptToSave,
 } from './vault.js'
+import { savePromptKeyFor, setPendingSavePrompt } from './pending-save.js'
 import { scanForSsoButtons, maybePromptSsoSave, highlightSavedSsoButtons } from './sso/index.js'
 import { fieldKindFor, suggestionFlowFor, shouldAutoOpenFieldMenu } from './field-meta.js'
 import { renderInlineMenu, renderInlineTriggerOnly } from './ui/menu.js'
@@ -64,9 +69,31 @@ window.addEventListener('message', (event) => {
   })()
 })
 
-const handleFieldFocus = async (target) => {
+const stagePendingFormSave = (preferredInput) => {
+  if (!browserSettings.browserSavePrompts) {
+    return collectFormSnapshot(preferredInput)
+  }
+
+  const snapshot = collectFormSnapshot(preferredInput)
+  const promptKey = savePromptKeyFor(snapshot)
+  if (snapshot.password && pageState.lastSavePromptKey !== promptKey && pageState.activeSaveBannerKey !== promptKey) {
+    setPendingSavePrompt({
+      username: snapshot.username,
+      password: snapshot.password,
+      reason: 'create',
+    })
+  }
+  return snapshot
+}
+
+const handleFieldFocus = async (target, options = {}) => {
   if (!isFieldElement(target) || !visible(target)) {
     return
+  }
+
+  const explicitOpen = options.explicitOpen === true
+  if (explicitOpen) {
+    allowAutomaticInlineMenu()
   }
 
   const fieldKind = fieldKindFor(target)
@@ -77,7 +104,7 @@ const handleFieldFocus = async (target) => {
   if (fieldKind === 'otp') {
     const pendingOtp = getPendingOtp()
     if (pendingOtp) {
-      suppressInlineMenu()
+      suppressInlineMenu(target, { untilUserInteraction: true })
       const { splitOtpTargets } = getInputs(target)
       if (splitOtpTargets?.length) {
         writeSplitOtp(splitOtpTargets, pendingOtp)
@@ -101,11 +128,11 @@ const handleFieldFocus = async (target) => {
 
   renderInlineTriggerOnly(target)
 
-  if (Date.now() < menuSuppress.until && target === menuSuppress.input) {
+  if (!explicitOpen && isAutomaticInlineMenuSuppressed(target)) {
     return
   }
 
-  const autoOpen = browserSettings.browserAutoOpenMenu && target.dataset.klarkeyAutoOpen !== 'false'
+  const autoOpen = explicitOpen || (browserSettings.browserAutoOpenMenu && target.dataset.klarkeyAutoOpen !== 'false')
   await Promise.all([
     refreshMatches(),
     fieldKind === 'password' || fieldKind === 'otp' ? Promise.resolve([]) : refreshFieldSuggestions(fieldKind, suggestionFlowFor(target, fieldKind)),
@@ -134,7 +161,10 @@ document.addEventListener('click', (event) => {
     return
   }
 
-  if (pageState.overlayInput && target === pageState.overlayInput) {
+  if (isFieldElement(target) && visible(target)) {
+    if (target === pageState.overlayInput && !pageState.menuOpen) {
+      void handleFieldFocus(target, { explicitOpen: true })
+    }
     return
   }
 
@@ -167,10 +197,7 @@ window.addEventListener('resize', () => {
 
 document.addEventListener('submit', () => {
   const inputs = getInputs()
-  pageState.formSnapshot = {
-    username: inputs.username?.value?.trim() || getPendingUsername(),
-    password: inputs.password?.value?.trim() || '',
-  }
+  pageState.formSnapshot = stagePendingFormSave(inputs.password || inputs.username)
 
   if (pageState.formSnapshot.username) {
     setPendingUsername(pageState.formSnapshot.username)
@@ -180,6 +207,10 @@ document.addEventListener('submit', () => {
     void maybePromptToSave(inputs.password || inputs.username, true)
   }, 180)
 }, true)
+
+window.addEventListener('pagehide', () => {
+  stagePendingFormSave()
+})
 
 // Scan for SSO buttons periodically and on interactions
 window.setInterval(() => {
@@ -274,7 +305,7 @@ if (runtime) {
     if (message?.type === 'fill-login') {
       const inputs = getInputs()
       const preferredInput = inputs.password || inputs.username
-      suppressInlineMenu(preferredInput)
+      suppressInlineMenu(preferredInput, { untilUserInteraction: true })
       writeValue(inputs.username, message.login?.username)
       writeValue(inputs.password, message.login?.password)
       if (inputs.splitOtpTargets?.length && message.login?.otp) {
@@ -297,9 +328,10 @@ if (runtime) {
   })
 
   injectPageBridge()
-  void loadBrowserSettings().finally(() => {
+  void loadBrowserSettings().finally(async () => {
+    await hydrateInlineMenuSuppression()
     void refreshMatches()
-    restorePendingSavePrompt()
+    void restorePendingSavePrompt()
     window.setTimeout(() => {
       void handleFieldFocus(getDeepActiveElement())
     }, 0)

@@ -1,10 +1,11 @@
 import { buildAuthorizeUrl, generateCodeChallenge, generateCodeVerifier, generateNonce } from '@ave-id/sdk'
 import { ConvexHttpClient } from 'convex/browser'
 import { parseAveOAuthCallback } from '@/shared/ave-oauth'
-import { recordFromItemDetails, SYNC_SCHEMA_VERSION, type PlainVaultRecord, type SyncStatus, type SyncUpdateEvent } from '@/shared/sync'
+import { SYNC_SCHEMA_VERSION, type LocalSyncRecord, type PlainVaultRecord, type SyncStatus, type SyncUpdateEvent } from '@/shared/sync'
 import { normalizeSecureSyncUrl, secureSyncUrlError } from '@/shared/sync-transport'
 import { DEFAULT_SETTINGS, type CreateItemInput, type ItemDetails, type UserSettings } from '@/shared/types'
 import { decryptSyncRecord, encryptPlainRecord, hashPlainRecord, unwrapVaultKey, wrapVaultKey } from '@/tauri/sync-crypto'
+import { missingDeletedRecords, recordsFromState, stringField } from '@/tauri/sync-records'
 import { deviceRegistrationIntervalMs, maxPushBatchRecords, normalizeBootstrapResult, normalizePullResult, normalizePushResult, syncFns } from '@/tauri/sync-remote'
 import { exchangeOAuthCode, isFreshPendingOAuthRequest, refreshSyncSession, type AveSyncConfig, type PendingOAuthRequest, type SyncSession } from '@/tauri/sync-session'
 
@@ -30,6 +31,7 @@ export type TauriSyncState = {
   session?: SyncSession
   pendingOAuth?: PendingOAuthRequest
   records: Record<string, SyncRecordState>
+  pendingDeletes?: Record<string, PlainVaultRecord>
 }
 
 type VaultState = {
@@ -58,10 +60,15 @@ type SyncConfigResponse = {
 
 const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|private|privateKey|refresh_token|secret|token|vault)/i
 const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
+const pullBatchLimit = 200
+const maxPullPages = 100
+const maxPushBatchPayloadBytes = 512 * 1024
 
 export function createTauriSync<State extends VaultState>(access: SyncAccess<State>) {
   let syncing = false
   let activeSync: Promise<SyncStatus> | undefined
+  let syncSuspensionDepth = 0
+  let deferredSyncOptions: { fullPull?: boolean } | undefined
   accessNormalizeItem = access.normalizeItem
 
   const notify = (status: SyncStatus, vaultChanged = false, returnHome = vaultChanged) => {
@@ -126,8 +133,41 @@ export function createTauriSync<State extends VaultState>(access: SyncAccess<Sta
 
   async function syncNow(options: { fullPull?: boolean } = {}) {
     if (!access.requireUnlocked()) return setError('Unlock Klarkey before syncing.')
+    if (syncSuspensionDepth > 0) {
+      requestSyncAfterSuspension(options)
+      return status()
+    }
     activeSync ??= runSync(options).finally(() => { activeSync = undefined })
     return activeSync
+  }
+
+  async function suspendSync() {
+    if (activeSync) {
+      await activeSync.catch(() => undefined)
+    }
+
+    syncSuspensionDepth += 1
+    let released = false
+
+    return () => {
+      if (released) return
+      released = true
+      syncSuspensionDepth = Math.max(0, syncSuspensionDepth - 1)
+      if (syncSuspensionDepth > 0 || !deferredSyncOptions) return
+
+      const options = deferredSyncOptions
+      deferredSyncOptions = undefined
+      void syncNow(options).catch(() => undefined)
+    }
+  }
+
+  function requestSyncAfterSuspension(options: { fullPull?: boolean } = {}) {
+    deferredSyncOptions = { fullPull: Boolean(deferredSyncOptions?.fullPull || options.fullPull) }
+    if (syncSuspensionDepth === 0) {
+      const requestedOptions = deferredSyncOptions
+      deferredSyncOptions = undefined
+      void syncNow(requestedOptions).catch(() => undefined)
+    }
   }
 
   async function completeCallback(callbackUrl: string | undefined) {
@@ -194,46 +234,70 @@ export function createTauriSync<State extends VaultState>(access: SyncAccess<Sta
 
   async function pullRemote(client: ConvexHttpClient, sync: TauriSyncState, state: State, options: { fullPull?: boolean }) {
     const since = options.fullPull || (sync.serverSequence > 0 && Object.keys(sync.records).length === 0) ? 0 : sync.serverSequence
-    const pull = await client.query(syncFns.pullSince, { since, limit: 500 }).then(normalizePullResult)
-    const vaultKey = pull.wrappedVaultKey ? await unwrapVaultKey(sync.session!.appKey, pull.wrappedVaultKey) : await ensureVaultKey(client, sync.session!)
     const dirty = await dirtyLocalRecords(recordsFromState(state), Object.values(sync.records))
-    let sequence = Math.max(since, pull.sequence)
+    let vaultKey: Uint8Array | undefined
+    let sequence = since
+    let nextSince = since
     let decryptFailures = 0
     let appliedCount = 0
-    for (const encrypted of pull.records) {
-      sequence = Math.max(sequence, encrypted.serverSequence)
-      const local = sync.records[encrypted.recordId]
-      if (local?.contentHash === encrypted.contentHash) {
-        sync.records[encrypted.recordId] = { ...local, revision: Math.max(local.revision, encrypted.revision), serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
-        continue
+
+    for (let page = 0; page < maxPullPages; page++) {
+      const pull = await client.query(syncFns.pullSince, { since: nextSince, limit: pullBatchLimit }).then(normalizePullResult)
+      sequence = Math.max(sequence, pull.sequence)
+      if (!vaultKey) {
+        vaultKey = pull.wrappedVaultKey ? await unwrapVaultKey(sync.session!.appKey, pull.wrappedVaultKey) : await ensureVaultKey(client, sync.session!)
       }
-      let plain: PlainVaultRecord
-      try {
-        plain = await decryptSyncRecord(vaultKey, sync.session!.account.aveIdentityId, encrypted)
-      } catch {
-        decryptFailures++
-        sync.records[encrypted.recordId] = { recordId: encrypted.recordId, kind: local?.kind, itemId: local?.itemId, credentialId: local?.credentialId, revision: encrypted.revision, contentHash: '', serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
-        continue
+
+      let pageSequence = nextSince
+      for (const encrypted of pull.records) {
+        pageSequence = Math.max(pageSequence, encrypted.serverSequence)
+        const local = sync.records[encrypted.recordId]
+        if (local?.contentHash === encrypted.contentHash) {
+          sync.records[encrypted.recordId] = { ...local, revision: Math.max(local.revision, encrypted.revision), serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
+          if (encrypted.deletedAt) delete sync.pendingDeletes?.[encrypted.recordId]
+          continue
+        }
+        let plain: PlainVaultRecord
+        try {
+          plain = await decryptSyncRecord(vaultKey, sync.session!.account.aveIdentityId, encrypted)
+        } catch {
+          decryptFailures++
+          sync.records[encrypted.recordId] = { recordId: encrypted.recordId, kind: local?.kind, itemId: local?.itemId, credentialId: local?.credentialId, revision: encrypted.revision, contentHash: '', serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
+          continue
+        }
+        if (sync.pendingDeletes?.[encrypted.recordId]) {
+          if (plain.deletedAt) delete sync.pendingDeletes[encrypted.recordId]
+          sync.records[encrypted.recordId] = { recordId: encrypted.recordId, ...recordMetadata(plain), revision: encrypted.revision, contentHash: encrypted.contentHash, serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
+          continue
+        }
+        if (local?.contentHash && local.contentHash !== encrypted.contentHash && local.revision >= encrypted.revision) {
+          sync.conflictCount++
+          continue
+        }
+        const dirtyRecord = dirty.get(encrypted.recordId)
+        if (local?.contentHash && dirtyRecord && dirtyRecord.contentHash !== encrypted.contentHash) {
+          preserveSyncConflict(state, dirtyRecord.record)
+          sync.conflictCount++
+        }
+        applySyncRecord(state, plain)
+        appliedCount++
+        sync.records[encrypted.recordId] = { recordId: encrypted.recordId, ...recordMetadata(plain), revision: encrypted.revision, contentHash: encrypted.contentHash, serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
       }
-      if (local?.contentHash && local.contentHash !== encrypted.contentHash && local.revision >= encrypted.revision) {
-        sync.conflictCount++
-        continue
+
+      if (pull.records.length < pullBatchLimit) {
+        return { sequence, vaultKey: vaultKey ?? await ensureVaultKey(client, sync.session!), decryptFailures, appliedCount }
       }
-      const dirtyRecord = dirty.get(encrypted.recordId)
-      if (local?.contentHash && dirtyRecord && dirtyRecord.contentHash !== encrypted.contentHash) {
-        preserveSyncConflict(state, dirtyRecord.record)
-        sync.conflictCount++
-      }
-      applySyncRecord(state, plain)
-      appliedCount++
-      sync.records[encrypted.recordId] = { recordId: encrypted.recordId, ...recordMetadata(plain), revision: encrypted.revision, contentHash: encrypted.contentHash, serverSequence: encrypted.serverSequence, deletedAt: encrypted.deletedAt }
+      if (pageSequence <= nextSince) throw new Error('Sync pull did not advance.')
+      nextSince = pageSequence
     }
-    return { sequence, vaultKey, decryptFailures, appliedCount }
+
+    throw new Error('Sync pull returned too many records at once.')
   }
 
   async function pushLocal(client: ConvexHttpClient, sync: TauriSyncState, state: State, vaultKey: Uint8Array) {
     const active = recordsFromState(state)
-    const records = [...active, ...missingDeletedRecords(active, Object.values(sync.records))]
+    const pendingDeletes = Object.values(sync.pendingDeletes ?? {})
+    const records = [...active, ...pendingDeletes, ...missingDeletedRecords([...active, ...pendingDeletes], Object.values(sync.records))]
     const encrypted = []
     const plainById = new Map<string, PlainVaultRecord>()
     for (const record of records) {
@@ -251,15 +315,27 @@ export function createTauriSync<State extends VaultState>(access: SyncAccess<Sta
     let sequence = sync.serverSequence
     let appliedCount = 0
     let decryptFailures = 0
-    for (let offset = 0; offset < encrypted.length; offset += maxPushBatchRecords) {
-      const result = await client.mutation(syncFns.pushBatch, { records: encrypted.slice(offset, offset + maxPushBatchRecords) }).then(normalizePushResult)
+    for (const batch of buildPushBatches(encrypted)) {
+      const result = await client.mutation(syncFns.pushBatch, { records: batch }).then(normalizePushResult)
       sequence = Math.max(sequence, result.sequence)
       for (const accepted of result.accepted) {
         const plain = plainById.get(accepted.recordId)
         sync.records[accepted.recordId] = { recordId: accepted.recordId, ...recordMetadata(plain), revision: accepted.revision, contentHash: accepted.contentHash, serverSequence: accepted.serverSequence, deletedAt: plain?.deletedAt }
+        if (plain?.deletedAt) delete sync.pendingDeletes?.[accepted.recordId]
       }
       for (const conflict of result.conflicts) {
         const local = plainById.get(conflict.recordId)
+        if (local?.deletedAt) {
+          sync.conflictCount++
+          try {
+            const plain = await decryptSyncRecord(vaultKey, sync.session!.account.aveIdentityId, conflict)
+            if (plain.deletedAt) delete sync.pendingDeletes?.[conflict.recordId]
+            sync.records[conflict.recordId] = { recordId: conflict.recordId, ...recordMetadata(plain), revision: conflict.revision, contentHash: conflict.contentHash, serverSequence: conflict.serverSequence, deletedAt: conflict.deletedAt }
+          } catch {
+            decryptFailures++
+          }
+          continue
+        }
         if (local) {
           preserveSyncConflict(state, local)
           sync.conflictCount++
@@ -314,7 +390,37 @@ export function createTauriSync<State extends VaultState>(access: SyncAccess<Sta
     return next
   }
 
-  return { status, signIn, signOut, syncNow }
+  return { status, signIn, signOut, syncNow, suspendSync, requestSyncAfterSuspension }
+}
+
+const syncPayloadEncoder = new TextEncoder()
+
+function encodedJsonBytes(value: unknown) {
+  return syncPayloadEncoder.encode(JSON.stringify(value)).byteLength
+}
+
+export function buildPushBatches(records: LocalSyncRecord[]) {
+  const batches: LocalSyncRecord[][] = []
+  let current: LocalSyncRecord[] = []
+  let currentBytes = 2
+
+  for (const record of records) {
+    const recordBytes = encodedJsonBytes(record) + (current.length > 0 ? 1 : 0)
+    if (
+      current.length > 0 &&
+      (current.length >= maxPushBatchRecords || currentBytes + recordBytes > maxPushBatchPayloadBytes)
+    ) {
+      batches.push(current)
+      current = []
+      currentBytes = 2
+    }
+
+    current.push(record)
+    currentBytes += encodedJsonBytes(record) + (current.length > 1 ? 1 : 0)
+  }
+
+  if (current.length > 0) batches.push(current)
+  return batches
 }
 
 async function dirtyLocalRecords(records: PlainVaultRecord[], states: SyncRecordState[]) {
@@ -340,59 +446,11 @@ function ensureAccountState(sync: TauriSyncState, accountId: string) {
   if (sync.accountId === accountId) return
   sync.accountId = accountId
   sync.records = {}
+  sync.pendingDeletes = {}
   sync.conflictCount = 0
   sync.serverSequence = 0
   sync.lastDeviceRegisteredAt = 0
   sync.lastSyncAt = undefined
-}
-
-function recordsFromState(state: VaultState): PlainVaultRecord[] {
-  return [
-    ...state.items.map((item) => recordFromItemDetails(item, item.updatedAt || new Date().toISOString())),
-    ...state.sitePasskeys.flatMap(sitePasskeyRecord),
-    { kind: 'settings', recordId: 'settings:user', settings: state.settings, updatedAt: new Date().toISOString() },
-  ]
-}
-
-function sitePasskeyRecord(value: unknown): PlainVaultRecord[] {
-  const passkey = value && typeof value === 'object' ? value as Record<string, unknown> : undefined
-  const credentialId = stringField(passkey, 'credentialId')
-  const itemId = stringField(passkey, 'itemId')
-  if (!credentialId || !itemId) return []
-  return [{
-    kind: 'site-passkey',
-    recordId: `site-passkey:${credentialId}`,
-    passkeyId: stringField(passkey, 'id') ?? credentialId,
-    itemId,
-    credentialId,
-    label: stringField(passkey, 'label') ?? 'Saved passkey',
-    rpId: stringField(passkey, 'rpId'),
-    userName: stringField(passkey, 'userName'),
-    userHandle: stringField(passkey, 'userHandle'),
-    transports: arrayStrings(passkey?.transports),
-    privateKeyJwk: validPrivateKeyJwk(passkey?.privateKeyJwk),
-    signCount: typeof passkey?.signCount === 'number' ? passkey.signCount : 0,
-    createdAt: stringField(passkey, 'createdAt') ?? new Date().toISOString(),
-    lastUsedAt: stringField(passkey, 'lastUsedAt'),
-    syncedCounter: true,
-  }]
-}
-
-function missingDeletedRecords(activeRecords: PlainVaultRecord[], states: SyncRecordState[]) {
-  const activeIds = new Set(activeRecords.map((record) => record.recordId))
-  return states.flatMap((state): PlainVaultRecord[] => {
-    if (state.deletedAt || activeIds.has(state.recordId)) return []
-    const deletedAt = Date.now()
-    if (state.kind === 'item' || state.recordId.startsWith('item:')) {
-      const itemId = state.itemId ?? state.recordId.slice('item:'.length)
-      return [{ kind: 'item', recordId: state.recordId, itemId, itemType: 'login', item: { itemId, itemType: 'login', itemName: 'Deleted item', password: '', preserveEmptyPassword: true }, updatedAt: new Date(deletedAt).toISOString(), deletedAt }]
-    }
-    if (state.kind === 'site-passkey' || state.recordId.startsWith('site-passkey:')) {
-      const credentialId = state.credentialId ?? state.recordId.slice('site-passkey:'.length)
-      return [{ kind: 'site-passkey', recordId: `site-passkey:${credentialId}`, passkeyId: credentialId, itemId: state.itemId ?? 'deleted', credentialId, label: 'Deleted passkey', transports: [], signCount: 0, createdAt: new Date(deletedAt).toISOString(), syncedCounter: true, deletedAt }]
-    }
-    return []
-  })
 }
 
 function applySyncRecord<State extends VaultState>(state: State, record: PlainVaultRecord) {
@@ -440,21 +498,6 @@ function recordMetadata(record: PlainVaultRecord | undefined) {
   if (record.kind === 'item') return { kind: record.kind, itemId: record.itemId }
   if (record.kind === 'site-passkey') return { kind: record.kind, itemId: record.itemId, credentialId: record.credentialId }
   return { kind: record.kind }
-}
-
-function stringField(record: Record<string, unknown> | undefined, key: string) {
-  const value = record?.[key]
-  return typeof value === 'string' ? value : undefined
-}
-
-function arrayStrings(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
-}
-
-function validPrivateKeyJwk(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const jwk = value as JsonWebKey
-  return jwk.kty === 'EC' && jwk.crv === 'P-256' && typeof jwk.x === 'string' && typeof jwk.y === 'string' && typeof jwk.d === 'string' ? jwk : undefined
 }
 
 function randomBase64Url(bytes: number) {

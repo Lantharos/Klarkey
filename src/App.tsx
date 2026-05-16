@@ -16,7 +16,6 @@ import {
 import { useDetailItem } from "@/app/palette/use-detail-item";
 import { useDetailPaletteKeyboard } from "@/app/palette/use-detail-palette-keyboard";
 import { useSettingsChrome } from "@/app/palette/use-settings-chrome";
-import { useTargetWindow } from "@/app/palette/use-target-window";
 import { createFormValues } from "@/app/palette-utils";
 import {
   nextAutoLockMinutes,
@@ -34,6 +33,7 @@ import { DevPanel } from "@/app/dev-panel";
 import { FormatPickerPage } from "@/app/format-picker-page";
 import { ImportLoadingPage } from "@/app/import-loading-page";
 import { RecoveryCodesPage } from "@/app/recovery-codes-page";
+import type { ImportFormat } from "@/shared/import-export";
 import { DEFAULT_SETTINGS, type UpdateItemInput } from "@/shared/types";
 
 const usesNativeWindowMaterial =
@@ -49,6 +49,88 @@ const paletteShellClassName =
 const mainPaletteShellClassName =
   `keyboard-only-surface relative flex h-full min-h-full flex-col overflow-hidden rounded-[18px] text-white ${paletteSurfaceClassName}`;
 
+const importFormatOptions: Array<{
+  id: ImportFormat;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "auto",
+    label: "Auto-detect",
+    description: "Best for most files",
+  },
+  {
+    id: "1pux",
+    label: "1Password (.1pux)",
+    description: "Full 1Password export",
+  },
+  {
+    id: "1password-csv",
+    label: "1Password (.csv)",
+    description: "Login and password items",
+  },
+  {
+    id: "proton-pass",
+    label: "Proton Pass",
+    description: "ZIP, JSON, or CSV export",
+  },
+  {
+    id: "bitwarden-json",
+    label: "Bitwarden (.json)",
+    description: "Full Bitwarden export",
+  },
+  {
+    id: "bitwarden-csv",
+    label: "Bitwarden (.csv)",
+    description: "Bitwarden CSV export",
+  },
+  {
+    id: "dashlane-json",
+    label: "Dashlane (.json)",
+    description: "Dashlane JSON export",
+  },
+  {
+    id: "dashlane-csv",
+    label: "Dashlane (.csv)",
+    description: "Dashlane CSV or ZIP",
+  },
+  {
+    id: "lastpass-csv",
+    label: "LastPass (.csv)",
+    description: "LastPass export",
+  },
+  {
+    id: "chrome-csv",
+    label: "Chrome / Edge (.csv)",
+    description: "Browser password export",
+  },
+  {
+    id: "firefox-csv",
+    label: "Firefox (.csv)",
+    description: "Firefox login export",
+  },
+  {
+    id: "keeper-csv",
+    label: "Keeper (.csv)",
+    description: "Keeper text export",
+  },
+  {
+    id: "keepass-csv",
+    label: "KeePass (.csv)",
+    description: "KeePass CSV export",
+  },
+  {
+    id: "nordpass-csv",
+    label: "NordPass (.csv)",
+    description: "NordPass export",
+  },
+  {
+    id: "csv",
+    label: "Generic CSV",
+    description: "Standard CSV format",
+  },
+];
+
 function App() {
   const hydrated = usePaletteStore((state) => state.hydrated);
   const bootError = usePaletteStore((state) => state.bootError);
@@ -61,7 +143,6 @@ function App() {
   const execution = usePaletteStore((state) => state.execution);
   const settings = usePaletteStore((state) => state.settings);
   const syncStatus = usePaletteStore((state) => state.syncStatus);
-  const desktopSupport = usePaletteStore((state) => state.desktopSupport);
   const hasMoreResults = usePaletteStore((state) => state.hasMoreResults);
   const isLoadingMore = usePaletteStore((state) => state.isLoadingMore);
   const boot = usePaletteStore((state) => state.boot);
@@ -120,7 +201,6 @@ function App() {
   );
   const recoveryCodesMode = usePaletteStore((state) => state.recoveryCodesMode);
 
-  const targetWindow = useTargetWindow();
   const [detailItem, setDetailItem] = useDetailItem(
     detailAction?.itemId,
     page,
@@ -147,28 +227,10 @@ function App() {
   const selection = actions[selectedIndex];
   const activeDetailItem =
     detailAction?.itemId === detailItem?.itemId ? detailItem : undefined;
-  const detailActions = useMemo(() => {
-    const actions = buildDetailActions(activeDetailItem, targetWindow);
-    const insertUnavailableReason =
-      desktopSupport && !desktopSupport.autoPaste.available
-        ? desktopSupport.autoPaste.message ||
-          "Install ydotool or wtype on Wayland. On X11, install xdotool."
-        : undefined;
-
-    if (!insertUnavailableReason) {
-      return actions;
-    }
-
-    return actions.map((action) =>
-      action.actionId?.startsWith("paste:")
-        ? {
-            ...action,
-            disabled: true,
-            disabledReason: insertUnavailableReason,
-          }
-        : action,
-    );
-  }, [activeDetailItem, desktopSupport, targetWindow]);
+  const detailActions = useMemo(
+    () => buildDetailActions(activeDetailItem),
+    [activeDetailItem],
+  );
   const selectedDetailAction = detailActions[selectedIndex];
   const formLoading =
     page === "form" &&
@@ -230,6 +292,15 @@ function App() {
     ],
   );
   const footerMessage = execution?.secret ?? execution?.message;
+  const settingsFooterText = execution?.message ?? settingsFooter.primary;
+  const settingsFooterTone =
+    execution?.status === "error"
+      ? "text-red-200/88"
+      : execution?.status === "success"
+        ? "text-emerald-100/85"
+        : execution
+          ? "text-white/68"
+          : settingsFooter.primaryClass;
   const deleteConfirmActive =
     page === "detail" &&
     selectedDetailAction?.id === "delete-item" &&
@@ -370,7 +441,7 @@ function App() {
       return undefined;
     }
 
-    const optionCount = page === "export" ? 2 : 8;
+    const optionCount = page === "export" ? 2 : importFormatOptions.length;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
@@ -404,17 +475,7 @@ function App() {
           const formats = ["klarkey-json", "csv"] as const;
           void exportVault(formats[selectedIndex] ?? "klarkey-json");
         } else {
-          const formats = [
-            "auto",
-            "1pux",
-            "bitwarden-json",
-            "dashlane-json",
-            "csv",
-            "lastpass-csv",
-            "dashlane-csv",
-            "chrome-csv",
-          ] as const;
-          void importVault(formats[selectedIndex] ?? "auto");
+          void importVault(importFormatOptions[selectedIndex]?.id ?? "auto");
         }
       }
     };
@@ -712,9 +773,9 @@ function App() {
             className={`flex shrink-0 items-center justify-between gap-4 px-5 py-3 text-[14px] ${settingsFooter.barClass}`}
           >
             <span
-              className={`min-w-0 leading-snug ${settingsFooter.primaryClass}`}
+              className={`min-w-0 leading-snug ${settingsFooterTone}`}
             >
-              {settingsFooter.primary}
+              {settingsFooterText}
             </span>
             <div className="flex shrink-0 items-center gap-2">
               {lockWarningText ? (
@@ -767,64 +828,10 @@ function App() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <FormatPickerPage
               title="Choose source"
-              options={[
-                {
-                  id: "auto",
-                  label: "Auto-detect",
-                  description: "Best for most files",
-                },
-                {
-                  id: "1pux",
-                  label: "1Password (.1pux)",
-                  description: "1Password export",
-                },
-                {
-                  id: "bitwarden-json",
-                  label: "Bitwarden (.json)",
-                  description: "Bitwarden export",
-                },
-                {
-                  id: "dashlane-json",
-                  label: "Dashlane (.json)",
-                  description: "Dashlane export",
-                },
-                {
-                  id: "csv",
-                  label: "Generic CSV",
-                  description: "Standard CSV format",
-                },
-                {
-                  id: "lastpass-csv",
-                  label: "LastPass (.csv)",
-                  description: "LastPass export",
-                },
-                {
-                  id: "dashlane-csv",
-                  label: "Dashlane (.csv)",
-                  description: "Dashlane CSV export",
-                },
-                {
-                  id: "chrome-csv",
-                  label: "Chrome / Edge (.csv)",
-                  description: "Browser password export",
-                },
-              ]}
+              options={importFormatOptions}
               selectedIndex={selectedIndex}
               onSelectRow={setSelectedIndex}
-              onPick={(id) =>
-                void importVault(
-                  id as
-                    | "auto"
-                    | "klarkey-json"
-                    | "csv"
-                    | "1pux"
-                    | "bitwarden-json"
-                    | "lastpass-csv"
-                    | "dashlane-csv"
-                    | "dashlane-json"
-                    | "chrome-csv",
-                )
-              }
+              onPick={(id) => void importVault(id as ImportFormat)}
             />
           </div>
           <div className="h-px bg-white/8" />
@@ -839,8 +846,9 @@ function App() {
         </>
       ) : page === "import-loading" ? (
         <ImportLoadingPage
-          message="Importing your items…"
-          submessage="This may take a moment"
+          message={execution?.title ?? "Importing your items…"}
+          submessage={execution?.message ?? "This may take a moment"}
+          status={execution?.status}
         />
       ) : page === "detail" ? (
         <>

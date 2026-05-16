@@ -1,5 +1,7 @@
 use crate::desktop_integration;
 use serde_json::json;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
 use tauri::{
     AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
@@ -7,6 +9,42 @@ use tauri::{
 
 const PALETTE_WIDTH: f64 = 760.0;
 const PALETTE_HEIGHT: f64 = 480.0;
+const BLUR_HIDE_DELAY: Duration = Duration::from_millis(300);
+const POST_MODAL_FOCUS_GRACE_MS: u64 = 1_500;
+static BLUR_SERIAL: AtomicU64 = AtomicU64::new(0);
+static MODAL_INTERACTION_DEPTH: AtomicUsize = AtomicUsize::new(0);
+static MODAL_SUPPRESS_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+struct ModalInteractionGuard {
+    app: AppHandle,
+    restore_focus: bool,
+}
+
+impl ModalInteractionGuard {
+    fn new(app: &AppHandle) -> Self {
+        let restore_focus = app
+            .get_webview_window("main")
+            .and_then(|window| window.is_visible().ok())
+            .unwrap_or(false);
+        BLUR_SERIAL.fetch_add(1, Ordering::SeqCst);
+        extend_modal_focus_grace();
+        MODAL_INTERACTION_DEPTH.fetch_add(1, Ordering::SeqCst);
+        Self {
+            app: app.clone(),
+            restore_focus,
+        }
+    }
+}
+
+impl Drop for ModalInteractionGuard {
+    fn drop(&mut self) {
+        extend_modal_focus_grace();
+        if self.restore_focus {
+            restore_palette_after_modal(&self.app);
+        }
+        MODAL_INTERACTION_DEPTH.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 pub fn create_main_window(
     app: &tauri::App,
@@ -103,6 +141,39 @@ fn present_palette_window(
     Ok(())
 }
 
+pub fn run_modal_interaction<T>(app: &AppHandle, operation: impl FnOnce() -> T) -> T {
+    let _guard = ModalInteractionGuard::new(app);
+    operation()
+}
+
+fn extend_modal_focus_grace() {
+    MODAL_SUPPRESS_UNTIL_MS.store(
+        now_millis().saturating_add(POST_MODAL_FOCUS_GRACE_MS),
+        Ordering::SeqCst,
+    );
+}
+
+fn modal_focus_suppressed() -> bool {
+    MODAL_INTERACTION_DEPTH.load(Ordering::SeqCst) > 0
+        || now_millis() <= MODAL_SUPPRESS_UNTIL_MS.load(Ordering::SeqCst)
+}
+
+fn now_millis() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or(0)
+}
+
+fn restore_palette_after_modal(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let _ = window.show();
+    let _ = window.set_focus();
+    let _ = app.emit("palette-focus", json!({}));
+}
+
 #[cfg(target_os = "linux")]
 fn apply_wayland_activation_token(window: &WebviewWindow, activation_token: &str) {
     use gtk::prelude::GtkWindowExt;
@@ -145,8 +216,25 @@ fn install_window_visibility_handlers(window: &WebviewWindow) {
             api.prevent_close();
             let _ = window_to_hide.hide();
         }
+        WindowEvent::Focused(true) => {
+            BLUR_SERIAL.fetch_add(1, Ordering::SeqCst);
+        }
         WindowEvent::Focused(false) => {
-            let _ = window_to_hide.hide();
+            if modal_focus_suppressed() {
+                return;
+            }
+            let serial = BLUR_SERIAL.fetch_add(1, Ordering::SeqCst) + 1;
+            let window_to_hide = window_to_hide.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(BLUR_HIDE_DELAY).await;
+                if BLUR_SERIAL.load(Ordering::SeqCst) != serial || modal_focus_suppressed() {
+                    return;
+                }
+                if window_to_hide.is_focused().unwrap_or(false) {
+                    return;
+                }
+                let _ = window_to_hide.hide();
+            });
         }
         _ => {}
     });

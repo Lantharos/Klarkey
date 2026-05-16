@@ -26,11 +26,35 @@ export interface OnePuxSectionField {
     creditCardExpiry?: string
     iban?: string
     routingNumber?: string
+    address?: {
+      street?: string
+      city?: string
+      state?: string
+      zip?: string
+      country?: string
+      countryCode?: string
+    }
+    sshKey?: string | {
+      privateKey?: string
+      publicKey?: string
+      fingerprint?: string
+      keyType?: string
+      comment?: string
+      metadata?: {
+        privateKey?: string
+        publicKey?: string
+        fingerprint?: string
+        keyType?: string
+        comment?: string
+      }
+    }
   }
   multiline?: boolean
 }
 
 export interface OnePuxSection {
+  title?: string
+  name?: string
   fields?: OnePuxSectionField[]
 }
 
@@ -50,6 +74,7 @@ export interface OnePuxDetails {
   fields?: OnePuxLoginField[]
   sections?: OnePuxSection[]
   notesPlain?: string
+  password?: string
   ccnum?: string
   ccexp_m?: string
   ccexp_y?: string
@@ -91,8 +116,9 @@ export interface OnePuxExport {
 export const CATEGORY_MAP: Record<string, ItemType> = {
   '001': 'login',
   '002': 'card',
-  '003': 'identity',
-  '004': 'note',
+  '003': 'note',
+  '004': 'identity',
   '005': 'login',
   '006': 'note',
+  '114': 'ssh-key',
 }

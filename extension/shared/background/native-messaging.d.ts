@@ -5,6 +5,7 @@ export const browserKind: 'chromium' | 'firefox' | 'other'
 export const OPERATION_TIMEOUT_MS: number
 export const HOST_TIMEOUT_MS: number
 export const UNLOCK_RETRY_WAIT_MS: number
+export const UNLOCK_REQUEST_TIMEOUT_MS: number
 export const UNLOCK_POLL_INTERVAL_MS: number
 export const UNLOCK_GRACE_MS: number
 export const MAX_NATIVE_REQUEST_BYTES: number
