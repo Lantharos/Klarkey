@@ -17,6 +17,8 @@ const refreshMatches = async () => {
     pageState.lastListUrl = href
     pageState.matches = []
     pageState.fieldSuggestions = []
+    pageState.matchesLocked = false
+    pageState.fieldSuggestionsLocked = false
   }
 
   const response = await sendMessage({
@@ -30,6 +32,7 @@ const refreshMatches = async () => {
   }))
 
   pageState.matches = response.ok ? response.matches || [] : []
+  pageState.matchesLocked = Boolean(response.ok && response.locked)
   highlightSavedSsoButtons(pageState.matches)
   return pageState.matches
 }
@@ -48,6 +51,7 @@ const refreshFieldSuggestions = async (field, flow) => {
   }))
 
   pageState.fieldSuggestions = response.ok ? response.suggestions || [] : []
+  pageState.fieldSuggestionsLocked = Boolean(response.ok && response.locked)
   return pageState.fieldSuggestions
 }
 

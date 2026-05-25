@@ -34,6 +34,7 @@ const DESKTOP_RECONNECT_MS = 10000
 const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
 const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
 const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
+  'request-unlock',
   'get-login',
   'get-identity',
   'get-card',

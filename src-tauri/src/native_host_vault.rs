@@ -43,10 +43,22 @@ pub(crate) fn response_for(request: Value) -> Value {
             let state = readable_state();
             ok_response(id, json!({ "settings": settings_from(state.as_ref()) }))
         }
+        Some("request-unlock") => {
+            if metadata_locked() {
+                return locked_response(id);
+            }
+            ok_response(
+                id,
+                json!({
+                    "status": "success",
+                    "title": "Vault ready",
+                    "message": "Klarkey is unlocked."
+                }),
+            )
+        }
         Some("list-logins") => {
-            let state = readable_state();
+            let (state, locked) = listing_state();
             let url = string_value(&request, "url").unwrap_or_default();
-            let locked = is_locked(state.as_ref());
             let mut result = json!({ "matches": list_site_matches(state.as_ref(), &url) });
             if locked {
                 result["locked"] = json!(true);
@@ -97,12 +109,11 @@ pub(crate) fn response_for(request: Value) -> Value {
             )
         }
         Some("list-field-suggestions") => {
-            let state = readable_state();
+            let (state, locked) = listing_state();
             let field = string_value(&request, "field").unwrap_or_default();
+            let flow = string_value(&request, "flow").unwrap_or_default();
             let url = string_value(&request, "url").unwrap_or_default();
-            let locked = is_locked(state.as_ref());
-            let mut result =
-                json!({ "suggestions": field_suggestions(state.as_ref(), &field, &url, locked) });
+            let mut result = json!({ "suggestions": field_suggestions(state.as_ref(), &field, &flow, &url, locked) });
             if locked {
                 result["locked"] = json!(true);
             }
@@ -386,6 +397,24 @@ fn readable_state() -> Option<Value> {
         return None;
     }
     read_state().ok().flatten()
+}
+
+fn listing_state() -> (Option<Value>, bool) {
+    if let Some(metadata) = vault_metadata() {
+        if metadata.locked {
+            return (
+                Some(json!({
+                    "items": metadata.login_index,
+                    "locked": true
+                })),
+                true,
+            );
+        }
+    }
+
+    let state = read_state().ok().flatten();
+    let locked = is_locked(state.as_ref());
+    (state, locked)
 }
 
 fn checked_state(id: &str) -> Result<Option<Value>, Value> {

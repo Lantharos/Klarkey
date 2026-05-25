@@ -8,6 +8,7 @@ mod desktop_integration;
 #[cfg(target_os = "linux")]
 mod linux_shortcuts;
 mod native_host_items;
+mod native_host_totp;
 mod native_host_vault;
 mod native_host_webauthn;
 mod native_host_webauthn_crypto;

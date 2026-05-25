@@ -121,7 +121,7 @@ function parseState(raw: string | undefined): StoredState {
 
 function loadState(): StoredState {
   const state = parseState(stateCache)
-  if (stateLoadFailed || (!stateLoaded && !stateCache)) state.locked = true
+  if (stateLoadFailed || (!stateCache && (!stateLoaded || (nativeMetadata && metadataHasLockMethod(nativeMetadata))))) state.locked = true
   return state
 }
 
@@ -202,7 +202,7 @@ function stopAutoLockTimer() {
 
 function startAutoLockTimer(state: StoredState) {
   stopAutoLockTimer()
-  if (state.locked || !hasLockMethod(state) || state.settings.autoLockMinutes <= 0) {
+  if (state.locked || !hasLockMethod(state) || !strictSystemUnlockRequired(state.settings)) {
     return
   }
 
@@ -238,11 +238,9 @@ function saveState(state: StoredState) {
 function lockStateOnly(state: StoredState) {
   stopAutoLockTimer()
   state.locked = hasLockMethod(state)
-  if (stateCache) {
-    stateCache = JSON.stringify(mergeNativeState(state, nativeStateContents))
-    nativeStateContents = stateCache
-  }
   nativeMetadata = metadataFromState(state)
+  stateCache = undefined
+  nativeStateContents = undefined
   markNativeVaultLocked?.()
 }
 
@@ -513,12 +511,6 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
   }
 
   void loadNativeMetadata().then((metadata) => {
-    if (metadata && metadataHasLockMethod(metadata)) {
-      const lockedMetadata = { ...metadata, locked: true }
-      applyNativeMetadata(lockedMetadata)
-      markNativeVaultLocked?.()
-      return
-    }
     if (metadata?.locked) {
       return
     }
@@ -531,10 +523,13 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
     nativeStateRefreshStarted = true
     window.setInterval(() => {
       if (stateCache && !loadState().locked) {
-        void loadNativeState().catch(() => {
-          stateLoadFailed = true
-          publishLockState()
-        })
+        void loadNativeMetadata().then((metadata) => {
+          if (metadata?.locked) {
+            stateCache = undefined
+            nativeStateContents = undefined
+            applyNativeMetadata(metadata)
+          }
+        }).catch(() => undefined)
         return
       }
       void loadNativeMetadata().then((metadata) => {

@@ -2,6 +2,7 @@ use keyring::{Entry, Error as KeyringError};
 use serde_json::{json, Value};
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 const KEYCHAIN_SERVICE: &str = "com.lantharos.klarkey";
 const VAULT_KEY_USER: &str = "vault-key";
@@ -18,20 +19,17 @@ pub(crate) fn support() -> Value {
 }
 
 pub(crate) fn has_vault_key() -> Value {
-    json!({ "configured": read_vault_key().is_ok() })
+    json!({ "configured": cached_vault_key().is_some() || read_vault_key().is_ok() })
 }
 
 pub(crate) fn ensure_vault_key() -> Value {
-    match read_vault_key() {
+    match ensure_vault_key_bytes() {
         Ok(_) => json!({ "success": true, "configured": true }),
-        Err(KeyringError::NoEntry) => match store_new_vault_key() {
-            Ok(()) => json!({ "success": true, "configured": true }),
-            Err(_) => json!({
-                "success": false,
-                "configured": false,
-                "message": "Could not store the vault key in the system keychain."
-            }),
-        },
+        Err(message) if message == "Could not store the vault key." => json!({
+            "success": false,
+            "configured": false,
+            "message": "Could not store the vault key in the system keychain."
+        }),
         Err(_) => json!({
             "success": false,
             "configured": false,
@@ -40,7 +38,21 @@ pub(crate) fn ensure_vault_key() -> Value {
     }
 }
 
+fn ensure_vault_key_from_keyring() -> Result<[u8; 32], String> {
+    match read_vault_key() {
+        Ok(key) => decode_and_cache_vault_key(&key),
+        Err(KeyringError::NoEntry) => match store_new_vault_key() {
+            Ok(()) => read_vault_key()
+                .map_err(|_| String::from("Could not read the vault key."))
+                .and_then(|key| decode_and_cache_vault_key(&key)),
+            Err(_) => Err(String::from("Could not store the vault key.")),
+        },
+        Err(_) => Err(String::from("The system keychain is not available.")),
+    }
+}
+
 pub(crate) fn delete_vault_key() -> Value {
+    clear_cached_vault_key();
     match vault_key_entry().and_then(|entry| entry.delete_credential()) {
         Ok(()) | Err(KeyringError::NoEntry) => json!({ "success": true, "configured": false }),
         Err(_) => json!({
@@ -61,9 +73,9 @@ pub(crate) fn unlock(reason: String, strict: bool) -> Value {
             }
         }
 
-        return match read_vault_key() {
+        return match refresh_vault_key_bytes() {
             Ok(_) => json!({ "success": true, "message": "Vault unlocked." }),
-            Err(KeyringError::NoEntry) => json!({
+            Err(message) if message == "System unlock is not configured for this vault." => json!({
                 "success": false,
                 "message": "System unlock is not configured for this vault."
             }),
@@ -80,7 +92,7 @@ pub(crate) fn unlock(reason: String, strict: bool) -> Value {
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     {
-        if read_vault_key().is_err() {
+        if refresh_vault_key_bytes().is_err() {
             return json!({
                 "success": false,
                 "message": "System unlock is not configured for this vault."
@@ -107,22 +119,36 @@ fn read_vault_key() -> Result<String, KeyringError> {
 }
 
 pub(crate) fn ensure_vault_key_bytes() -> Result<[u8; 32], String> {
-    match read_vault_key() {
-        Ok(key) => decode_vault_key(&key),
-        Err(KeyringError::NoEntry) => {
-            store_new_vault_key().map_err(|_| String::from("Could not store the vault key."))?;
-            read_vault_key()
-                .map_err(|_| String::from("Could not read the vault key."))
-                .and_then(|key| decode_vault_key(&key))
-        }
-        Err(_) => Err(String::from("The system keychain is not available.")),
+    if let Some(key) = cached_vault_key() {
+        return Ok(key);
     }
+    ensure_vault_key_from_keyring()
 }
 
 pub(crate) fn vault_key_bytes() -> Result<[u8; 32], String> {
-    read_vault_key()
-        .map_err(|_| String::from("The vault key is not available."))
-        .and_then(|key| decode_vault_key(&key))
+    if let Some(key) = cached_vault_key() {
+        return Ok(key);
+    }
+    refresh_vault_key_bytes()
+}
+
+fn refresh_vault_key_bytes() -> Result<[u8; 32], String> {
+    match read_vault_key() {
+        Ok(key) => decode_and_cache_vault_key(&key),
+        Err(KeyringError::NoEntry) => Err(String::from(
+            "System unlock is not configured for this vault.",
+        )),
+        Err(_) => Err(String::from("The vault key is not available.")),
+    }
+}
+
+pub(crate) fn clear_cached_vault_key() {
+    if let Ok(mut cache) = vault_key_cache().lock() {
+        if let Some(mut key) = cache.take() {
+            use zeroize::Zeroize;
+            key.zeroize();
+        }
+    }
 }
 
 fn store_new_vault_key() -> Result<(), KeyringError> {
@@ -134,6 +160,27 @@ fn decode_vault_key(value: &str) -> Result<[u8; 32], String> {
     let mut key = [0u8; 32];
     hex::decode_to_slice(value, &mut key).map_err(|_| String::from("Invalid vault key."))?;
     Ok(key)
+}
+
+fn decode_and_cache_vault_key(value: &str) -> Result<[u8; 32], String> {
+    let key = decode_vault_key(value)?;
+    cache_vault_key(key);
+    Ok(key)
+}
+
+fn vault_key_cache() -> &'static Mutex<Option<[u8; 32]>> {
+    static CACHE: OnceLock<Mutex<Option<[u8; 32]>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn cached_vault_key() -> Option<[u8; 32]> {
+    vault_key_cache().lock().ok().and_then(|cache| *cache)
+}
+
+fn cache_vault_key(key: [u8; 32]) {
+    if let Ok(mut cache) = vault_key_cache().lock() {
+        *cache = Some(key);
+    }
 }
 
 struct AuthSupport {

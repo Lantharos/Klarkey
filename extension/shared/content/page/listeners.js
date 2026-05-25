@@ -17,6 +17,7 @@ import {
   injectPageBridge,
   ensurePageBridgeReady,
   isPasswordInput,
+  hydratePendingAuthState,
 } from './forms/forms.js'
 import { writeValue, writeSplitOtp, collectFormSnapshot, scheduleLoginAutoSubmit } from './autofill/write-submit.js'
 import { removeInlineUi, moveActiveMenuIndex } from './ui/inline-ui.js'
@@ -33,6 +34,7 @@ import { renderInlineMenu, renderInlineTriggerOnly } from './ui/menu.js'
 import { handlePagePasskeyCreate, handlePagePasskeyGet } from './passkey/handlers.js'
 import { buildPagePasskeyResponse, readPagePasskeyRequest } from './passkey/page-message.js'
 import { suppressBrowserAutofill } from './autofill/autofill.js'
+import { consumePendingOtp } from './otp-autofill.js'
 
 window.addEventListener('message', (event) => {
   if (event.source !== window || event.origin !== window.location.origin) {
@@ -86,6 +88,30 @@ const stagePendingFormSave = (preferredInput) => {
   return snapshot
 }
 
+const schedulePendingOtpFill = () => {
+  window.clearTimeout(timers.pendingOtp)
+  timers.pendingOtp = window.setTimeout(() => {
+    void hydratePendingAuthState().then(() => {
+      consumePendingOtp(getDeepActiveElement())
+    })
+  }, 50)
+}
+
+const scheduleFocusedFieldCheck = () => {
+  window.clearTimeout(timers.focusedField)
+  timers.focusedField = window.setTimeout(() => {
+    const activeElement = getDeepActiveElement()
+    if (!isFieldElement(activeElement) || !visible(activeElement)) {
+      return
+    }
+    if (pageState.menuOpen && pageState.overlayInput === activeElement) {
+      return
+    }
+
+    void handleFieldFocus(activeElement)
+  }, 120)
+}
+
 const handleFieldFocus = async (target, options = {}) => {
   if (!isFieldElement(target) || !visible(target)) {
     return
@@ -102,17 +128,8 @@ const handleFieldFocus = async (target, options = {}) => {
   }
 
   if (fieldKind === 'otp') {
-    const pendingOtp = getPendingOtp()
-    if (pendingOtp) {
-      suppressInlineMenu(target, { untilUserInteraction: true })
-      const { splitOtpTargets } = getInputs(target)
-      if (splitOtpTargets?.length) {
-        writeSplitOtp(splitOtpTargets, pendingOtp)
-      } else {
-        writeValue(target, pendingOtp)
-      }
-      setPendingOtp('')
-      removeInlineUi()
+    await hydratePendingAuthState()
+    if (consumePendingOtp(target)) {
       return
     }
   }
@@ -120,6 +137,8 @@ const handleFieldFocus = async (target, options = {}) => {
   if (pageState.lastListUrl !== window.location.href) {
     pageState.lastListUrl = window.location.href
     pageState.matches = []
+    pageState.matchesLocked = false
+    pageState.fieldSuggestionsLocked = false
   }
 
   const generation = ++matchFetch.generation
@@ -162,7 +181,10 @@ document.addEventListener('click', (event) => {
   }
 
   if (isFieldElement(target) && visible(target)) {
-    if (target === pageState.overlayInput && !pageState.menuOpen) {
+    if (target !== pageState.overlayInput) {
+      removeInlineUi()
+      void handleFieldFocus(target, { explicitOpen: true })
+    } else if (!pageState.menuOpen) {
       void handleFieldFocus(target, { explicitOpen: true })
     }
     return
@@ -194,6 +216,13 @@ window.addEventListener('resize', () => {
     removeInlineUi()
   }
 })
+
+new MutationObserver(() => {
+  if (getPendingOtp()) {
+    schedulePendingOtpFill()
+  }
+  scheduleFocusedFieldCheck()
+}).observe(document.documentElement, { childList: true, subtree: true })
 
 document.addEventListener('submit', () => {
   const inputs = getInputs()
@@ -247,6 +276,7 @@ document.addEventListener(
 
 window.addEventListener('popstate', () => {
   pageState.lastListUrl = ''
+  scheduleFocusedFieldCheck()
 })
 
 document.addEventListener('keydown', (event) => {
@@ -313,30 +343,33 @@ if (runtime) {
       } else {
         writeValue(inputs.otp, message.login?.otp)
       }
-      setPendingUsername(message.login?.username || '')
-      setPendingOtp(message.login?.otp || '')
-      removeInlineUi()
-      scheduleLoginAutoSubmit(preferredInput)
+      void Promise.all([setPendingUsername(message.login?.username || ''), setPendingOtp(message.login?.otp || '')]).then(() => {
+        removeInlineUi()
+        scheduleLoginAutoSubmit(preferredInput)
 
-      sendResponse({
-        ok: true,
-        message: 'Klarkey filled the detected fields on this page.',
+        sendResponse({
+          ok: true,
+          message: 'Klarkey filled the detected fields on this page.',
+        })
       })
-      return
+      return true
     }
 
   })
 
   injectPageBridge()
   void loadBrowserSettings().finally(async () => {
+    await hydratePendingAuthState()
     await hydrateInlineMenuSuppression()
     void refreshMatches()
     void restorePendingSavePrompt()
     window.setTimeout(() => {
-      void handleFieldFocus(getDeepActiveElement())
+      if (!consumePendingOtp(getDeepActiveElement())) {
+        void handleFieldFocus(getDeepActiveElement())
+      }
     }, 0)
   })
 }
 
 
-export { handleFieldFocus }
+export { handleFieldFocus, consumePendingOtp }

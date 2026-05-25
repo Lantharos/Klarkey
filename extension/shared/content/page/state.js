@@ -3,6 +3,8 @@ export const pageState = {
   title: document.title,
   matches: [],
   fieldSuggestions: [],
+  matchesLocked: false,
+  fieldSuggestionsLocked: false,
   lastListUrl: '',
   overlayInput: undefined,
   formSnapshot: undefined,
@@ -27,6 +29,7 @@ export const matchFetch = { generation: 0 }
 export const timers = {
   savePrompt: undefined,
   autoSubmit: undefined,
+  pendingOtp: undefined,
 }
 
 export const browserSettings = {

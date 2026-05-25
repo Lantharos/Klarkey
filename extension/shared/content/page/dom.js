@@ -81,6 +81,12 @@ const getDeepActiveElement = (root = document) => {
 const getInputSignals = (input) => {
   const autocomplete =
     input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement ? (input.autocomplete || '').toLowerCase() : ''
+  const inputType = input instanceof HTMLInputElement ? input.type || '' : ''
+  const inputMode =
+    input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement ? (input.inputMode || input.getAttribute('inputmode') || '').toLowerCase() : ''
+  const pattern = input instanceof HTMLInputElement ? input.pattern || input.getAttribute('pattern') || '' : ''
+  const maxLength =
+    input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement ? input.maxLength : -1
   const labels = []
   if ('labels' in input && input.labels) {
     labels.push(...Array.from(input.labels).map((label) => label.textContent || ''))
@@ -94,6 +100,7 @@ const getInputSignals = (input) => {
   const marker = [
     input.name || '',
     input.id || '',
+    input.className || '',
     input.placeholder || '',
     input.getAttribute('aria-label') || '',
     input.getAttribute('aria-labelledby') || '',
@@ -108,7 +115,11 @@ const getInputSignals = (input) => {
 
   return {
     autocomplete,
+    inputMode,
+    inputType,
     marker,
+    maxLength,
+    pattern,
   }
 }
 

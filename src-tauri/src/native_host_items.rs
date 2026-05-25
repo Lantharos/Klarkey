@@ -1,3 +1,4 @@
+use crate::native_host_totp::current_otp_code;
 use serde_json::{json, Map, Value};
 use std::net::IpAddr;
 use std::process;
@@ -33,6 +34,7 @@ pub(crate) fn fill_login(state: Option<&Value>, item_id: &str, request_url: &str
     insert_string(&mut object, "itemName", string_field(item, "itemName"));
     insert_string(&mut object, "username", string_field(item, "username"));
     insert_string(&mut object, "password", string_field(item, "password"));
+    insert_string(&mut object, "otp", current_otp_code(item).as_deref());
     insert_string(
         &mut object,
         "ssoProvider",
@@ -96,6 +98,7 @@ pub(crate) fn fill_record(state: Option<&Value>, item_id: &str, expected_type: &
 pub(crate) fn field_suggestions(
     state: Option<&Value>,
     field: &str,
+    flow: &str,
     request_url: &str,
     locked: bool,
 ) -> Value {
@@ -109,17 +112,29 @@ pub(crate) fn field_suggestions(
         let item_type = string_field(item, "itemType").unwrap_or("login");
         let from_site_match = item_site_score(item, request_url).is_some();
 
-        let source = match item_type {
-            "login" if field == "username" || field == "email" => "login-username",
-            "identity" => "identity",
-            "card" if !locked => "card",
+        let (source, value_field) = match item_type {
+            "login"
+                if flow == "login"
+                    && (field == "username" || field == "email")
+                    && from_site_match =>
+            {
+                ("login-username", "username")
+            }
+            "identity" if flow == "register" || flow == "payment" => ("identity", field),
+            "card" if flow == "payment" && !locked => ("card", field),
             _ => continue,
         };
-        if item_type == "login" && !from_site_match {
+
+        if source == "card" {
+            if let Some(suggestion) =
+                card_field_suggestion(item, item_id, item_name, field, from_site_match)
+            {
+                suggestions.push(suggestion);
+            }
             continue;
         }
 
-        let Some(value) = string_field(item, field) else {
+        let Some(value) = string_field(item, value_field) else {
             continue;
         };
         suggestions.push(json!({
@@ -134,6 +149,137 @@ pub(crate) fn field_suggestions(
         }));
     }
     Value::Array(suggestions)
+}
+
+fn card_field_suggestion(
+    item: &Value,
+    item_id: &str,
+    item_name: &str,
+    field: &str,
+    from_site_match: bool,
+) -> Option<Value> {
+    string_field(item, field)?;
+
+    let title = card_display_title(item, item_name);
+    let last_four = card_last_four(item);
+    let brand = string_field(item, "cardBrand").and_then(card_display_brand);
+    let secondary = card_display_secondary(brand.as_deref(), last_four.as_deref());
+    let mut object = Map::new();
+    object.insert(
+        "id".into(),
+        Value::String(format!("suggestion:{item_id}:{field}")),
+    );
+    object.insert("itemId".into(), Value::String(item_id.to_string()));
+    object.insert("itemName".into(), Value::String(item_name.to_string()));
+    object.insert("value".into(), Value::String(title.clone()));
+    object.insert("displayValue".into(), Value::String(title));
+    object.insert("field".into(), Value::String(field.to_string()));
+    object.insert("source".into(), Value::String(String::from("card")));
+    object.insert("fromSiteMatch".into(), Value::Bool(from_site_match));
+    if let Some(value) = string_field(item, "lastUsedAt") {
+        object.insert("lastUsedAt".into(), Value::String(value.to_string()));
+    }
+    if let Some(value) = last_four {
+        object.insert("cardLastFour".into(), Value::String(value));
+    }
+    if let Some(value) = brand {
+        object.insert("cardBrand".into(), Value::String(value));
+    }
+    if let Some(value) = secondary {
+        object.insert("displaySecondary".into(), Value::String(value));
+    }
+    Some(Value::Object(object))
+}
+
+fn card_display_title(item: &Value, item_name: &str) -> String {
+    if !item_name.trim().is_empty() && item_name != "Untitled" && !looks_like_card_number(item_name)
+    {
+        return item_name.to_string();
+    }
+    if let Some(cardholder) = string_field(item, "cardholderName") {
+        return cardholder.to_string();
+    }
+    string_field(item, "cardBrand")
+        .and_then(card_display_brand)
+        .unwrap_or_else(|| String::from("Payment card"))
+}
+
+fn card_display_secondary(brand: Option<&str>, last_four: Option<&str>) -> Option<String> {
+    match (brand, last_four) {
+        (Some(brand), Some(last_four)) => Some(format!("{brand} ending in {last_four}")),
+        (None, Some(last_four)) => Some(format!("Ending in {last_four}")),
+        (Some(brand), None) => Some(brand.to_string()),
+        (None, None) => None,
+    }
+}
+
+fn card_last_four(item: &Value) -> Option<String> {
+    if let Some(last_four) = string_field(item, "cardLastFour") {
+        let digits = card_digits(last_four);
+        if digits.len() >= 4 {
+            return Some(digits[digits.len() - 4..].to_string());
+        }
+    }
+    let digits = card_digits(string_field(item, "cardNumber")?);
+    if digits.len() < 4 {
+        return None;
+    }
+    Some(digits[digits.len() - 4..].to_string())
+}
+
+fn card_display_brand(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let normalized = trimmed.to_ascii_lowercase();
+    let mapped = match normalized.as_str() {
+        "visa" => Some("Visa"),
+        "mc" | "mastercard" | "master card" => Some("Mastercard"),
+        "amex" | "americanexpress" | "american express" => Some("American Express"),
+        "discover" => Some("Discover"),
+        "jcb" => Some("JCB"),
+        "diners" | "dinersclub" | "diners club" => Some("Diners Club"),
+        _ => None,
+    };
+    mapped
+        .map(ToString::to_string)
+        .or_else(|| Some(title_case_card_brand(trimmed)))
+}
+
+fn title_case_card_brand(value: &str) -> String {
+    value
+        .split(|character: char| {
+            character.is_ascii_whitespace() || character == '-' || character == '_'
+        })
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            if part.len() <= 4 && part.chars().all(|character| character.is_ascii_uppercase()) {
+                return part.to_string();
+            }
+
+            let mut chars = part.chars();
+            let Some(first) = chars.next() else {
+                return String::new();
+            };
+            format!(
+                "{}{}",
+                first.to_uppercase(),
+                chars.as_str().to_ascii_lowercase()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn looks_like_card_number(value: &str) -> bool {
+    let digits = card_digits(value);
+    (12..=19).contains(&digits.len())
+}
+
+fn card_digits(value: &str) -> String {
+    value.chars().filter(char::is_ascii_digit).collect()
 }
 
 pub(crate) fn save_login(state: &mut Value, payload: Option<&Value>) -> Value {
@@ -352,9 +498,9 @@ fn site_match_value(item: &Value) -> Option<Value> {
         "itemName": item_name,
         "username": string_field(item, "username"),
         "websites": array_strings(item, "websites"),
-        "hasPassword": string_field(item, "password").is_some(),
-        "hasOtp": item.get("otp").is_some(),
-        "hasPasskey": item.get("passkeys").and_then(Value::as_array).is_some_and(|values| !values.is_empty()),
+        "hasPassword": bool_field(item, "hasPassword") || string_field(item, "password").is_some(),
+        "hasOtp": bool_field(item, "hasOtp") || item.get("otp").is_some(),
+        "hasPasskey": bool_field(item, "hasPasskey") || item.get("passkeys").and_then(Value::as_array).is_some_and(|values| !values.is_empty()),
         "ssoProvider": string_field(item, "ssoProvider"),
         "lastUsedAt": string_field(item, "lastUsedAt")
     }))
@@ -372,6 +518,10 @@ fn insert_string(object: &mut Map<String, Value>, key: &str, value: Option<&str>
     }
 }
 
+fn bool_field(item: &Value, key: &str) -> bool {
+    item.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
 pub(crate) fn now_iso_like() -> String {
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -387,3 +537,7 @@ pub(crate) fn new_id(prefix: &str) -> String {
         .unwrap_or_default();
     format!("{prefix}_{millis}_{}", process::id())
 }
+
+#[cfg(test)]
+#[path = "native_host_items_tests.rs"]
+mod tests;

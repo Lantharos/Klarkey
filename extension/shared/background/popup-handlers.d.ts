@@ -23,3 +23,16 @@ export function savePasskeyCredential(payload: unknown): Promise<{
   message: string
   itemId?: string
 }>
+
+export function listLoginsForUrl(url: string, title?: string): Promise<{
+  ok: boolean
+  matches: unknown[]
+  locked?: boolean
+  message?: string
+}>
+
+export function requestDesktopUnlock(url: string, title?: string): Promise<{
+  ok: boolean
+  locked?: boolean
+  message?: string
+}>

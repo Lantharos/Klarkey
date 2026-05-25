@@ -42,6 +42,8 @@ pub(crate) struct VaultStateMetadata {
     pub(crate) ssh_agent_enabled: bool,
     #[serde(default)]
     pub(crate) passkey_index: Vec<Value>,
+    #[serde(default)]
+    pub(crate) login_index: Vec<Value>,
 }
 
 enum DecodedState {
@@ -224,6 +226,7 @@ fn metadata_from_value(state: &Value) -> VaultStateMetadata {
         system_unlock_policy,
         ssh_agent_enabled,
         passkey_index: passkey_index_from_state(state),
+        login_index: login_index_from_state(state),
     }
 }
 
@@ -238,6 +241,7 @@ fn legacy_encrypted_metadata() -> VaultStateMetadata {
         system_unlock_policy: default_system_unlock_policy(),
         ssh_agent_enabled: false,
         passkey_index: Vec::new(),
+        login_index: Vec::new(),
     }
 }
 
@@ -257,6 +261,67 @@ fn passkey_index_from_state(state: &Value) -> Vec<Value> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn login_index_from_state(state: &Value) -> Vec<Value> {
+    state
+        .get("items")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(login_index_entry)
+                .take(1_500)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn login_index_entry(item: &Value) -> Option<Value> {
+    let item_id = bounded_metadata_string(item, "itemId", 256)?;
+    if item
+        .get("itemType")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value != "login")
+    {
+        return None;
+    }
+
+    let mut entry = serde_json::Map::new();
+    entry.insert("itemId".into(), Value::String(item_id));
+    entry.insert("itemType".into(), Value::String(String::from("login")));
+
+    for (key, max_length) in [
+        ("itemName", 256usize),
+        ("username", 320usize),
+        ("ssoProvider", 64usize),
+        ("lastUsedAt", 64usize),
+    ] {
+        if let Some(value) = bounded_metadata_string(item, key, max_length) {
+            entry.insert(key.into(), Value::String(value));
+        }
+    }
+
+    let websites = bounded_metadata_string_array(item, "websites", 32, 4096);
+    if !websites.is_empty() {
+        entry.insert("websites".into(), Value::Array(websites));
+    }
+
+    entry.insert(
+        "hasPassword".into(),
+        Value::Bool(bounded_metadata_string(item, "password", 100_000).is_some()),
+    );
+    entry.insert("hasOtp".into(), Value::Bool(item.get("otp").is_some()));
+    entry.insert(
+        "hasPasskey".into(),
+        Value::Bool(
+            item.get("passkeys")
+                .and_then(Value::as_array)
+                .is_some_and(|values| !values.is_empty()),
+        ),
+    );
+
+    Some(Value::Object(entry))
 }
 
 fn passkey_index_entry(passkey: &Value) -> Option<Value> {
@@ -287,6 +352,28 @@ fn bounded_metadata_string(value: &Value, key: &str, max_length: usize) -> Optio
         .map(str::trim)
         .filter(|value| !value.is_empty() && value.len() <= max_length)
         .map(ToString::to_string)
+}
+
+fn bounded_metadata_string_array(
+    value: &Value,
+    key: &str,
+    max_entries: usize,
+    max_length: usize,
+) -> Vec<Value> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty() && value.len() <= max_length)
+                .take(max_entries)
+                .map(|value| Value::String(value.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn decrypt_state_with_key(
@@ -348,4 +435,63 @@ fn write_private_text(path: &Path, contents: &str) -> Result<(), String> {
         let _ = fs::remove_file(&temp_path);
         String::from("Could not write the local vault state.")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::metadata_from_value;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn metadata_login_index_excludes_secret_fields() {
+        let state = json!({
+            "items": [
+                {
+                    "itemId": "login",
+                    "itemType": "login",
+                    "itemName": "Example",
+                    "username": "kris@example.com",
+                    "password": "secret",
+                    "otp": { "secret": "JBSWY3DPEHPK3PXP" },
+                    "websites": ["https://example.com"],
+                    "passkeys": [{ "credentialId": "cred" }]
+                },
+                {
+                    "itemId": "identity",
+                    "itemType": "identity",
+                    "itemName": "Personal",
+                    "email": "kris@example.com"
+                }
+            ],
+            "settings": {
+                "passcodeEnabled": true,
+                "autoLockMinutes": 0,
+                "systemUnlockPolicy": "startup"
+            },
+            "systemUnlockEnabled": true
+        });
+
+        let metadata = metadata_from_value(&state);
+        let login = metadata
+            .login_index
+            .first()
+            .and_then(Value::as_object)
+            .expect("login index entry");
+
+        assert_eq!(metadata.login_index.len(), 1);
+        assert_eq!(login.get("itemId").and_then(Value::as_str), Some("login"));
+        assert_eq!(
+            login.get("username").and_then(Value::as_str),
+            Some("kris@example.com")
+        );
+        assert_eq!(
+            login.get("hasPassword").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(login.get("hasOtp").and_then(Value::as_bool), Some(true));
+        assert_eq!(login.get("hasPasskey").and_then(Value::as_bool), Some(true));
+        assert!(login.get("password").is_none());
+        assert!(login.get("otp").is_none());
+        assert!(login.get("passkeys").is_none());
+    }
 }

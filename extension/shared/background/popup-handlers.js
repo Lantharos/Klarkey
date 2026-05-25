@@ -249,6 +249,7 @@ export async function listLoginsForUrl(url, title) {
   return {
     ok: true,
     matches: response.result.matches || [],
+    ...((response.result.locked === true || response.result.status === 'locked') ? { locked: true } : {}),
   }
 }
 
@@ -290,6 +291,24 @@ export async function getBrowserSettings() {
   return {
     ok: true,
     settings: response.result.settings,
+  }
+}
+
+export async function requestDesktopUnlock(url, title) {
+  const response = await requestHost({ type: 'request-unlock', url, title })
+  if (!response?.ok) {
+    return {
+      ok: false,
+      locked: true,
+      message: response?.error?.message || 'Klarkey could not open the unlock prompt.',
+    }
+  }
+
+  const locked = response.result?.status === 'locked'
+  return {
+    ok: !locked,
+    locked,
+    message: response.result?.message || (locked ? 'Unlock Klarkey to continue.' : 'Klarkey is unlocked.'),
   }
 }
 
@@ -434,6 +453,7 @@ export async function listFieldSuggestions(field, flow, url, title) {
   return {
     ok: true,
     suggestions: response.result.suggestions || [],
+    ...((response.result.locked === true || response.result.status === 'locked') ? { locked: true } : {}),
   }
 }
 

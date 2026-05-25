@@ -170,6 +170,7 @@ pub fn load_vault_metadata(
 #[tauri::command]
 pub fn lock_vault_metadata(app: AppHandle) -> Result<(), String> {
     let path = vault_state_path(&app)?;
+    system_auth::clear_cached_vault_key();
     secure_state::mark_vault_locked(&path)
 }
 

@@ -4,3 +4,5 @@ export function appendFieldMenuButton(input: {
   secondary?: string
   onClick: (event: Event) => void | Promise<void>
 }): void
+
+export function renderFieldMenu(input: HTMLInputElement | HTMLTextAreaElement, options?: { loading?: boolean }): void

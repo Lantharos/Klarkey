@@ -26,10 +26,75 @@ import {
   isFullNameInput,
   isUsernameInput,
   isConfirmPasswordInput,
+  isGenericSearchInput,
 } from './forms/field-classifiers.js'
-import { isPaymentContextInput, detectAuthFlow, getPendingOtp } from './forms/forms.js'
+import { isPaymentContextInput, detectAuthFlow, getPendingOtp, getAuthContextText } from './forms/forms.js'
+import { getInputSignals } from './dom.js'
+
+const identityFieldKinds = new Set([
+  'username',
+  'email',
+  'phone',
+  'fullName',
+  'firstName',
+  'middleName',
+  'lastName',
+  'company',
+  'jobTitle',
+  'birthDate',
+  'addressLine1',
+  'addressLine2',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+])
+
+const strongAutocompleteExpression =
+  /(username|email|given-name|additional-name|family-name|tel|street-address|address-line|address-level|postal-code|country|bday|organization)/
+const fullNameAutocompleteExpression = /(^|\s)name($|\s)/
+const nonAutofillFieldExpression =
+  /(nickname|nick[\s_-]?name|display[\s_-]?name|alias|label|memo|note|comment|description|card[\s_-]?nickname)/
+const resourceNamingContextExpression =
+  /\b(rename|create|new|edit|update|add)\s+(an?\s+)?(app|application|project|workspace|team|organization|resource|site|deployment|service|bucket|database|repo|repository|environment|product|price|plan|subscription|item|sku|catalog|api[\s_-]*key|restricted[\s_-]*api[\s_-]*key)\b|\bname\s+of\s+the\s+(product|service|plan|subscription|item)\b/
+const personNameMarkerExpression =
+  /(full[\s_-]*name|your[\s_-]*name|legal[\s_-]*name|contact[\s_-]*name|customer[\s_-]*name|recipient[\s_-]*name)/
+const relevantIdentityContextExpression =
+  /(sign[\s-]?up|signup|register|create[\s-]?(your[\s-]?)?account|join|checkout|payment|billing|shipping|delivery|address|contact|profile|personal information|order|account details|account info)/
+const relevantLoginContextExpression = /(sign[\s-]?in|log[\s-]?in|login|welcome back)/
+
+const hasStrongIdentityAutocomplete = (input) => strongAutocompleteExpression.test(getInputSignals(input).autocomplete)
+
+const isRelevantIdentityField = (input, fieldKind) => {
+  if (!identityFieldKinds.has(fieldKind)) {
+    return true
+  }
+
+  const { autocomplete, marker } = getInputSignals(input)
+  if (nonAutofillFieldExpression.test(marker)) {
+    return false
+  }
+
+  const context = getAuthContextText(input)
+  if (fieldKind === 'fullName' && resourceNamingContextExpression.test(context) && !personNameMarkerExpression.test(marker)) {
+    return false
+  }
+
+  const relevantContext =
+    relevantIdentityContextExpression.test(context) ||
+    ((fieldKind === 'username' || fieldKind === 'email') && relevantLoginContextExpression.test(context))
+  if (fieldKind === 'fullName' && fullNameAutocompleteExpression.test(autocomplete)) {
+    return personNameMarkerExpression.test(marker) || relevantContext
+  }
+
+  return hasStrongIdentityAutocomplete(input) || relevantContext
+}
 
 const fieldKindFor = (input) => {
+  if (isGenericSearchInput(input)) {
+    return undefined
+  }
+
   if (isCardholderNameInput(input)) {
     return 'cardholderName'
   }
@@ -38,16 +103,16 @@ const fieldKindFor = (input) => {
     return 'cardNumber'
   }
 
+  if (isCardExpiryInput(input)) {
+    return 'cardExpiry'
+  }
+
   if (isCardExpiryMonthInput(input)) {
     return 'cardExpiryMonth'
   }
 
   if (isCardExpiryYearInput(input)) {
     return 'cardExpiryYear'
-  }
-
-  if (isCardExpiryInput(input)) {
-    return 'cardExpiry'
   }
 
   if (isCardCvcInput(input)) {
@@ -66,71 +131,26 @@ const fieldKindFor = (input) => {
     return 'otp'
   }
 
-  if (isEmailInput(input)) {
-    return 'email'
-  }
+  const fieldKind =
+    isEmailInput(input) ? 'email'
+    : isPhoneInput(input) ? 'phone'
+    : isCountryInput(input) ? 'country'
+    : isStateInput(input) ? 'state'
+    : isPostalCodeInput(input) ? 'postalCode'
+    : isCityInput(input) ? 'city'
+    : isAddressLine2Input(input) ? 'addressLine2'
+    : isAddressLine1Input(input) ? 'addressLine1'
+    : isFirstNameInput(input) ? 'firstName'
+    : isMiddleNameInput(input) ? 'middleName'
+    : isLastNameInput(input) ? 'lastName'
+    : isCompanyInput(input) ? 'company'
+    : isJobTitleInput(input) ? 'jobTitle'
+    : isBirthDateInput(input) ? 'birthDate'
+    : isFullNameInput(input) ? 'fullName'
+    : isUsernameInput(input) ? 'username'
+    : undefined
 
-  if (isPhoneInput(input)) {
-    return 'phone'
-  }
-
-  if (isCountryInput(input)) {
-    return 'country'
-  }
-
-  if (isStateInput(input)) {
-    return 'state'
-  }
-
-  if (isPostalCodeInput(input)) {
-    return 'postalCode'
-  }
-
-  if (isCityInput(input)) {
-    return 'city'
-  }
-
-  if (isAddressLine2Input(input)) {
-    return 'addressLine2'
-  }
-
-  if (isAddressLine1Input(input)) {
-    return 'addressLine1'
-  }
-
-  if (isFirstNameInput(input)) {
-    return 'firstName'
-  }
-
-  if (isMiddleNameInput(input)) {
-    return 'middleName'
-  }
-
-  if (isLastNameInput(input)) {
-    return 'lastName'
-  }
-
-  if (isCompanyInput(input)) {
-    return 'company'
-  }
-
-  if (isJobTitleInput(input)) {
-    return 'jobTitle'
-  }
-
-  if (isBirthDateInput(input)) {
-    return 'birthDate'
-  }
-
-  if (isFullNameInput(input)) {
-    return 'fullName'
-  }
-
-  if (isUsernameInput(input)) {
-    return 'username'
-  }
-
-  return undefined
+  return fieldKind && isRelevantIdentityField(input, fieldKind) ? fieldKind : undefined
 }
 
 const fieldLabelFor = (fieldKind) => {

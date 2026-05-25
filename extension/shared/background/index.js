@@ -118,6 +118,7 @@ const assertMessageOriginMatchesSender = (message, sender) => {
 const senderBoundMessageTypes = new Set([
   'list-logins-for-url',
   'list-field-suggestions',
+  'request-desktop-unlock',
   'save-login-payload',
   'fetch-login',
   'fetch-identity',
@@ -529,6 +530,9 @@ async function handleRuntimeMessage(message, sender, sendResponse) {
         return
       case 'list-field-suggestions':
         sendResponse(await handlers.listFieldSuggestions(message.field, message.flow, message.url, message.title))
+        return
+      case 'request-desktop-unlock':
+        sendResponse(await handlers.requestDesktopUnlock(message.url, message.title))
         return
       case 'save-login-payload':
         sendResponse(await handlers.saveLoginPayload(message.payload))

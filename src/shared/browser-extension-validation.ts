@@ -61,6 +61,12 @@ export type BrowserExtensionRequest =
     }
   | {
       id: string;
+      type: "request-unlock";
+      url: string;
+      title?: string;
+    }
+  | {
+      id: string;
       type: "save-login";
       payload: BrowserSaveLoginInput;
     }
@@ -365,6 +371,13 @@ export const validateBrowserExtensionRequest = (
     case "ping":
     case "get-settings":
       return validBrowserExtensionRequest(request);
+
+    case "request-unlock": {
+      const url = readSecureBrowserPageUrl(input.url);
+      return url && hasValidTitle(input)
+        ? validBrowserExtensionRequest({ ...request, url } as BrowserExtensionRequest)
+        : invalidBrowserExtensionRequest(id, "invalid_request", "The unlock request URL is invalid.");
+    }
 
     case "list-logins": {
       const url = readSecureBrowserPageUrl(input.url);

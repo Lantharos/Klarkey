@@ -1,8 +1,50 @@
 import { getInputSignals, markerMatches, isTextLikeInput } from '../dom.js'
 
+const hasExplicitCredentialAutocomplete = (autocomplete) =>
+  /(username|email|current-password|new-password|one-time-code|cc-|tel|name|address|postal-code|country|bday|organization)/.test(autocomplete)
+
+const isGenericSearchInput = (input) => {
+  const { autocomplete, marker, inputType } = getInputSignals(input)
+  if (hasExplicitCredentialAutocomplete(autocomplete)) {
+    return false
+  }
+
+  const form = input.closest?.('form')
+  const formMarker = `${form?.getAttribute('role') || ''} ${form?.getAttribute('aria-label') || ''} ${form?.getAttribute('id') || ''} ${form?.getAttribute('class') || ''} ${form?.getAttribute('action') || ''}`.toLowerCase()
+  const searchSignals = `${marker} ${formMarker}`
+
+  return (
+    inputType === 'search' ||
+    input.getAttribute?.('role') === 'searchbox' ||
+    /\bsearch\b/.test(searchSignals) ||
+    /(^|[\s_-])(search|query|keywords?)([\s_-]|$)/.test(searchSignals)
+  )
+}
+
+const nearbyText = (input) => {
+  const root = input.closest?.('form') || input.closest?.('[role="dialog"], [aria-modal="true"], main, section, article') || input.parentElement
+  return (root?.textContent || '').slice(0, 4000).toLowerCase()
+}
+
+const hasNearbyPasswordInput = (input) => {
+  const root = input.closest?.('form') || input.closest?.('[role="dialog"], [aria-modal="true"], main, section, article') || input.parentElement
+  if (!root) {
+    return false
+  }
+
+  return Array.from(root.querySelectorAll('input')).some((field) => field !== input && isPasswordInput(field))
+}
+
 const isUsernameInput = (input) => {
   const { autocomplete, marker } = getInputSignals(input)
-  return isTextLikeInput(input) && (autocomplete.includes('username') || autocomplete.includes('email') || /(user|email|login)/.test(marker))
+  const context = `${marker} ${nearbyText(input)}`
+  return (
+    isTextLikeInput(input) &&
+    (autocomplete.includes('username') ||
+      autocomplete.includes('email') ||
+      /(user|email|login|identifier)/.test(marker) ||
+      (hasNearbyPasswordInput(input) && /(sign[\s-]?in|log[\s-]?in|login|username|email|account)/.test(context)))
+  )
 }
 
 const isEmailInput = (input) => {
@@ -66,6 +108,9 @@ const isLastNameInput = (input) => {
   return autocomplete.includes('family-name') || markerMatches(input, /(last[\s_-]*name|family[\s_-]*name|surname|lname)/)
 }
 
+const relevantPersonNameContextExpression =
+  /(sign[\s-]?up|signup|register|create[\s-]?(your[\s-]?)?account|join|checkout|payment|billing|shipping|delivery|address|contact|profile|personal information|recipient|order|account details|account info)/
+
 const isFullNameInput = (input) => {
   const { autocomplete } = getInputSignals(input)
   if (autocomplete.includes('given-name') || autocomplete.includes('family-name') || autocomplete.includes('additional-name')) {
@@ -74,7 +119,11 @@ const isFullNameInput = (input) => {
   if (isFirstNameInput(input) || isMiddleNameInput(input) || isLastNameInput(input)) {
     return false
   }
-  return autocomplete === 'name' || markerMatches(input, /(full[\s_-]*name|your[\s_-]*name|\bname\b)/)
+  return (
+    autocomplete === 'name' ||
+    markerMatches(input, /(full[\s_-]*name|your[\s_-]*name|legal[\s_-]*name|contact[\s_-]*name|customer[\s_-]*name|recipient[\s_-]*name)/) ||
+    (markerMatches(input, /\bname\b/) && relevantPersonNameContextExpression.test(nearbyText(input)))
+  )
 }
 
 const isCompanyInput = (input) => {
@@ -123,11 +172,34 @@ const isAddressLine1Input = (input) => {
   )
 }
 
+const otpMarkerExpression =
+  /(otp|2fa|mfa|totp|one[-\s_]?time|verification[\s_-]*(code|token)|authenticator[\s_-]*(code|token)|auth[\s_-]*(code|token)|security[\s_-]*code|login[\s_-]*code|two[-\s_]?factor|authentication[\s_-]*code)/
+const otpContextExpression =
+  /(otp|2fa|mfa|totp|one[-\s_]?time|verification[\s_-]*(code|token)|authenticator|security[\s_-]*code|login[\s_-]*code|two[-\s_]?factor|authentication[\s_-]*code|enter\s+the\s+code|code\s+from\s+your\s+authenticator)/
+const nonOtpMarkerExpression = /\b(api[\s_-]*key|secret[\s_-]*key|restricted[\s_-]*key|key[\s_-]*name|product[\s_-]*key|license[\s_-]*key)\b/
+
 const isOtpInput = (input) => {
-  const { autocomplete, marker } = getInputSignals(input)
+  const { autocomplete, marker, inputMode, inputType, maxLength, pattern } = getInputSignals(input)
+  const context = `${marker} ${nearbyText(input)}`
+  const numericShortCode =
+    input instanceof HTMLInputElement &&
+    isTextLikeInput(input) &&
+    maxLength >= 4 &&
+    maxLength <= 8 &&
+    (inputMode === 'numeric' ||
+      inputMode === 'tel' ||
+      inputType === 'number' ||
+      inputType === 'tel' ||
+      /\\d|\[0-9\]/.test(pattern) ||
+      /^[\d\s-]{4,8}$/.test(input.placeholder || ''))
+
   return (
-    (autocomplete.includes('one-time-code') || /(otp|2fa|totp|one[-\s]?time|verification|authenticator|security code|auth code)/.test(marker)) &&
-    !/\bemail\b/.test(marker)
+    isTextLikeInput(input) &&
+    !/\b(email|postal|zip|coupon|promo|gift|card number)\b/.test(context) &&
+    !nonOtpMarkerExpression.test(marker) &&
+    (autocomplete.includes('one-time-code') ||
+      otpMarkerExpression.test(marker) ||
+      (numericShortCode && otpContextExpression.test(context)))
   )
 }
 
@@ -171,4 +243,5 @@ export {
   isOtpInput,
   isPasswordInput,
   isConfirmPasswordInput,
+  isGenericSearchInput,
 }

@@ -202,6 +202,10 @@ export interface BrowserFieldSuggestion {
   itemId: string
   itemName: string
   value: string
+  displayValue?: string
+  displaySecondary?: string
+  cardLastFour?: string
+  cardBrand?: string
   field: BrowserSuggestionField
   source: BrowserFieldSuggestionSource
   lastUsedAt?: string
