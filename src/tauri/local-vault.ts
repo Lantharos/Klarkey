@@ -77,6 +77,22 @@ let markNativeVaultLocked: (() => void) | undefined
 
 const LOCK_WARNING_SECONDS = 30
 
+function vaultStorage(): Storage | undefined {
+  try {
+    return typeof window === 'undefined' || !('localStorage' in window) ? undefined : window.localStorage
+  } catch {
+    return undefined
+  }
+}
+
+function clearVaultCacheState() {
+  vaultStorage()?.removeItem(storageKey)
+}
+
+function getLegacyStorageState(): string | null | undefined {
+  return vaultStorage()?.getItem(storageKey)
+}
+
 const id = (prefix: string) => `${prefix}_${crypto.getRandomValues(new Uint32Array(2)).join('')}`
 const now = () => new Date().toISOString()
 
@@ -254,7 +270,7 @@ function applyNativeState(contents: string | null) {
   stateCache = contents; nativeStateContents = contents
   nativeMetadata = metadataFromState(parseState(contents))
   startAutoLockTimer(parseState(contents))
-  localStorage.removeItem(storageKey)
+  clearVaultCacheState()
   publishLockState()
 }
 
@@ -483,7 +499,7 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
       void setSshAgentEnabled(nativeCall, parseState(contents).settings.sshAgentEnabled)
       return true
     }
-    const legacy = localStorage.getItem(storageKey)
+    const legacy = getLegacyStorageState()
     if (!legacy) { applyNativeState(null); return true }
     applyNativeState(legacy)
     void setSshAgentEnabled(nativeCall, parseState(legacy).settings.sshAgentEnabled)

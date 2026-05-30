@@ -94,6 +94,16 @@ const createTauriApi = (): KlarkeyApi => {
 
   const isDev = window.location.protocol === 'http:' || window.location.hostname === 'localhost' || window.location.port === '5173'
   if (isDev) {
+    const clearVaultStorage = () => {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem('klarkey.tauri.vault.v1')
+        }
+      } catch {
+        // Ignore localStorage availability issues in non-browser or unsupported runtimes.
+      }
+    }
+
     api.dev = {
       forceLock: async () => {
         await api.vault.lock()
@@ -121,7 +131,7 @@ const createTauriApi = (): KlarkeyApi => {
         keyFileExists: true,
       }),
       resetVault: async () => {
-        localStorage.removeItem('klarkey.tauri.vault.v1')
+        clearVaultStorage()
         await call('reset_vault_state')
         window.location.reload()
         return { status: 'success' }

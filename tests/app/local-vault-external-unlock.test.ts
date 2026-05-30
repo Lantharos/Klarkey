@@ -31,7 +31,9 @@ describe('local vault external unlock hydration', () => {
     vi.useRealTimers()
     vi.resetModules()
     vi.restoreAllMocks()
-    localStorage.clear()
+    if (typeof localStorage !== 'undefined') {
+      localStorage.clear()
+    }
   })
 
   it('does not treat unlocked metadata as an empty unlocked vault before decrypted state loads', async () => {
