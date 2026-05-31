@@ -85,7 +85,7 @@ Desktop releases use Tauri's platform bundler for the current OS. `bun run build
 ## Notes
 
 - Existing desktop vaults start locked when a passcode, master password, or system unlock is configured.
-- On Linux Wayland, Klarkey disables WebKitGTK's DMABUF renderer and accelerated compositing at startup before using an alpha-backed palette window. This keeps rounded corners working while avoiding the upstream `Error 71` Wayland protocol crash and partial invisible rendering seen on some GPU/driver combinations.
+- On Linux, Klarkey applies WebKitGTK NVIDIA workarounds only when needed: X11 NVIDIA sessions disable WebKitGTK's DMABUF renderer, while Wayland NVIDIA sessions disable NVIDIA explicit sync so DMABUF can stay enabled where possible. Wayland sessions keep accelerated compositing enabled before using an alpha-backed palette window. When the compositor exposes `ext-background-effect-v1`, Klarkey requests a native background blur region for the palette, clears the GTK drawing surface before WebKit paints, and uses WebKitGTK's native webview background color for translucency only while blur is available.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
 - Website passkeys are handled by the Tauri native-messaging host for the browser extension.
 - System unlock stores its vault unlock key in the OS keychain. Windows and macOS use the platform owner-authentication APIs. Linux stores the key through Secret Service and treats polkit verification as the separate user-authentication step for timed auto-lock unlocks.

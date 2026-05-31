@@ -58,7 +58,12 @@ const createTauriApi = (): KlarkeyApi => {
   let initialExternalUnlockDelivered = false
 
   api.onPrepareOpen = (callback) => {
-    const unsubscribe = onTauriEvent<{ externalUnlock?: boolean } | undefined>(TAURI_EVENTS.palettePrepare, callback)
+    const unsubscribe = onTauriEvent<
+      { externalUnlock?: boolean; nativeTranslucent?: boolean; nativeContentTranslucent?: boolean; nativeHostTranslucent?: boolean } | undefined
+    >(
+      TAURI_EVENTS.palettePrepare,
+      callback,
+    )
     if (initialExternalUnlock && !initialExternalUnlockDelivered) {
       initialExternalUnlockDelivered = true
       queueMicrotask(() => callback({ externalUnlock: true }))
@@ -68,6 +73,9 @@ const createTauriApi = (): KlarkeyApi => {
   api.onFocusRequest = (callback) => onTauriEvent<void>(TAURI_EVENTS.paletteFocus, callback)
   api.onTargetWindowChange = (callback) =>
     onTauriEvent<ExternalWindowContext>(TAURI_EVENTS.targetWindowChanged, callback)
+  api.nativeWindowMaterial = {
+    get: () => call('native_window_material'),
+  }
   api.onSyncChanged = (callback) => {
     const localHandler = (event: Event) => callback((event as CustomEvent<SyncUpdateEvent>).detail)
     window.addEventListener('klarkey-sync-changed', localHandler)

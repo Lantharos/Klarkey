@@ -36,19 +36,6 @@ import { RecoveryCodesPage } from "@/app/recovery-codes-page";
 import type { ImportFormat } from "@/shared/import-export";
 import { DEFAULT_SETTINGS, type UpdateItemInput } from "@/shared/types";
 
-const usesNativeWindowMaterial =
-  typeof navigator !== "undefined" &&
-  (navigator.userAgent.includes("Windows") ||
-    navigator.userAgent.includes("Mac"));
-const paletteSurfaceClassName = usesNativeWindowMaterial
-  ? "bg-[#1a1a1b]/88 backdrop-blur-[22px]"
-  : "bg-[#1a1a1b]";
-const paletteShellClassName =
-  `keyboard-only-surface flex h-full min-h-full flex-col overflow-hidden rounded-[18px] text-white ${paletteSurfaceClassName}`;
-
-const mainPaletteShellClassName =
-  `keyboard-only-surface relative flex h-full min-h-full flex-col overflow-hidden rounded-[18px] text-white ${paletteSurfaceClassName}`;
-
 const importFormatOptions: Array<{
   id: ImportFormat;
   label: string;
@@ -209,6 +196,26 @@ function App() {
 
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false);
   const [externalUnlockRequested, setExternalUnlockRequested] = useState(false);
+  const [paletteOpenSerial, setPaletteOpenSerial] = useState(0);
+  const [nativeTranslucencyAvailable, setNativeTranslucencyAvailable] =
+    useState(false);
+  const [nativeContentTranslucencyAvailable, setNativeContentTranslucencyAvailable] =
+    useState(false);
+  const [nativeHostTranslucencyAvailable, setNativeHostTranslucencyAvailable] =
+    useState(false);
+  const paletteSurfaceClassName = nativeTranslucencyAvailable
+    ? nativeHostTranslucencyAvailable
+      ? "palette-window-shell--host-native"
+      : nativeContentTranslucencyAvailable
+      ? "palette-window-shell--content-native"
+      : "palette-window-shell--native"
+    : "palette-window-shell--solid";
+  const paletteShellKey =
+    `${paletteOpenSerial}:${page}:${paletteSurfaceClassName}`;
+  const paletteShellClassName =
+    `palette-window-shell keyboard-only-surface flex h-full min-h-full flex-col overflow-hidden rounded-[14px] text-white ${paletteSurfaceClassName}`;
+  const mainPaletteShellClassName =
+    `palette-window-shell keyboard-only-surface relative flex h-full min-h-full flex-col overflow-hidden rounded-[14px] text-white ${paletteSurfaceClassName}`;
 
   const {
     hotkeyRecording,
@@ -339,6 +346,28 @@ function App() {
       return undefined;
     }
 
+    let disposed = false;
+    void window.klarkey.nativeWindowMaterial
+      .get()
+      .then((material) => {
+        if (!disposed) {
+          setNativeTranslucencyAvailable(material.translucent);
+          setNativeContentTranslucencyAvailable(material.contentTranslucent);
+          setNativeHostTranslucencyAvailable(material.hostTranslucent);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!window.klarkey) {
+      return undefined;
+    }
+
     return window.klarkey.onLockStateChanged((info) => {
       const previousState = usePaletteStore.getState().lockInfo?.state;
       usePaletteStore.setState({ lockInfo: info });
@@ -376,6 +405,10 @@ function App() {
 
     return window.klarkey.onPrepareOpen((options) => {
       const { lockInfo: currentLockInfo } = usePaletteStore.getState();
+      setPaletteOpenSerial((serial) => serial + 1);
+      setNativeTranslucencyAvailable(Boolean(options?.nativeTranslucent));
+      setNativeContentTranslucencyAvailable(Boolean(options?.nativeContentTranslucent));
+      setNativeHostTranslucencyAvailable(Boolean(options?.nativeHostTranslucent));
       setExternalUnlockRequested(Boolean(options?.externalUnlock));
       if (currentLockInfo?.state === "locked") {
         usePaletteStore.setState({
@@ -486,19 +519,22 @@ function App() {
 
   if (!hydrated) {
     return (
-      <div className="flex h-full min-h-full items-center justify-center px-6 py-5 text-white">
-        <div className="text-[15px] text-white/72">
-          {bootError
-            ? `Klarkey could not finish loading. ${bootError}`
-            : "Starting Klarkey..."}
-        </div>
+      <div
+        key={paletteShellKey}
+        className={`${paletteShellClassName} items-center justify-center px-6 py-5`}
+      >
+        {bootError ? (
+          <div className="text-[15px] text-white/72">
+            {`Klarkey could not finish loading. ${bootError}`}
+          </div>
+        ) : null}
       </div>
     );
   }
 
   if (lockInfo?.state === "locked" && page !== "locked") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={lockInfo}
           onUnlockWithHello={unlockWithHello}
@@ -511,7 +547,7 @@ function App() {
 
   if (lockInfo?.state === "passcode" && page !== "passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -522,7 +558,7 @@ function App() {
 
   if (page === "locked") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={
             lockInfo ?? {
@@ -545,7 +581,7 @@ function App() {
 
   if (page === "passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo?.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -556,7 +592,7 @@ function App() {
 
   if (page === "set-passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeSetupScreen
           onSubmit={submitSetPasscode}
           onCancel={() => void goBackOrClose()}
@@ -567,7 +603,7 @@ function App() {
 
   if (page === "set-master-password") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <MasterPasswordSetupScreen
           onSubmit={submitSetMasterPassword}
           onCancel={() => void goBackOrClose()}
@@ -578,7 +614,7 @@ function App() {
 
   if (page === "confirm-passcode-removal") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeConfirmScreen
           title="Confirm passcode to turn it off"
           passcodeLength={lockInfo?.passcodeLength ?? 4}
@@ -592,9 +628,11 @@ function App() {
   if (page === "recovery-codes") {
     return (
       <RecoveryCodesPage
+        key={paletteShellKey}
         mode={recoveryCodesMode ?? "view"}
         itemName={activeDetailItem?.itemName ?? ""}
         codes={activeDetailItem?.recoveryCodes ?? []}
+        surfaceClassName={paletteShellClassName}
         onSave={(codes) => void submitRecoveryCodes(codes)}
         onUpdate={(codes) => void updateRecoveryCodesInPlace(codes)}
         onBack={() => void goBackOrClose()}
@@ -603,7 +641,7 @@ function App() {
   }
 
   return (
-    <div className={mainPaletteShellClassName}>
+    <div key={paletteShellKey} className={mainPaletteShellClassName}>
       <div className="flex items-center gap-4 px-5 pt-4 pb-3">
         {page === "home" ? (
           <SearchBar

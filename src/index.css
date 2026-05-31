@@ -24,7 +24,7 @@ body,
 
 #root {
   overflow: hidden;
-  border-radius: 18px;
+  border-radius: 14px;
   background: transparent;
   isolation: isolate;
 }
@@ -80,6 +80,35 @@ body {
 .keyboard-only-surface,
 .keyboard-only-surface * {
   pointer-events: none;
+}
+
+.palette-window-shell {
+  position: relative;
+  isolation: isolate;
+  contain: paint;
+  background: rgb(26, 26, 27);
+  background-clip: padding-box;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 48px rgba(0, 0, 0, 0.34);
+}
+
+.palette-window-shell--native {
+  background: rgb(26, 26, 27);
+}
+
+.palette-window-shell--content-native {
+  background: rgb(26 26 27 / 0.62);
+}
+
+.palette-window-shell--host-native {
+  background: transparent;
+}
+
+.palette-window-shell--solid {
+  background: rgb(26, 26, 27);
 }
 
 ::-webkit-scrollbar {

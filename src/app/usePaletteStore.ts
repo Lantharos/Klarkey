@@ -86,6 +86,9 @@ const fallbackApi: KlarkeyApi = {
   targetWindow: {
     get: async () => undefined,
   },
+  nativeWindowMaterial: {
+    get: async () => ({ backgroundBlur: false, translucent: false, contentTranslucent: false, hostTranslucent: false }),
+  },
   importExport: {
     exportVault: async () => ({ success: false, exportedCount: 0, message: 'Desktop bridge unavailable.' }),
     importVault: async () => ({ success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Desktop bridge unavailable.' }),
@@ -405,7 +408,7 @@ export const usePaletteStore = create<PaletteState>((set, get) => ({
       resolveKey,
       page: 'home',
       query,
-      actions: previousActions,
+      actions: options?.preserveSelection ? previousActions : [],
       hasMoreResults: options?.preserveSelection ? previousHasMoreResults : false,
       nextOffset: options?.preserveSelection ? previousNextOffset : 0,
       selectedIndex: options?.preserveSelection ? previousIndex : 0,

@@ -778,6 +778,9 @@ export function createLocalVaultApi(nativeCall: <Result>(command: string, args?:
     },
     passkeys: createDevicePasskeyApi({ platform, loadState, saveState, requireUnlocked, lockedResult, id, now }),
     targetWindow: { get: () => nativeCall('palette_target_get') },
+    nativeWindowMaterial: {
+      get: async () => ({ backgroundBlur: false, translucent: false, contentTranslucent: false, hostTranslucent: false }),
+    },
     importExport: {
       exportVault: async (options: ExportOptions) => {
         if (!requireUnlocked()) return { success: false, exportedCount: 0, message: lockedResult().message }

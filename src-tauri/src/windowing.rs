@@ -1,6 +1,6 @@
 use crate::desktop_integration;
 use serde_json::json;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::window::Color;
 use tauri::{
@@ -9,11 +9,17 @@ use tauri::{
 
 const PALETTE_WIDTH: f64 = 760.0;
 const PALETTE_HEIGHT: f64 = 480.0;
+const PALETTE_CORNER_RADIUS: i32 = 14;
 const BLUR_HIDE_DELAY: Duration = Duration::from_millis(300);
 const POST_MODAL_FOCUS_GRACE_MS: u64 = 1_500;
 static BLUR_SERIAL: AtomicU64 = AtomicU64::new(0);
 static MODAL_INTERACTION_DEPTH: AtomicUsize = AtomicUsize::new(0);
 static MODAL_SUPPRESS_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+static NATIVE_BACKGROUND_BLUR_AVAILABLE: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "linux")]
+static LINUX_CLEAR_DRAW_HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "linux")]
+static LINUX_MAP_HANDLER_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 struct ModalInteractionGuard {
     app: AppHandle,
@@ -84,6 +90,27 @@ pub fn open_palette_window(app: &AppHandle) -> Result<(), String> {
     open_palette_window_with_options(app, false)
 }
 
+pub fn hide_palette_window(window: &WebviewWindow) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let window_for_thread = window.clone();
+        window
+            .run_on_main_thread(move || {
+                crate::linux_background_effect::clear_blur();
+                configure_linux_palette_surface(&window_for_thread, false);
+                NATIVE_BACKGROUND_BLUR_AVAILABLE.store(false, Ordering::SeqCst);
+                let _ = window_for_thread.hide();
+            })
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        window.hide().map_err(|error| error.to_string())
+    }
+}
+
 #[cfg(target_os = "linux")]
 pub fn open_palette_window_with_activation_token(
     app: &AppHandle,
@@ -110,18 +137,22 @@ fn open_palette_window_with_options_and_activation(
         .ok_or_else(|| String::from("Klarkey window is not available."))?;
 
     #[cfg(target_os = "linux")]
-    if let Some(activation_token) = activation_token.filter(|token| !token.trim().is_empty()) {
+    {
         let app = app.clone();
         let window_for_thread = window.clone();
+        let activation_token = activation_token.filter(|token| !token.trim().is_empty());
         window
             .run_on_main_thread(move || {
-                apply_wayland_activation_token(&window_for_thread, &activation_token);
+                if let Some(activation_token) = activation_token {
+                    apply_wayland_activation_token(&window_for_thread, &activation_token);
+                }
                 let _ = present_palette_window(&app, &window_for_thread, external_unlock);
             })
             .map_err(|error| error.to_string())?;
         return Ok(());
     }
 
+    #[cfg(not(target_os = "linux"))]
     present_palette_window(app, &window, external_unlock)
 }
 
@@ -130,15 +161,41 @@ fn present_palette_window(
     window: &WebviewWindow,
     external_unlock: bool,
 ) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        NATIVE_BACKGROUND_BLUR_AVAILABLE.store(true, Ordering::SeqCst);
+        configure_linux_palette_surface(window, true);
+    }
+
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
-    let _ = app.emit(
-        "palette-prepare",
-        json!({ "externalUnlock": external_unlock }),
-    );
+    emit_palette_prepare(app, external_unlock);
+    attach_native_window_material_after_show(window);
     desktop_integration::emit_target_window(app);
     let _ = app.emit("palette-focus", json!({}));
     Ok(())
+}
+
+fn emit_palette_prepare(app: &AppHandle, external_unlock: bool) {
+    let _ = app.emit(
+        "palette-prepare",
+        json!({
+            "externalUnlock": external_unlock,
+            "nativeTranslucent": native_window_translucent(),
+            "nativeContentTranslucent": native_content_translucent(),
+            "nativeHostTranslucent": native_host_translucent(),
+        }),
+    );
+}
+
+fn attach_native_window_material_after_show(_window: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        let window = _window.clone();
+        gtk::glib::idle_add_local_once(move || {
+            refresh_native_window_material(&window);
+        });
+    }
 }
 
 pub fn run_modal_interaction<T>(app: &AppHandle, operation: impl FnOnce() -> T) -> T {
@@ -170,6 +227,7 @@ fn restore_palette_after_modal(app: &AppHandle) {
         return;
     };
     let _ = window.show();
+    refresh_native_window_material(&window);
     let _ = window.set_focus();
     let _ = app.emit("palette-focus", json!({}));
 }
@@ -199,14 +257,160 @@ fn apply_native_window_material(_window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
         use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-        let _ = apply_vibrancy(_window, NSVisualEffectMaterial::HudWindow, None, None);
+        NATIVE_BACKGROUND_BLUR_AVAILABLE.store(
+            apply_vibrancy(_window, NSVisualEffectMaterial::HudWindow, None, None).is_ok(),
+            Ordering::SeqCst,
+        );
     }
 
     #[cfg(target_os = "windows")]
     {
         use window_vibrancy::apply_acrylic;
-        let _ = apply_acrylic(_window, Some((18, 18, 18, 145)));
+        NATIVE_BACKGROUND_BLUR_AVAILABLE.store(
+            apply_acrylic(_window, Some((18, 18, 18, 145))).is_ok(),
+            Ordering::SeqCst,
+        );
     }
+
+    #[cfg(target_os = "linux")]
+    {
+        configure_linux_palette_surface(_window, false);
+        NATIVE_BACKGROUND_BLUR_AVAILABLE.store(false, Ordering::SeqCst);
+    }
+}
+
+fn refresh_native_window_material(_window: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        let blur_available = crate::linux_background_effect::apply_blur(
+            _window,
+            PALETTE_WIDTH as i32,
+            PALETTE_HEIGHT as i32,
+            PALETTE_CORNER_RADIUS,
+        );
+        configure_linux_palette_surface(_window, blur_available);
+        NATIVE_BACKGROUND_BLUR_AVAILABLE.store(blur_available, Ordering::SeqCst);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn configure_linux_palette_surface(window: &WebviewWindow, translucent: bool) {
+    use gtk::prelude::*;
+
+    if let Ok(gtk_window) = window.gtk_window() {
+        install_linux_clear_draw_handler(&gtk_window);
+        install_linux_map_handler(window, &gtk_window);
+        gtk_window.set_app_paintable(true);
+        gtk_window.set_opacity(1.0);
+        if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&gtk_window) {
+            gtk_window.set_visual(screen.rgba_visual().as_ref());
+        }
+        if let Some(gdk_window) = gtk_window.window() {
+            gdk_window.set_opaque_region(None);
+        }
+        gtk_window.queue_draw();
+    }
+
+    if let Ok(vbox) = window.default_vbox() {
+        vbox.set_app_paintable(true);
+        vbox.queue_draw();
+    }
+
+    set_linux_webview_background(window, translucent);
+}
+
+#[cfg(target_os = "linux")]
+fn install_linux_map_handler(window: &WebviewWindow, gtk_window: &gtk::ApplicationWindow) {
+    use gtk::prelude::WidgetExtManual;
+
+    if LINUX_MAP_HANDLER_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let window = window.clone();
+    gtk_window.connect_map_event(move |_, _| {
+        let window = window.clone();
+        gtk::glib::idle_add_local_once(move || {
+            refresh_native_window_material(&window);
+        });
+        gtk::glib::Propagation::Proceed
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn install_linux_clear_draw_handler(window: &gtk::ApplicationWindow) {
+    use gtk::prelude::*;
+
+    if LINUX_CLEAR_DRAW_HANDLER_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    window.connect_draw(|_, context| {
+        context.set_operator(gtk::cairo::Operator::Clear);
+        let _ = context.paint();
+        context.set_operator(gtk::cairo::Operator::Over);
+        gtk::glib::Propagation::Proceed
+    });
+}
+
+#[cfg(target_os = "linux")]
+fn set_linux_webview_background(window: &WebviewWindow, translucent: bool) {
+    use webkit2gtk::WebViewExt;
+
+    let alpha = if translucent { 0.62 } else { 1.0 };
+    let color = gtk::gdk::RGBA::new(26.0 / 255.0, 26.0 / 255.0, 27.0 / 255.0, alpha);
+
+    if let Ok(vbox) = window.default_vbox() {
+        use gtk::prelude::*;
+
+        if let Some(webview) = vbox
+            .children()
+            .into_iter()
+            .find_map(|child| child.downcast::<webkit2gtk::WebView>().ok())
+        {
+            webview.set_background_color(&color);
+            return;
+        }
+    }
+
+    let _ = window.with_webview(move |webview| {
+        webview.inner().set_background_color(&color);
+    });
+}
+
+fn native_window_translucent() -> bool {
+    NATIVE_BACKGROUND_BLUR_AVAILABLE.load(Ordering::SeqCst)
+}
+
+#[cfg(target_os = "linux")]
+fn native_content_translucent() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn native_content_translucent() -> bool {
+    native_window_translucent()
+}
+
+#[cfg(target_os = "linux")]
+fn native_host_translucent() -> bool {
+    native_window_translucent()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn native_host_translucent() -> bool {
+    false
+}
+
+#[tauri::command]
+pub fn native_window_material() -> serde_json::Value {
+    let background_blur = native_window_translucent();
+    json!({
+        "backgroundBlur": background_blur,
+        "translucent": background_blur,
+        "contentTranslucent": native_content_translucent(),
+        "hostTranslucent": native_host_translucent(),
+    })
 }
 
 fn install_window_visibility_handlers(window: &WebviewWindow) {
@@ -214,7 +418,7 @@ fn install_window_visibility_handlers(window: &WebviewWindow) {
     window.on_window_event(move |event| match event {
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
-            let _ = window_to_hide.hide();
+            let _ = hide_palette_window(&window_to_hide);
         }
         WindowEvent::Focused(true) => {
             BLUR_SERIAL.fetch_add(1, Ordering::SeqCst);
@@ -233,7 +437,7 @@ fn install_window_visibility_handlers(window: &WebviewWindow) {
                 if window_to_hide.is_focused().unwrap_or(false) {
                     return;
                 }
-                let _ = window_to_hide.hide();
+                let _ = hide_palette_window(&window_to_hide);
             });
         }
         _ => {}

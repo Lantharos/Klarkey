@@ -6,6 +6,8 @@ mod browser_host_registration;
 mod deep_links;
 mod desktop_integration;
 #[cfg(target_os = "linux")]
+mod linux_background_effect;
+#[cfg(target_os = "linux")]
 mod linux_shortcuts;
 mod native_host_items;
 mod native_host_totp;
@@ -36,16 +38,22 @@ where
 
 #[cfg(target_os = "linux")]
 fn apply_linux_webkit_workarounds() {
+    webkit2gtk_nvidia_quirk::apply_workaround_with_options(
+        webkit2gtk_nvidia_quirk::ApplyWorkaroundOptions::default(),
+    );
+
     let is_wayland = env::var_os("WAYLAND_DISPLAY").is_some()
         || env::var("XDG_SESSION_TYPE").is_ok_and(|value| value.eq_ignore_ascii_case("wayland"));
     if !is_wayland {
         return;
     }
-    if env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
-        env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-    }
-    if env::var_os("WEBKIT_DISABLE_COMPOSITING_MODE").is_none() {
-        env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    let allow_compositing_disable =
+        env::var_os("KLARKEY_ALLOW_WEBKIT_COMPOSITING_DISABLE").is_some();
+    if !allow_compositing_disable {
+        env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
+        if env::var_os("WEBKIT_FORCE_COMPOSITING_MODE").is_none() {
+            env::set_var("WEBKIT_FORCE_COMPOSITING_MODE", "1");
+        }
     }
 }
 
@@ -60,7 +68,7 @@ async fn palette_open(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn palette_close(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        window.hide().map_err(|error| error.to_string())?;
+        windowing::hide_palette_window(&window)?;
     }
     Ok(())
 }
@@ -218,6 +226,7 @@ pub fn run() {
             palette_open,
             palette_close,
             palette_hotkey_set,
+            windowing::native_window_material,
             system_commands::clipboard_copy_secret,
             system_auth_support,
             system_auth_has_vault_key,
