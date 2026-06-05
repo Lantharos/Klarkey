@@ -1,5 +1,23 @@
 export type ExportFormat = 'klarkey-json' | 'csv'
-export type ImportFormat = 'auto' | 'klarkey-json' | 'csv' | '1pux' | 'bitwarden-json' | 'lastpass-csv' | 'dashlane-csv' | 'dashlane-json' | 'chrome-csv'
+export type ImportFormat =
+  | 'auto'
+  | 'klarkey-json'
+  | 'csv'
+  | '1pux'
+  | '1password-csv'
+  | 'bitwarden-json'
+  | 'bitwarden-csv'
+  | 'lastpass-csv'
+  | 'dashlane-csv'
+  | 'dashlane-json'
+  | 'chrome-csv'
+  | 'firefox-csv'
+  | 'keeper-csv'
+  | 'keepass-csv'
+  | 'nordpass-csv'
+  | 'proton-pass'
+  | 'proton-pass-json'
+  | 'proton-pass-csv'
 
 export interface ExportOptions {
   format: ExportFormat

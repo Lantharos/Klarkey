@@ -24,7 +24,8 @@ let desktopState = {
 
 export const OPERATION_TIMEOUT_MS = 4000
 export const HOST_TIMEOUT_MS = 15000
-export const UNLOCK_RETRY_WAIT_MS = 15000
+export const UNLOCK_RETRY_WAIT_MS = 120000
+export const UNLOCK_REQUEST_TIMEOUT_MS = 120000
 export const UNLOCK_POLL_INTERVAL_MS = 350
 export const UNLOCK_GRACE_MS = 20000
 export const MAX_NATIVE_REQUEST_BYTES = 10 * 1024 * 1024
@@ -33,10 +34,12 @@ const DESKTOP_RECONNECT_MS = 10000
 const sensitiveErrorPattern = /(access_token|app_key|authorization|bearer|ciphertext|client_secret|cookie|credentialId|id_token|jwt|passcode|password|pendingPasskeyId|private|privateKey|recovery|refresh_token|secret|token|vault)/i
 const urlErrorPattern = /(file:\/\/|[a-z]:\\|https?:\/\/\S+[?&][^ \t\r\n]+)/i
 const RETRYABLE_AFTER_UNLOCK_TYPES = new Set([
+  'request-unlock',
   'get-login',
   'get-identity',
   'get-card',
   'passkey-create-credential',
+  'passkey-save-credential',
   'passkey-get-credential',
 ])
 
@@ -364,6 +367,10 @@ async function sendHostRequest(payload) {
 
   const port = await ensureNativePort()
 
+  const timeoutMs = RETRYABLE_AFTER_UNLOCK_TYPES.has(payload?.type)
+    ? UNLOCK_REQUEST_TIMEOUT_MS
+    : HOST_TIMEOUT_MS
+
   return withTimeout(
     new Promise((resolve, reject) => {
       const timeoutId = globalThis.setTimeout(() => {
@@ -376,7 +383,7 @@ async function sendHostRequest(payload) {
           retryAfterSeconds: undefined,
         })
         reject(new Error('Timed out while contacting the Klarkey desktop bridge.'))
-      }, HOST_TIMEOUT_MS)
+      }, timeoutMs)
 
       nativePortRequests.set(id, {
         resolve,
@@ -401,7 +408,7 @@ async function sendHostRequest(payload) {
       }
     }),
     'Timed out while contacting the Klarkey desktop bridge.',
-    HOST_TIMEOUT_MS,
+    timeoutMs,
   )
 }
 

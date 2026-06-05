@@ -43,7 +43,7 @@ export const ITEM_TYPE_DEFINITIONS: Record<ItemType, ItemTypeDefinition> = {
     noun: 'card',
     aliases: ['card', 'cards', 'credit card', 'debit card', 'payment card'],
     createLabel: 'New card',
-    placeholderName: 'Visa ending in 4242',
+    placeholderName: 'Payment card',
     supportsSecrets: true,
     available: true,
   },

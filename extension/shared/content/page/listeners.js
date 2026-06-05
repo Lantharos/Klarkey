@@ -1,18 +1,23 @@
 import { overlayRoot } from './overlay.js'
-import { pageState, matchFetch, timers, menuSuppress, browserSettings } from './state.js'
+import { pageState, matchFetch, timers, browserSettings } from './state.js'
 import { runtime, sendMessage } from './runtime.js'
 import { getDeepActiveElement, isFieldElement, visible } from './dom.js'
-import { suppressInlineMenu } from './menu-suppress.js'
+import {
+  allowAutomaticInlineMenu,
+  hydrateInlineMenuSuppression,
+  isAutomaticInlineMenuSuppressed,
+  suppressInlineMenu,
+} from './menu-suppress.js'
 import { loadBrowserSettings } from './settings.js'
 import {
   getInputs,
   setPendingUsername,
   setPendingOtp,
   getPendingOtp,
-  getPendingUsername,
   injectPageBridge,
   ensurePageBridgeReady,
   isPasswordInput,
+  hydratePendingAuthState,
 } from './forms/forms.js'
 import { writeValue, writeSplitOtp, collectFormSnapshot, scheduleLoginAutoSubmit } from './autofill/write-submit.js'
 import { removeInlineUi, moveActiveMenuIndex } from './ui/inline-ui.js'
@@ -22,12 +27,14 @@ import {
   restorePendingSavePrompt,
   maybePromptToSave,
 } from './vault.js'
+import { savePromptKeyFor, setPendingSavePrompt } from './pending-save.js'
 import { scanForSsoButtons, maybePromptSsoSave, highlightSavedSsoButtons } from './sso/index.js'
 import { fieldKindFor, suggestionFlowFor, shouldAutoOpenFieldMenu } from './field-meta.js'
 import { renderInlineMenu, renderInlineTriggerOnly } from './ui/menu.js'
 import { handlePagePasskeyCreate, handlePagePasskeyGet } from './passkey/handlers.js'
 import { buildPagePasskeyResponse, readPagePasskeyRequest } from './passkey/page-message.js'
 import { suppressBrowserAutofill } from './autofill/autofill.js'
+import { consumePendingOtp } from './otp-autofill.js'
 
 window.addEventListener('message', (event) => {
   if (event.source !== window || event.origin !== window.location.origin) {
@@ -64,9 +71,55 @@ window.addEventListener('message', (event) => {
   })()
 })
 
-const handleFieldFocus = async (target) => {
+const stagePendingFormSave = (preferredInput) => {
+  if (!browserSettings.browserSavePrompts) {
+    return collectFormSnapshot(preferredInput)
+  }
+
+  const snapshot = collectFormSnapshot(preferredInput)
+  const promptKey = savePromptKeyFor(snapshot)
+  if (snapshot.password && pageState.lastSavePromptKey !== promptKey && pageState.activeSaveBannerKey !== promptKey) {
+    setPendingSavePrompt({
+      username: snapshot.username,
+      password: snapshot.password,
+      reason: 'create',
+    })
+  }
+  return snapshot
+}
+
+const schedulePendingOtpFill = () => {
+  window.clearTimeout(timers.pendingOtp)
+  timers.pendingOtp = window.setTimeout(() => {
+    void hydratePendingAuthState().then(() => {
+      consumePendingOtp(getDeepActiveElement())
+    })
+  }, 50)
+}
+
+const scheduleFocusedFieldCheck = () => {
+  window.clearTimeout(timers.focusedField)
+  timers.focusedField = window.setTimeout(() => {
+    const activeElement = getDeepActiveElement()
+    if (!isFieldElement(activeElement) || !visible(activeElement)) {
+      return
+    }
+    if (pageState.menuOpen && pageState.overlayInput === activeElement) {
+      return
+    }
+
+    void handleFieldFocus(activeElement)
+  }, 120)
+}
+
+const handleFieldFocus = async (target, options = {}) => {
   if (!isFieldElement(target) || !visible(target)) {
     return
+  }
+
+  const explicitOpen = options.explicitOpen === true
+  if (explicitOpen) {
+    allowAutomaticInlineMenu()
   }
 
   const fieldKind = fieldKindFor(target)
@@ -75,17 +128,8 @@ const handleFieldFocus = async (target) => {
   }
 
   if (fieldKind === 'otp') {
-    const pendingOtp = getPendingOtp()
-    if (pendingOtp) {
-      suppressInlineMenu()
-      const { splitOtpTargets } = getInputs(target)
-      if (splitOtpTargets?.length) {
-        writeSplitOtp(splitOtpTargets, pendingOtp)
-      } else {
-        writeValue(target, pendingOtp)
-      }
-      setPendingOtp('')
-      removeInlineUi()
+    await hydratePendingAuthState()
+    if (consumePendingOtp(target)) {
       return
     }
   }
@@ -93,6 +137,8 @@ const handleFieldFocus = async (target) => {
   if (pageState.lastListUrl !== window.location.href) {
     pageState.lastListUrl = window.location.href
     pageState.matches = []
+    pageState.matchesLocked = false
+    pageState.fieldSuggestionsLocked = false
   }
 
   const generation = ++matchFetch.generation
@@ -101,11 +147,11 @@ const handleFieldFocus = async (target) => {
 
   renderInlineTriggerOnly(target)
 
-  if (Date.now() < menuSuppress.until && target === menuSuppress.input) {
+  if (!explicitOpen && isAutomaticInlineMenuSuppressed(target)) {
     return
   }
 
-  const autoOpen = browserSettings.browserAutoOpenMenu && target.dataset.klarkeyAutoOpen !== 'false'
+  const autoOpen = explicitOpen || (browserSettings.browserAutoOpenMenu && target.dataset.klarkeyAutoOpen !== 'false')
   await Promise.all([
     refreshMatches(),
     fieldKind === 'password' || fieldKind === 'otp' ? Promise.resolve([]) : refreshFieldSuggestions(fieldKind, suggestionFlowFor(target, fieldKind)),
@@ -134,7 +180,13 @@ document.addEventListener('click', (event) => {
     return
   }
 
-  if (pageState.overlayInput && target === pageState.overlayInput) {
+  if (isFieldElement(target) && visible(target)) {
+    if (target !== pageState.overlayInput) {
+      removeInlineUi()
+      void handleFieldFocus(target, { explicitOpen: true })
+    } else if (!pageState.menuOpen) {
+      void handleFieldFocus(target, { explicitOpen: true })
+    }
     return
   }
 
@@ -165,12 +217,16 @@ window.addEventListener('resize', () => {
   }
 })
 
+new MutationObserver(() => {
+  if (getPendingOtp()) {
+    schedulePendingOtpFill()
+  }
+  scheduleFocusedFieldCheck()
+}).observe(document.documentElement, { childList: true, subtree: true })
+
 document.addEventListener('submit', () => {
   const inputs = getInputs()
-  pageState.formSnapshot = {
-    username: inputs.username?.value?.trim() || getPendingUsername(),
-    password: inputs.password?.value?.trim() || '',
-  }
+  pageState.formSnapshot = stagePendingFormSave(inputs.password || inputs.username)
 
   if (pageState.formSnapshot.username) {
     setPendingUsername(pageState.formSnapshot.username)
@@ -180,6 +236,10 @@ document.addEventListener('submit', () => {
     void maybePromptToSave(inputs.password || inputs.username, true)
   }, 180)
 }, true)
+
+window.addEventListener('pagehide', () => {
+  stagePendingFormSave()
+})
 
 // Scan for SSO buttons periodically and on interactions
 window.setInterval(() => {
@@ -216,6 +276,7 @@ document.addEventListener(
 
 window.addEventListener('popstate', () => {
   pageState.lastListUrl = ''
+  scheduleFocusedFieldCheck()
 })
 
 document.addEventListener('keydown', (event) => {
@@ -274,7 +335,7 @@ if (runtime) {
     if (message?.type === 'fill-login') {
       const inputs = getInputs()
       const preferredInput = inputs.password || inputs.username
-      suppressInlineMenu(preferredInput)
+      suppressInlineMenu(preferredInput, { untilUserInteraction: true })
       writeValue(inputs.username, message.login?.username)
       writeValue(inputs.password, message.login?.password)
       if (inputs.splitOtpTargets?.length && message.login?.otp) {
@@ -282,29 +343,33 @@ if (runtime) {
       } else {
         writeValue(inputs.otp, message.login?.otp)
       }
-      setPendingUsername(message.login?.username || '')
-      setPendingOtp(message.login?.otp || '')
-      removeInlineUi()
-      scheduleLoginAutoSubmit(preferredInput)
+      void Promise.all([setPendingUsername(message.login?.username || ''), setPendingOtp(message.login?.otp || '')]).then(() => {
+        removeInlineUi()
+        scheduleLoginAutoSubmit(preferredInput)
 
-      sendResponse({
-        ok: true,
-        message: 'Klarkey filled the detected fields on this page.',
+        sendResponse({
+          ok: true,
+          message: 'Klarkey filled the detected fields on this page.',
+        })
       })
-      return
+      return true
     }
 
   })
 
   injectPageBridge()
-  void loadBrowserSettings().finally(() => {
+  void loadBrowserSettings().finally(async () => {
+    await hydratePendingAuthState()
+    await hydrateInlineMenuSuppression()
     void refreshMatches()
-    restorePendingSavePrompt()
+    void restorePendingSavePrompt()
     window.setTimeout(() => {
-      void handleFieldFocus(getDeepActiveElement())
+      if (!consumePendingOtp(getDeepActiveElement())) {
+        void handleFieldFocus(getDeepActiveElement())
+      }
     }, 0)
   })
 }
 
 
-export { handleFieldFocus }
+export { handleFieldFocus, consumePendingOtp }

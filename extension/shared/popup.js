@@ -79,7 +79,7 @@ async function loadPopup() {
           : !state.connected
           ? 'Open Klarkey desktop to load passkey state for this browser.'
           : state.browser === 'chromium'
-          ? 'Klarkey does not have a real browser passkey provider on this system yet.'
+          ? 'This browser can still use its built-in passkey flow. Klarkey passkey capture is limited here.'
           : 'This browser can still use its built-in passkey flow, but Klarkey cannot intercept it directly.')
       return
     }
@@ -90,7 +90,7 @@ async function loadPopup() {
       elements.passkeyTitle.textContent = passkeysLocked ? 'Passkeys are available for this site.' : 'Passkeys are ready for this site.'
       elements.passkeyMessage.textContent =
         passkeysLocked
-          ? 'Windows Hello will unlock Klarkey when you choose one.'
+          ? 'Unlock Klarkey when you choose one.'
           : state.passkeys.exactMatchCount === 1
           ? 'Klarkey has a saved passkey directly linked to this site.'
           : `Klarkey has ${state.passkeys.exactMatchCount} saved passkeys directly linked to this site.`
@@ -101,7 +101,7 @@ async function loadPopup() {
       elements.passkeyTitle.textContent = 'Site-linked passkeys are available.'
       elements.passkeyMessage.textContent =
         passkeysLocked
-          ? 'Windows Hello will unlock Klarkey when you choose one.'
+          ? 'Unlock Klarkey when you choose one.'
           : state.passkeys.linkedMatchCount === 1
           ? 'Klarkey found one passkey linked through the saved site match.'
           : `Klarkey found ${state.passkeys.linkedMatchCount} passkeys linked through saved site matches.`

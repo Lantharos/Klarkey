@@ -3,6 +3,8 @@ export const pageState = {
   title: document.title,
   matches: [],
   fieldSuggestions: [],
+  matchesLocked: false,
+  fieldSuggestionsLocked: false,
   lastListUrl: '',
   overlayInput: undefined,
   formSnapshot: undefined,
@@ -27,6 +29,7 @@ export const matchFetch = { generation: 0 }
 export const timers = {
   savePrompt: undefined,
   autoSubmit: undefined,
+  pendingOtp: undefined,
 }
 
 export const browserSettings = {
@@ -35,7 +38,7 @@ export const browserSettings = {
   browserSavePrompts: true,
 }
 
-export const menuSuppress = { until: 0, input: undefined }
+export const menuSuppress = { until: 0, input: undefined, untilUserInteraction: false }
 
 export const stateCodeToName = {
   AL: 'alabama',

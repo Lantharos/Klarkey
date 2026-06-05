@@ -1,8 +1,10 @@
-import { clearTransientState, getTransientState, setTransientState } from './transient-state.js'
+import { clearTransientState, getTransientState, hydrateTransientState, setTransientState } from './transient-state.js'
+
+const pendingSaveTtlMs = 120_000
 
 const getPendingSavePrompt = () => {
   const pending = getTransientState('pending-save')
-  if ((!pending?.password && !pending?.ssoProvider) || !pending?.createdAt || Date.now() - pending.createdAt > 30_000) {
+  if ((!pending?.password && !pending?.ssoProvider) || !pending?.createdAt || Date.now() - pending.createdAt > pendingSaveTtlMs) {
     clearTransientState('pending-save')
     return undefined
   }
@@ -11,12 +13,14 @@ const getPendingSavePrompt = () => {
 }
 
 const setPendingSavePrompt = (payload) => {
-  setTransientState('pending-save', { ...payload, createdAt: Date.now() }, 30_000)
+  setTransientState('pending-save', { ...payload, createdAt: Date.now() }, pendingSaveTtlMs)
 }
 
 const clearPendingSavePrompt = () => {
   clearTransientState('pending-save')
 }
+
+const hydratePendingSavePrompt = () => hydrateTransientState('pending-save')
 
 const promptKeySeed = (() => {
   const values = new Uint32Array(2)
@@ -42,4 +46,4 @@ const savePromptKeyFor = ({ username, password, ssoProvider }) =>
   `${window.location.origin}|${username || ''}|${promptFingerprintFor(password)}|${ssoProvider || ''}`
 const passkeyPromptKeyFor = (...parts) => `${window.location.origin}|${parts.filter(Boolean).join('|')}`
 
-export { getPendingSavePrompt, setPendingSavePrompt, clearPendingSavePrompt, savePromptKeyFor, passkeyPromptKeyFor }
+export { getPendingSavePrompt, setPendingSavePrompt, clearPendingSavePrompt, hydratePendingSavePrompt, savePromptKeyFor, passkeyPromptKeyFor }

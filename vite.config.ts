@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import electron from 'vite-plugin-electron/simple'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
@@ -10,33 +9,6 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    electron({
-      main: {
-        entry: 'src/electron/main.ts',
-        vite: {
-          build: {
-            rollupOptions: {
-              external: ['better-sqlite3', 'koffi', 'extract-zip', 'electron-updater'],
-              output: {
-                entryFileNames: 'main.js',
-              },
-            },
-          },
-        },
-      },
-      preload: {
-        input: 'src/electron/preload.ts',
-        vite: {
-          build: {
-            rollupOptions: {
-              output: {
-                entryFileNames: 'preload.mjs',
-              },
-            },
-          },
-        },
-      },
-    }),
   ],
   resolve: {
     tsconfigPaths: true,
@@ -48,6 +20,12 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
+    include: [
+      'tests/app/**/*.test.ts',
+      'tests/app/**/*.test.tsx',
+      'tests/extension/**/*.test.ts',
+      'tests/mobile/**/*.test.ts',
+      'tests/shared/**/*.test.ts',
+    ],
   },
 })

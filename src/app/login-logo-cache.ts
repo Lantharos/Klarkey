@@ -26,8 +26,12 @@ async function readCachedResponse(url: string) {
     return undefined
   }
 
-  const cache = await window.caches.open(cacheName)
-  return cache.match(url)
+  try {
+    const cache = await window.caches.open(cacheName)
+    return cache.match(url)
+  } catch {
+    return undefined
+  }
 }
 
 async function writeCachedResponse(url: string, response: Response) {
@@ -35,8 +39,12 @@ async function writeCachedResponse(url: string, response: Response) {
     return
   }
 
-  const cache = await window.caches.open(cacheName)
-  await cache.put(url, response)
+  try {
+    const cache = await window.caches.open(cacheName)
+    await cache.put(url, response)
+  } catch {
+    return
+  }
 }
 
 async function fetchLogoResponse(url: string) {

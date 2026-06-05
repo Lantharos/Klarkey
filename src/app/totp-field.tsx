@@ -159,7 +159,7 @@ export function TotpField({
               setScanState('idle')
             }
           }}
-          className="inline-flex shrink-0 items-center gap-2 rounded-[8px] bg-white/6 px-2.5 py-1.5 text-[13px] text-white/68 transition hover:bg-white/10 hover:text-white disabled:cursor-default disabled:bg-white/4 disabled:text-white/30"
+          className="palette-glass-chip inline-flex shrink-0 items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-[13px] text-white/68 transition-colors hover:bg-white/12 hover:text-white disabled:cursor-default disabled:bg-white/4 disabled:text-white/30"
         >
           {scanState === 'scanning' ? <LoaderCircle size={14} className="animate-spin" /> : <ScanLine size={14} />}
           <span>Scan on screen</span>

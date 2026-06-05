@@ -16,7 +16,6 @@ import {
 import { useDetailItem } from "@/app/palette/use-detail-item";
 import { useDetailPaletteKeyboard } from "@/app/palette/use-detail-palette-keyboard";
 import { useSettingsChrome } from "@/app/palette/use-settings-chrome";
-import { useTargetWindow } from "@/app/palette/use-target-window";
 import { createFormValues } from "@/app/palette-utils";
 import {
   nextAutoLockMinutes,
@@ -34,13 +33,90 @@ import { DevPanel } from "@/app/dev-panel";
 import { FormatPickerPage } from "@/app/format-picker-page";
 import { ImportLoadingPage } from "@/app/import-loading-page";
 import { RecoveryCodesPage } from "@/app/recovery-codes-page";
+import type { ImportFormat } from "@/shared/import-export";
 import { DEFAULT_SETTINGS, type UpdateItemInput } from "@/shared/types";
 
-const paletteShellClassName =
-  "flex h-full min-h-full flex-col bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
-
-const mainPaletteShellClassName =
-  "relative flex h-full min-h-full flex-col overflow-hidden bg-[#1a1a1b] text-white supports-[backdrop-filter:blur(1px)]:bg-[#1a1a1b]/92 supports-[backdrop-filter:blur(1px)]:backdrop-blur-[22px]";
+const importFormatOptions: Array<{
+  id: ImportFormat;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "auto",
+    label: "Auto-detect",
+    description: "Best for most files",
+  },
+  {
+    id: "1pux",
+    label: "1Password (.1pux)",
+    description: "Full 1Password export",
+  },
+  {
+    id: "1password-csv",
+    label: "1Password (.csv)",
+    description: "Login and password items",
+  },
+  {
+    id: "proton-pass",
+    label: "Proton Pass",
+    description: "ZIP, JSON, or CSV export",
+  },
+  {
+    id: "bitwarden-json",
+    label: "Bitwarden (.json)",
+    description: "Full Bitwarden export",
+  },
+  {
+    id: "bitwarden-csv",
+    label: "Bitwarden (.csv)",
+    description: "Bitwarden CSV export",
+  },
+  {
+    id: "dashlane-json",
+    label: "Dashlane (.json)",
+    description: "Dashlane JSON export",
+  },
+  {
+    id: "dashlane-csv",
+    label: "Dashlane (.csv)",
+    description: "Dashlane CSV or ZIP",
+  },
+  {
+    id: "lastpass-csv",
+    label: "LastPass (.csv)",
+    description: "LastPass export",
+  },
+  {
+    id: "chrome-csv",
+    label: "Chrome / Edge (.csv)",
+    description: "Browser password export",
+  },
+  {
+    id: "firefox-csv",
+    label: "Firefox (.csv)",
+    description: "Firefox login export",
+  },
+  {
+    id: "keeper-csv",
+    label: "Keeper (.csv)",
+    description: "Keeper text export",
+  },
+  {
+    id: "keepass-csv",
+    label: "KeePass (.csv)",
+    description: "KeePass CSV export",
+  },
+  {
+    id: "nordpass-csv",
+    label: "NordPass (.csv)",
+    description: "NordPass export",
+  },
+  {
+    id: "csv",
+    label: "Generic CSV",
+    description: "Standard CSV format",
+  },
+];
 
 function App() {
   const hydrated = usePaletteStore((state) => state.hydrated);
@@ -54,7 +130,6 @@ function App() {
   const execution = usePaletteStore((state) => state.execution);
   const settings = usePaletteStore((state) => state.settings);
   const syncStatus = usePaletteStore((state) => state.syncStatus);
-  const desktopSupport = usePaletteStore((state) => state.desktopSupport);
   const hasMoreResults = usePaletteStore((state) => state.hasMoreResults);
   const isLoadingMore = usePaletteStore((state) => state.isLoadingMore);
   const boot = usePaletteStore((state) => state.boot);
@@ -113,16 +188,34 @@ function App() {
   );
   const recoveryCodesMode = usePaletteStore((state) => state.recoveryCodesMode);
 
-  const targetWindow = useTargetWindow();
   const [detailItem, setDetailItem] = useDetailItem(
     detailAction?.itemId,
     page,
     execution?.itemId,
   );
 
-  const [pointerActive, setPointerActive] = useState(false);
   const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false);
   const [externalUnlockRequested, setExternalUnlockRequested] = useState(false);
+  const [paletteOpenSerial, setPaletteOpenSerial] = useState(0);
+  const [nativeTranslucencyAvailable, setNativeTranslucencyAvailable] =
+    useState(false);
+  const [nativeContentTranslucencyAvailable, setNativeContentTranslucencyAvailable] =
+    useState(false);
+  const [nativeHostTranslucencyAvailable, setNativeHostTranslucencyAvailable] =
+    useState(false);
+  const paletteSurfaceClassName = nativeTranslucencyAvailable
+    ? nativeHostTranslucencyAvailable
+      ? "palette-window-shell--host-native"
+      : nativeContentTranslucencyAvailable
+      ? "palette-window-shell--content-native"
+      : "palette-window-shell--native"
+    : "palette-window-shell--solid";
+  const paletteShellKey =
+    `${paletteOpenSerial}:${page}:${paletteSurfaceClassName}`;
+  const paletteShellClassName =
+    `palette-window-shell keyboard-only-surface flex h-full min-h-full flex-col overflow-hidden rounded-[14px] text-white ${paletteSurfaceClassName}`;
+  const mainPaletteShellClassName =
+    `palette-window-shell keyboard-only-surface relative flex h-full min-h-full flex-col overflow-hidden rounded-[14px] text-white ${paletteSurfaceClassName}`;
 
   const {
     hotkeyRecording,
@@ -141,28 +234,10 @@ function App() {
   const selection = actions[selectedIndex];
   const activeDetailItem =
     detailAction?.itemId === detailItem?.itemId ? detailItem : undefined;
-  const detailActions = useMemo(() => {
-    const actions = buildDetailActions(activeDetailItem, targetWindow);
-    const insertUnavailableReason =
-      desktopSupport && !desktopSupport.autoPaste.available
-        ? desktopSupport.autoPaste.message ||
-          "Install ydotool or wtype on Wayland. On X11, install xdotool."
-        : undefined;
-
-    if (!insertUnavailableReason) {
-      return actions;
-    }
-
-    return actions.map((action) =>
-      action.actionId?.startsWith("paste:")
-        ? {
-            ...action,
-            disabled: true,
-            disabledReason: insertUnavailableReason,
-          }
-        : action,
-    );
-  }, [activeDetailItem, desktopSupport, targetWindow]);
+  const detailActions = useMemo(
+    () => buildDetailActions(activeDetailItem),
+    [activeDetailItem],
+  );
   const selectedDetailAction = detailActions[selectedIndex];
   const formLoading =
     page === "form" &&
@@ -224,6 +299,15 @@ function App() {
     ],
   );
   const footerMessage = execution?.secret ?? execution?.message;
+  const settingsFooterText = execution?.message ?? settingsFooter.primary;
+  const settingsFooterTone =
+    execution?.status === "error"
+      ? "text-red-200/88"
+      : execution?.status === "success"
+        ? "text-emerald-100/85"
+        : execution
+          ? "text-white/68"
+          : settingsFooter.primaryClass;
   const deleteConfirmActive =
     page === "detail" &&
     selectedDetailAction?.id === "delete-item" &&
@@ -256,6 +340,28 @@ function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  useEffect(() => {
+    if (!window.klarkey) {
+      return undefined;
+    }
+
+    let disposed = false;
+    void window.klarkey.nativeWindowMaterial
+      .get()
+      .then((material) => {
+        if (!disposed) {
+          setNativeTranslucencyAvailable(material.translucent);
+          setNativeContentTranslucencyAvailable(material.contentTranslucent);
+          setNativeHostTranslucencyAvailable(material.hostTranslucent);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!window.klarkey) {
@@ -299,6 +405,10 @@ function App() {
 
     return window.klarkey.onPrepareOpen((options) => {
       const { lockInfo: currentLockInfo } = usePaletteStore.getState();
+      setPaletteOpenSerial((serial) => serial + 1);
+      setNativeTranslucencyAvailable(Boolean(options?.nativeTranslucent));
+      setNativeContentTranslucencyAvailable(Boolean(options?.nativeContentTranslucent));
+      setNativeHostTranslucencyAvailable(Boolean(options?.nativeHostTranslucent));
       setExternalUnlockRequested(Boolean(options?.externalUnlock));
       if (currentLockInfo?.state === "locked") {
         usePaletteStore.setState({
@@ -328,7 +438,6 @@ function App() {
         return;
       }
 
-      setPointerActive(false);
       setPendingDeleteConfirm(false);
       resetSettingsChrome();
       setDetailItem(undefined);
@@ -349,6 +458,14 @@ function App() {
   }, [focusInput]);
 
   useEffect(() => {
+    const handleBlur = () => {
+      void usePaletteStore.getState().closePalette();
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, []);
+
+  useEffect(() => {
     if (page === "home") {
       focusInput();
     }
@@ -365,7 +482,7 @@ function App() {
       return undefined;
     }
 
-    const optionCount = page === "export" ? 2 : 8;
+    const optionCount = page === "export" ? 2 : importFormatOptions.length;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) {
@@ -399,17 +516,7 @@ function App() {
           const formats = ["klarkey-json", "csv"] as const;
           void exportVault(formats[selectedIndex] ?? "klarkey-json");
         } else {
-          const formats = [
-            "auto",
-            "1pux",
-            "bitwarden-json",
-            "dashlane-json",
-            "csv",
-            "lastpass-csv",
-            "dashlane-csv",
-            "chrome-csv",
-          ] as const;
-          void importVault(formats[selectedIndex] ?? "auto");
+          void importVault(importFormatOptions[selectedIndex]?.id ?? "auto");
         }
       }
     };
@@ -420,19 +527,22 @@ function App() {
 
   if (!hydrated) {
     return (
-      <div className="flex h-full min-h-full items-center justify-center px-6 py-5 text-white">
-        <div className="text-[15px] text-white/72">
-          {bootError
-            ? `Klarkey could not finish loading. ${bootError}`
-            : "Starting Klarkey..."}
-        </div>
+      <div
+        key={paletteShellKey}
+        className={`${paletteShellClassName} items-center justify-center px-6 py-5`}
+      >
+        {bootError ? (
+          <div className="text-[15px] text-white/72">
+            {`Klarkey could not finish loading. ${bootError}`}
+          </div>
+        ) : null}
       </div>
     );
   }
 
   if (lockInfo?.state === "locked" && page !== "locked") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={lockInfo}
           onUnlockWithHello={unlockWithHello}
@@ -445,7 +555,7 @@ function App() {
 
   if (lockInfo?.state === "passcode" && page !== "passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -456,7 +566,7 @@ function App() {
 
   if (page === "locked") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <VaultLockScreen
           lockInfo={
             lockInfo ?? {
@@ -479,7 +589,7 @@ function App() {
 
   if (page === "passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeScreen
           passcodeLength={lockInfo?.passcodeLength ?? 4}
           onVerifyPasscode={verifyPasscode}
@@ -490,7 +600,7 @@ function App() {
 
   if (page === "set-passcode") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeSetupScreen
           onSubmit={submitSetPasscode}
           onCancel={() => void goBackOrClose()}
@@ -501,7 +611,7 @@ function App() {
 
   if (page === "set-master-password") {
     return (
-      <div className={paletteShellClassName}>
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <MasterPasswordSetupScreen
           onSubmit={submitSetMasterPassword}
           onCancel={() => void goBackOrClose()}
@@ -512,7 +622,7 @@ function App() {
 
   if (page === "confirm-passcode-removal") {
     return (
-      <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/80 text-white backdrop-blur-[22px]">
+      <div key={paletteShellKey} className={paletteShellClassName}>
         <PasscodeConfirmScreen
           title="Confirm passcode to turn it off"
           passcodeLength={lockInfo?.passcodeLength ?? 4}
@@ -526,9 +636,11 @@ function App() {
   if (page === "recovery-codes") {
     return (
       <RecoveryCodesPage
+        key={paletteShellKey}
         mode={recoveryCodesMode ?? "view"}
         itemName={activeDetailItem?.itemName ?? ""}
         codes={activeDetailItem?.recoveryCodes ?? []}
+        surfaceClassName={paletteShellClassName}
         onSave={(codes) => void submitRecoveryCodes(codes)}
         onUpdate={(codes) => void updateRecoveryCodesInPlace(codes)}
         onBack={() => void goBackOrClose()}
@@ -537,14 +649,7 @@ function App() {
   }
 
   return (
-    <div
-      className={mainPaletteShellClassName}
-      onMouseMove={() => {
-        if (!pointerActive) {
-          setPointerActive(true);
-        }
-      }}
-    >
+    <div key={paletteShellKey} className={mainPaletteShellClassName}>
       <div className="flex items-center gap-4 px-5 pt-4 pb-3">
         {page === "home" ? (
           <SearchBar
@@ -617,7 +722,7 @@ function App() {
         )}
       </div>
 
-      <div className="h-px bg-white/8" />
+      <div className="palette-glass-divider" />
 
       {page === "settings" ? (
         <>
@@ -707,21 +812,20 @@ function App() {
                   execution: undefined,
                 });
               }}
-              pointerActive={pointerActive}
             />
           </div>
-          <div className="h-px bg-white/8" />
+          <div className="palette-glass-divider" />
           <div
-            className={`flex shrink-0 items-center justify-between gap-4 px-5 py-3 text-[14px] ${settingsFooter.barClass}`}
+            className={`palette-glass-footer flex shrink-0 items-center justify-between gap-4 px-5 py-3 text-[14px] ${settingsFooter.barClass}`}
           >
             <span
-              className={`min-w-0 leading-snug ${settingsFooter.primaryClass}`}
+              className={`min-w-0 leading-snug ${settingsFooterTone}`}
             >
-              {settingsFooter.primary}
+              {settingsFooterText}
             </span>
             <div className="flex shrink-0 items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}
@@ -753,11 +857,10 @@ function App() {
               selectedIndex={selectedIndex}
               onSelectRow={setSelectedIndex}
               onPick={(id) => void exportVault(id as "klarkey-json" | "csv")}
-              pointerActive={pointerActive}
             />
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className="text-white/48">
               Enter exports your vault in the selected format.
             </span>
@@ -771,69 +874,14 @@ function App() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <FormatPickerPage
               title="Choose source"
-              options={[
-                {
-                  id: "auto",
-                  label: "Auto-detect",
-                  description: "Best for most files",
-                },
-                {
-                  id: "1pux",
-                  label: "1Password (.1pux)",
-                  description: "1Password export",
-                },
-                {
-                  id: "bitwarden-json",
-                  label: "Bitwarden (.json)",
-                  description: "Bitwarden export",
-                },
-                {
-                  id: "dashlane-json",
-                  label: "Dashlane (.json)",
-                  description: "Dashlane export",
-                },
-                {
-                  id: "csv",
-                  label: "Generic CSV",
-                  description: "Standard CSV format",
-                },
-                {
-                  id: "lastpass-csv",
-                  label: "LastPass (.csv)",
-                  description: "LastPass export",
-                },
-                {
-                  id: "dashlane-csv",
-                  label: "Dashlane (.csv)",
-                  description: "Dashlane CSV export",
-                },
-                {
-                  id: "chrome-csv",
-                  label: "Chrome / Edge (.csv)",
-                  description: "Browser password export",
-                },
-              ]}
+              options={importFormatOptions}
               selectedIndex={selectedIndex}
               onSelectRow={setSelectedIndex}
-              onPick={(id) =>
-                void importVault(
-                  id as
-                    | "auto"
-                    | "klarkey-json"
-                    | "csv"
-                    | "1pux"
-                    | "bitwarden-json"
-                    | "lastpass-csv"
-                    | "dashlane-csv"
-                    | "dashlane-json"
-                    | "chrome-csv",
-                )
-              }
-              pointerActive={pointerActive}
+              onPick={(id) => void importVault(id as ImportFormat)}
             />
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className="text-white/48">
               Enter imports items from the selected source.
             </span>
@@ -844,8 +892,9 @@ function App() {
         </>
       ) : page === "import-loading" ? (
         <ImportLoadingPage
-          message="Importing your items…"
-          submessage="This may take a moment"
+          message={execution?.title ?? "Importing your items…"}
+          submessage={execution?.message ?? "This may take a moment"}
+          status={execution?.status}
         />
       ) : page === "detail" ? (
         <>
@@ -856,7 +905,6 @@ function App() {
                 <DetailRow
                   key={action.id}
                   action={action}
-                  pointerActive={pointerActive}
                   selected={index === selectedIndex}
                   onHover={() => {
                     setPendingDeleteConfirm(false);
@@ -866,8 +914,8 @@ function App() {
               ))}
             </div>
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span
               className={
                 execution?.secret ? "inline-flex items-center gap-3" : undefined
@@ -895,7 +943,7 @@ function App() {
             </span>
             <div className="flex items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}
@@ -963,7 +1011,6 @@ function App() {
                 <ResultRow
                   key={action.id}
                   action={action}
-                  pointerActive={pointerActive}
                   selected={index === selectedIndex}
                   onHover={() => setSelectedIndex(index)}
                 />
@@ -980,8 +1027,8 @@ function App() {
               ) : null}
             </div>
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span
               className={
                 execution?.secret ? "font-mono text-white/78" : undefined
@@ -994,7 +1041,7 @@ function App() {
             </span>
             <div className="flex items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}

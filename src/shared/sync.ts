@@ -243,6 +243,7 @@ const hasValidSettings = (value: unknown): value is UserSettings =>
   typeof value.browserSavePrompts === 'boolean' &&
   typeof value.passcodeEnabled === 'boolean' &&
   AUTO_LOCK_MINUTE_OPTIONS.includes(value.autoLockMinutes as (typeof AUTO_LOCK_MINUTE_OPTIONS)[number]) &&
+  (value.systemUnlockPolicy === undefined || value.systemUnlockPolicy === 'startup' || value.systemUnlockPolicy === 'timed') &&
   typeof value.sshAgentEnabled === 'boolean'
 
 const hasValidItemPayload = (value: unknown, itemId: string, itemType: ItemType) => {

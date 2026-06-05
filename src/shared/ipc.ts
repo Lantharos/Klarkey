@@ -3,7 +3,6 @@ import type {
   ActionExecutionResult,
   CommandQuery,
   CreateItemInput,
-  DesktopIntegrationSupport,
   CreateVaultPasskeyInput,
   ExternalWindowContext,
   ItemDetails,
@@ -20,6 +19,13 @@ import type {
 } from '@/shared/types'
 import type { SyncStatus, SyncUpdateEvent } from '@/shared/sync'
 
+export type NativeWindowMaterial = {
+  backgroundBlur: boolean
+  translucent: boolean
+  contentTranslucent: boolean
+  hostTranslucent: boolean
+}
+
 export interface KlarkeyApi {
   palette: {
     open: () => Promise<void>
@@ -33,9 +39,6 @@ export interface KlarkeyApi {
   }
   action: {
     execute: (actionId: string, modifier: ModifierKey) => Promise<ActionExecutionResult>
-  }
-  desktop: {
-    getSupport: () => Promise<DesktopIntegrationSupport>
   }
   clipboard: {
     copySecret: (value: string) => Promise<ActionExecutionResult>
@@ -81,13 +84,16 @@ export interface KlarkeyApi {
   targetWindow: {
     get: () => Promise<ExternalWindowContext | undefined>
   }
+  nativeWindowMaterial: {
+    get: () => Promise<NativeWindowMaterial>
+  }
   importExport: {
     exportVault: (options: ExportOptions) => Promise<ExportResult>
     importVault: (options: ImportOptions) => Promise<ImportResult>
     pickImportFile: (format: ImportFormat) => Promise<string | undefined>
     pickExportFile: (format: ExportFormat) => Promise<string | undefined>
   }
-  onPrepareOpen: (callback: (options?: { externalUnlock?: boolean }) => void) => () => void
+  onPrepareOpen: (callback: (options?: { externalUnlock?: boolean; nativeTranslucent?: boolean; nativeContentTranslucent?: boolean; nativeHostTranslucent?: boolean }) => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
   onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
   onLockStateChanged: (callback: (info: VaultLockInfo) => void) => () => void

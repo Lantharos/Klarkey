@@ -51,6 +51,10 @@ async function maybePromptSsoSave() {
     return
   }
 
+  if (!tracking.providerSeen && !tracking.selectedAccount) {
+    return
+  }
+
   clearSsoTracking()
 
   const provider = tracking.provider
@@ -83,6 +87,7 @@ async function maybePromptSsoSave() {
     username: accountIdentifier || '',
     password: '',
     ssoProvider: provider,
+    ssoConfirmed: true,
     reason: genericExisting ? 'update' : 'create',
   })
 

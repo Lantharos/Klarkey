@@ -249,6 +249,7 @@ export async function listLoginsForUrl(url, title) {
   return {
     ok: true,
     matches: response.result.matches || [],
+    ...((response.result.locked === true || response.result.status === 'locked') ? { locked: true } : {}),
   }
 }
 
@@ -290,6 +291,24 @@ export async function getBrowserSettings() {
   return {
     ok: true,
     settings: response.result.settings,
+  }
+}
+
+export async function requestDesktopUnlock(url, title) {
+  const response = await requestHost({ type: 'request-unlock', url, title })
+  if (!response?.ok) {
+    return {
+      ok: false,
+      locked: true,
+      message: response?.error?.message || 'Klarkey could not open the unlock prompt.',
+    }
+  }
+
+  const locked = response.result?.status === 'locked'
+  return {
+    ok: !locked,
+    locked,
+    message: response.result?.message || (locked ? 'Unlock Klarkey to continue.' : 'Klarkey is unlocked.'),
   }
 }
 
@@ -342,15 +361,17 @@ export async function savePasskeyCredential(payload) {
     type: 'passkey-save-credential',
   })
 
-  if (!response?.ok) {
+  if (!response?.ok || response.result?.status === 'locked') {
     return {
       ok: false,
       message: response?.error?.message || response?.result?.message || 'Klarkey could not save this passkey.',
     }
   }
 
+  const saved = response.result?.status === 'success'
+
   return {
-    ok: response.result?.status !== 'error',
+    ok: saved,
     message: response.result?.message || 'Passkey saved.',
     itemId: response.result?.itemId,
   }
@@ -392,6 +413,7 @@ export async function planPasskeyGet(payload) {
     ok: true,
     choices: response.result.choices,
     locked: response.result.locked === true,
+    needsUnlockForChoices: response.result.needsUnlockForChoices === true,
   }
 }
 
@@ -431,6 +453,7 @@ export async function listFieldSuggestions(field, flow, url, title) {
   return {
     ok: true,
     suggestions: response.result.suggestions || [],
+    ...((response.result.locked === true || response.result.status === 'locked') ? { locked: true } : {}),
   }
 }
 

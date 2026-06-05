@@ -62,7 +62,7 @@ export function useSettingsChrome(
       6: 'Enter toggles passcode-on-open, or sets a new passcode if none exists.',
       7: 'Enter sets up a master password.',
       8: 'Enter cycles auto-lock minutes.',
-      9: 'Enter toggles the Windows SSH agent pipe for Git and OpenSSH clients.',
+      9: 'Enter toggles the SSH agent socket for Git and OpenSSH clients.',
       10: !syncStatus?.configured
         ? 'Add sync environment values to .env.local, then restart Klarkey.'
         : syncStatus.signedIn
@@ -141,9 +141,6 @@ export function useSettingsChrome(
 
       if (index === 10) {
         const { syncStatus, syncNow, syncSignIn } = usePaletteStore.getState()
-        if (!syncStatus?.configured) {
-          return
-        }
         void (syncStatus?.signedIn ? syncNow() : syncSignIn())
         return
       }

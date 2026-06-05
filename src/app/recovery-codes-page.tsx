@@ -34,6 +34,7 @@ export function RecoveryCodesPage({
   mode,
   itemName,
   codes: initialCodes,
+  surfaceClassName,
   onSave,
   onUpdate,
   onBack,
@@ -41,6 +42,7 @@ export function RecoveryCodesPage({
   mode: 'add' | 'view'
   itemName: string
   codes: string[]
+  surfaceClassName: string
   onSave: (codes: string[]) => void
   onUpdate: (codes: string[]) => void
   onBack: () => void
@@ -220,7 +222,7 @@ export function RecoveryCodesPage({
   const remainingCount = useMemo(() => codes.filter((_, index) => !used.has(index)).length, [codes, used])
 
   return (
-    <div className="flex h-full min-h-full flex-col bg-[#1a1a1b]/92 text-white backdrop-blur-[22px]">
+    <div className={surfaceClassName}>
       <div className="flex items-center gap-3 px-5 pt-4 pb-3">
         <button
           type="button"
@@ -234,7 +236,7 @@ export function RecoveryCodesPage({
           {itemName ? <div className="truncate text-[13px] text-white/42">{itemName}</div> : null}
         </div>
       </div>
-      <div className="h-px bg-white/8" />
+      <div className="palette-glass-divider" />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {mode === 'add' ? (
@@ -269,10 +271,10 @@ export function RecoveryCodesPage({
                       'grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[10px] border px-3 py-3 text-left transition',
                       codeUsed
                         ? selected
-                          ? 'border-emerald-500/35 bg-emerald-500/10 text-white/60'
+                          ? 'palette-row-selected-success border-emerald-500/30 text-white/60'
                           : 'border-white/5 bg-white/[0.03] text-white/30'
                         : selected
-                          ? 'border-white/20 bg-white/10 text-white'
+                          ? 'palette-row-selected border-white/14 text-white'
                           : 'border-white/10 bg-white/5 text-white/80',
                     )}
                     >
@@ -297,8 +299,8 @@ export function RecoveryCodesPage({
         )}
       </div>
 
-      <div className="h-px bg-white/8" />
-      <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+      <div className="palette-glass-divider" />
+      <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
         <span className="text-white/48">
           {statusText ?? (mode === 'add'
             ? 'Press Ctrl + Return to save recovery codes.'

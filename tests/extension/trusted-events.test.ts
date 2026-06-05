@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+const extensionOverlay = () => document.querySelector<HTMLElement>('[data-klarkey-inline-host="true"]')?.shadowRoot ?? document
+
 describe('extension trusted user action guard', () => {
   it('rejects synthetic events before running sensitive actions', async () => {
     const { runTrustedUserAction } = await import('../../extension/shared/content/page/ui/trusted-events.js')
@@ -22,6 +24,24 @@ describe('extension trusted user action guard', () => {
   })
 })
 
+describe('extension inline autofill suppression', () => {
+  it('keeps automatic prompts closed until an explicit user interaction', async () => {
+    vi.resetModules()
+    const input = document.createElement('input')
+    const { suppressInlineMenu, isAutomaticInlineMenuSuppressed, allowAutomaticInlineMenu } = await import(
+      '../../extension/shared/content/page/menu-suppress.js'
+    )
+
+    suppressInlineMenu(input, { untilUserInteraction: true })
+
+    expect(isAutomaticInlineMenuSuppressed(input)).toBe(true)
+
+    allowAutomaticInlineMenu()
+
+    expect(isAutomaticInlineMenuSuppressed(input)).toBe(false)
+  })
+})
+
 describe('extension prompt rendering', () => {
   it('renders page-controlled prompt text without html interpretation', async () => {
     vi.resetModules()
@@ -41,7 +61,7 @@ describe('extension prompt rendering', () => {
       ],
     })
 
-    const banner = document.querySelector('.klarkey-save-banner')
+    const banner = extensionOverlay().querySelector('.klarkey-save-banner')
 
     expect(banner?.querySelector('.klarkey-save-title')?.textContent).toBe('<img src=x onerror=alert(1)>')
     expect(banner?.querySelector('.klarkey-save-copy')?.textContent).toBe('<svg onload=alert(1)>')
@@ -90,8 +110,10 @@ describe('extension prompt rendering', () => {
     await Promise.resolve()
 
     expect(settled).toBe(false)
-    expect(document.querySelector('.klarkey-save-banner')).not.toBeNull()
-    expect(document.querySelector('.klarkey-save-title')?.textContent).toBe('Use passkey?')
+    expect(extensionOverlay().querySelector('.klarkey-save-banner')).not.toBeNull()
+    expect(extensionOverlay().querySelector('.klarkey-save-title')?.textContent).toBe('Sign in with passkey?')
+    expect(extensionOverlay().querySelector('.klarkey-save-choice-list')).toBeNull()
+    expect(extensionOverlay().querySelector('[data-action="confirm"]')?.textContent).toBe('Sign in')
   })
 
   it('requires a prompt before creating a single suggested passkey', async () => {
@@ -110,7 +132,7 @@ describe('extension prompt rendering', () => {
     await Promise.resolve()
 
     expect(settled).toBe(false)
-    expect(document.querySelector('.klarkey-save-banner')).not.toBeNull()
-    expect(document.querySelector('.klarkey-save-title')?.textContent).toBe('Save passkey in Klarkey?')
+    expect(extensionOverlay().querySelector('.klarkey-save-banner')).not.toBeNull()
+    expect(extensionOverlay().querySelector('.klarkey-save-title')?.textContent).toBe('Save passkey in Klarkey?')
   })
 })

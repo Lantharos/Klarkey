@@ -266,6 +266,39 @@ describe('extension background SSO tracking storage', () => {
     })
   })
 
+  it('stores the confirmed provider-hop marker for SSO tracking', async () => {
+    const { send, sendFrom, storage } = await loadBackground()
+    const startedAt = Date.now()
+
+    await send({
+      type: 'sso-tracking-set',
+      payload: {
+        provider: 'Google',
+        originUrl: 'https://example.com/login',
+        originTitle: 'Example',
+        originHostname: 'example.com',
+        startedAt,
+      },
+    })
+
+    await expect(sendFrom({
+      type: 'sso-tracking-update',
+      payload: {
+        providerSeen: true,
+      },
+    }, 'https://accounts.google.com/signin')).resolves.toMatchObject({
+      ok: true,
+      tracking: {
+        providerSeen: true,
+      },
+    })
+
+    expect(storage.get(ssoTrackingKey)).toMatchObject({
+      provider: 'Google',
+      providerSeen: true,
+    })
+  })
+
   it('rejects tracking records whose URL and hostname disagree', async () => {
     const { send, storage } = await loadBackground()
 

@@ -10,6 +10,7 @@ export function presentPasskeyBanner<T>(input: {
   copy: string
   choices: Array<PasskeyBannerChoice<T>>
   dismissLabel?: string
+  primaryLabel?: string
 }): Promise<T | undefined>
 
 export function promptPasskeyCreateChoice(input: {
@@ -29,3 +30,5 @@ export function promptPasskeyGetChoice(
     userName?: string
   }>,
 ): Promise<string | undefined>
+
+export function promptPasskeyUnlock(): Promise<boolean | undefined>

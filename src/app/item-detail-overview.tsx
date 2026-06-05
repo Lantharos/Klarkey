@@ -32,7 +32,7 @@ export function ItemDetailOverview({ item }: { item?: ItemDetails }) {
           </>
         ) : null}
       </div>
-      <div className="mt-3 h-px bg-white/8" />
+      <div className="palette-glass-divider mt-3" />
     </div>
   )
 }

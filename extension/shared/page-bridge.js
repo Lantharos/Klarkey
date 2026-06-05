@@ -196,6 +196,14 @@
     }
   }
 
+  const defineGlobal = (key, value) => {
+    Object.defineProperty(window, key, {
+      configurable: true,
+      writable: true,
+      value,
+    })
+  }
+
   const defineReadonly = (target, key, value) => {
     Object.defineProperty(target, key, {
       configurable: true,
@@ -203,6 +211,59 @@
       value,
       writable: false,
     })
+  }
+
+  const defineStaticMethod = (target, key, value) => {
+    Object.defineProperty(target, key, {
+      configurable: true,
+      writable: true,
+      value,
+    })
+  }
+
+  const ensurePublicKeyCredentialConstructor = () => {
+    if (typeof PublicKeyCredential === 'function') {
+      return PublicKeyCredential
+    }
+
+    if (!navigator.credentials?.create || !navigator.credentials?.get) {
+      return undefined
+    }
+
+    const KlarkeyPublicKeyCredential = function PublicKeyCredential() {}
+    defineGlobal('PublicKeyCredential', KlarkeyPublicKeyCredential)
+    return KlarkeyPublicKeyCredential
+  }
+
+  const installPasskeyCapabilityOverrides = () => {
+    const CredentialConstructor = ensurePublicKeyCredentialConstructor()
+    if (!CredentialConstructor) {
+      return false
+    }
+
+    const originalCapabilities =
+      typeof CredentialConstructor.getClientCapabilities === 'function'
+        ? CredentialConstructor.getClientCapabilities.bind(CredentialConstructor)
+        : undefined
+    const originalConditional =
+      typeof CredentialConstructor.isConditionalMediationAvailable === 'function'
+        ? CredentialConstructor.isConditionalMediationAvailable.bind(CredentialConstructor)
+        : undefined
+
+    defineStaticMethod(CredentialConstructor, 'isUserVerifyingPlatformAuthenticatorAvailable', () => Promise.resolve(true))
+    defineStaticMethod(CredentialConstructor, 'isConditionalMediationAvailable', () => Promise.resolve(true))
+    defineStaticMethod(CredentialConstructor, 'getClientCapabilities', async () => {
+      const capabilities = originalCapabilities ? await originalCapabilities().catch(() => ({})) : {}
+      const baseCapabilities = isObject(capabilities) ? capabilities : {}
+      return {
+        ...baseCapabilities,
+        passkeyPlatformAuthenticator: true,
+        userVerifyingPlatformAuthenticator: true,
+        conditionalGet: true,
+      }
+    })
+
+    return true
   }
 
   const buildAuthenticatorAttestationResponse = (serialized) => {
@@ -291,6 +352,10 @@
         window.location.origin,
       )
     })
+
+  if (!navigator.credentials?.create || !navigator.credentials?.get || !installPasskeyCapabilityOverrides()) {
+    return
+  }
 
   const originalCreate = navigator.credentials.create.bind(navigator.credentials)
   const originalGet = navigator.credentials.get.bind(navigator.credentials)

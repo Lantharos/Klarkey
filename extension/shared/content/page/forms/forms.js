@@ -121,10 +121,11 @@ const isPaymentContextInput = (input) =>
 
 const getAuthContextText = (input) => {
   const form = pickForm(input)
-  const formText = form?.innerText || ''
+  const contextRoot = form || input.closest?.('[role="dialog"], [aria-modal="true"], main, section, article') || input.parentElement
+  const formText = contextRoot?.innerText || contextRoot?.textContent || ''
   const formAction = form?.getAttribute('action') || ''
-  const submitCopy = form
-    ? Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]'))
+  const submitCopy = contextRoot
+    ? Array.from(contextRoot.querySelectorAll('button, [role="button"], input[type="submit"]'))
         .map((node) => node.textContent || node.getAttribute('value') || '')
         .join(' ')
     : ''
@@ -144,40 +145,73 @@ const getAuthContextText = (input) => {
     .toLowerCase()
 }
 
-const hasRegisterSignals = (input) => {
+const getSubmitContextText = (input) => {
+  const form = pickForm(input)
+  if (!form) {
+    return ''
+  }
+
+  return Array.from(form.querySelectorAll('button, [role="button"], input[type="submit"]'))
+    .map((node) => node.textContent || node.getAttribute('value') || '')
+    .join(' ')
+    .toLowerCase()
+}
+
+const registerSubmitExpression =
+  /(register|sign[\s-]?up|signup|create[\s-]?(your[\s-]?)?account|join|start trial|start for free|get started|set password|save password|change password|reset password)/
+const registerContextExpression =
+  /(register|sign[\s-]?up|signup|create[\s-]?(your[\s-]?)?account|join|start trial|start for free|get started|already have an account)/
+const strongRegisterContextExpression =
+  /(confirm password|new password|create password|choose password|set password|repeat password|re[\s-]?enter password|retype password)/
+const loginExpression = /(sign[\s-]?in|log[\s-]?in|login|current password|welcome back|forgot password)/
+
+const hasRegisterSubmitSignals = (input) => registerSubmitExpression.test(getSubmitContextText(input))
+const hasLoginSubmitSignals = (input) => loginExpression.test(getSubmitContextText(input))
+
+const hasStrongRegisterSignals = (input) => {
   const context = getAuthContextText(input)
   const { passwordInputs } = getInputs(input)
   const hasNewPasswordAutocomplete = passwordInputs.some((candidate) =>
     (candidate.autocomplete || '').toLowerCase().includes('new-password'),
   )
   const hasMultiplePasswordFields = passwordInputs.length > 1
+  const hasConfirmPasswordField = passwordInputs.some((candidate) => isConfirmPasswordInput(candidate))
 
   return (
     hasNewPasswordAutocomplete ||
     hasMultiplePasswordFields ||
-    /(register|sign[\s-]?up|signup|create[\s-]?account|create your account|create account|join|start trial|start for free|get started|continue\b|check your email|verify your email|confirm password|new password|already have an account)/.test(
-      context,
-    )
+    hasConfirmPasswordField ||
+    strongRegisterContextExpression.test(context)
   )
 }
 
+const hasRegisterSignals = (input) => {
+  const context = getAuthContextText(input)
+  return hasStrongRegisterSignals(input) || registerContextExpression.test(context)
+}
+
 const hasLoginSignals = (input) =>
-  /(sign[\s-]?in|log[\s-]?in|login|current password|welcome back|forgot password|reset password)/.test(getAuthContextText(input))
+  loginExpression.test(getAuthContextText(input))
 
 const detectAuthFlow = (input) => {
   if (isPaymentContextInput(input)) {
     return 'payment'
   }
 
-  if (hasRegisterSignals(input)) {
+  const hasStrongRegister = hasStrongRegisterSignals(input)
+  const hasRegisterSubmit = hasRegisterSubmitSignals(input)
+  const hasLoginSubmit = hasLoginSubmitSignals(input)
+  const hasLogin = hasLoginSignals(input)
+
+  if (hasStrongRegister || (hasRegisterSubmit && !hasLoginSubmit)) {
     return 'register'
   }
 
-  if (hasLoginSignals(input)) {
+  if (hasLoginSubmit || hasLogin) {
     return 'login'
   }
 
-  return 'login'
+  return hasRegisterSignals(input) ? 'register' : 'login'
 }
 
 const passwordGroups = [
@@ -224,10 +258,10 @@ const getPendingUsername = () => getTransientState('pending-username', '')
 
 const setPendingUsername = (username) => {
   if (username) {
-    setTransientState('pending-username', username)
-  } else {
-    clearTransientState('pending-username')
+    return setTransientState('pending-username', username)
   }
+
+  return clearTransientState('pending-username')
 }
 
 const injectPageBridge = () => {
@@ -258,14 +292,15 @@ const getPendingOtp = () => getTransientState('pending-otp', '')
 
 const setPendingOtp = (otp) => {
   if (otp) {
-    setTransientState('pending-otp', otp, 90_000)
-  } else {
-    clearTransientState('pending-otp')
+    return setTransientState('pending-otp', otp, 90_000)
   }
+
+  return clearTransientState('pending-otp')
 }
 
-void hydrateTransientState('pending-username')
-void hydrateTransientState('pending-otp')
+const hydratePendingAuthState = () => Promise.all([hydrateTransientState('pending-username'), hydrateTransientState('pending-otp')])
+
+void hydratePendingAuthState()
 
 export {
   pickForm,
@@ -281,6 +316,7 @@ export {
   randomPassword,
   getPendingUsername,
   setPendingUsername,
+  hydratePendingAuthState,
   injectPageBridge,
   ensurePageBridgeReady,
   getPendingOtp,

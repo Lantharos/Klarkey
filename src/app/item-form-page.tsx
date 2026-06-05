@@ -22,7 +22,7 @@ function FieldShell({
   className?: string
 }) {
   return (
-    <label className={`block border-b border-white/6 px-5 py-3 ${className ?? ''}`}>
+    <label data-field-row="true" className={`block scroll-mb-5 border-b border-white/6 px-5 py-3 ${className ?? ''}`}>
       <div className="mb-2 text-[13px] text-white/42">{label}</div>
       {children}
     </label>
@@ -93,7 +93,8 @@ export function ItemFormPage({
     }
 
     const node = formRef.current?.querySelector<HTMLElement>(`[data-focus-key="${focusTargetRef.current}"]`)
-    node?.focus()
+    node?.focus({ preventScroll: true })
+    node?.closest<HTMLElement>('[data-field-row="true"]')?.scrollIntoView({ block: 'nearest' })
     focusTargetRef.current = undefined
   }, [value])
 
@@ -154,7 +155,8 @@ export function ItemFormPage({
     }
 
     const next = all[index + direction]
-    next?.focus()
+    next?.focus({ preventScroll: true })
+    next?.closest<HTMLElement>('[data-field-row="true"]')?.scrollIntoView({ block: 'nearest' })
   }
 
   const onFieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -281,6 +283,14 @@ export function ItemFormPage({
     <form
       ref={formRef}
       className="flex min-h-0 flex-1 flex-col"
+      onFocusCapture={(event) => {
+        const target = event.target
+        if (!(target instanceof HTMLElement) || target.dataset.navInput !== 'true') {
+          return
+        }
+
+        target.closest<HTMLElement>('[data-field-row="true"]')?.scrollIntoView({ block: 'nearest' })
+      }}
       onKeyDown={(event) => {
         if (mode === 'create' && event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
           event.preventDefault()
@@ -292,7 +302,7 @@ export function ItemFormPage({
         submitCurrentValue()
       }}
     >
-      <div className={value.itemType === 'note' ? 'flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto'}>
+      <div className={value.itemType === 'note' ? 'flex min-h-0 flex-1 flex-col' : 'min-h-0 flex-1 overflow-y-auto scroll-py-4 pb-5'}>
         <FieldShell label={value.itemType === 'note' ? 'Title' : 'Name'}>
           <TextField
             autoFocus
@@ -305,7 +315,7 @@ export function ItemFormPage({
                 : value.itemType === 'identity'
                   ? 'Personal identity'
                   : value.itemType === 'card'
-                    ? 'Visa ending in 4242'
+                    ? 'Payment card'
                     : value.itemType === 'ssh-key'
                       ? 'GitHub signing key'
                     : 'Netflix'
@@ -433,7 +443,7 @@ export function ItemFormPage({
         ) : null}
 
         {showWebsites ? (
-          <div className="border-b border-white/6 px-5 py-3">
+          <div data-field-row="true" className="scroll-mb-5 border-b border-white/6 px-5 py-3">
             <div className="mb-2 text-[13px] text-white/42">Websites</div>
             <div className="space-y-2">
               {value.websites.map((website, index) => (
@@ -476,7 +486,7 @@ export function ItemFormPage({
         ) : null}
 
         {showCustomFields ? (
-          <div className="border-b border-white/6 px-5 py-3">
+          <div data-field-row="true" className="scroll-mb-5 border-b border-white/6 px-5 py-3">
             <div className="mb-2 text-[13px] text-white/42">Fields</div>
             <div className="space-y-2">
               {value.customFields.map((field, index) => (
@@ -552,8 +562,8 @@ export function ItemFormPage({
           </FieldShell>
         ) : null}
       </div>
-      <div className="h-px bg-white/8" />
-      <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+      <div className="palette-glass-divider" />
+      <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
         <span className={execution?.status === 'error' ? 'text-red-300/85' : undefined}>
           {loading
             ? 'Loading item...'

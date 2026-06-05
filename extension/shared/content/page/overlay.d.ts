@@ -1,0 +1,1 @@
+export const overlayRoot: HTMLDivElement

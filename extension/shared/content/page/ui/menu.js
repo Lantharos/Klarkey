@@ -170,6 +170,90 @@ const appendFieldMenuButton = ({ container, title, secondary, onClick }) => {
   pageState.activeMenuActions.push(onClick)
 }
 
+const suggestionsForFlow = (suggestions, authFlow) =>
+  suggestions.filter((suggestion) => {
+    if (authFlow === 'login') {
+      return suggestion.source === 'login-username'
+    }
+
+    if (authFlow === 'register') {
+      return suggestion.source === 'identity'
+    }
+
+    if (authFlow === 'payment') {
+      return suggestion.source === 'card' || suggestion.source === 'identity'
+    }
+
+    return true
+  })
+
+const displayCardBrand = (brand) => {
+  const normalized = typeof brand === 'string' ? brand.trim() : ''
+  if (!normalized) {
+    return undefined
+  }
+
+  switch (normalized.toLowerCase()) {
+    case 'visa':
+      return 'Visa'
+    case 'mc':
+    case 'mastercard':
+    case 'master card':
+      return 'Mastercard'
+    case 'amex':
+    case 'americanexpress':
+    case 'american express':
+      return 'American Express'
+    case 'discover':
+      return 'Discover'
+    case 'jcb':
+      return 'JCB'
+    case 'diners':
+    case 'dinersclub':
+    case 'diners club':
+      return 'Diners Club'
+    default:
+      return normalized
+        .split(/[\s_-]+/u)
+        .filter(Boolean)
+        .map((part) =>
+          part.length <= 4 && part === part.toUpperCase()
+            ? part
+            : `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}`,
+        )
+        .join(' ')
+  }
+}
+
+const cardSuggestionSecondary = (suggestion) => {
+  if (suggestion.displaySecondary) {
+    const secondary = String(suggestion.displaySecondary)
+    const endingMatch = secondary.match(/^\s*(.*?)\s+ending in\s+(\d{1,4})\s*$/i)
+    if (endingMatch) {
+      const brand = displayCardBrand(endingMatch[1])
+      return `${brand ? `${brand} ` : ''}ending in ${endingMatch[2]}`
+    }
+    return secondary.replace(/^ending in/i, 'Ending in')
+  }
+
+  const brand = displayCardBrand(suggestion.cardBrand)
+  if (suggestion.cardLastFour) {
+    return `${brand ? `${brand} ` : ''}ending in ${suggestion.cardLastFour}`
+  }
+
+  return brand
+}
+
+const suggestionTitle = (suggestion) =>
+  suggestion.source === 'card'
+    ? suggestion.displayValue || suggestion.itemName || suggestion.value
+    : suggestion.value
+
+const suggestionSecondary = (suggestion) =>
+  suggestion.source === 'card'
+    ? cardSuggestionSecondary(suggestion)
+    : suggestion.itemName
+
 const renderFieldMenu = (input, options = {}) => {
   const { loading = false } = options
   removeInlineUi()
@@ -183,6 +267,7 @@ const renderFieldMenu = (input, options = {}) => {
 
   const fieldKind = fieldKindFor(input)
   const authFlow = suggestionFlowFor(input, fieldKind)
+  const fieldSuggestions = suggestionsForFlow(pageState.fieldSuggestions, authFlow)
   const header = document.createElement('div')
   header.className = 'klarkey-inline-header'
   appendTextElement(header, 'div', 'klarkey-inline-brand', 'Klarkey')
@@ -213,7 +298,7 @@ const renderFieldMenu = (input, options = {}) => {
         accent: 'New',
         onClick: () => {
           const inputs = getInputs(input)
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           writePasswordGroup(input, generated)
           setPendingOtp('')
           setPendingSavePrompt({
@@ -255,7 +340,7 @@ const renderFieldMenu = (input, options = {}) => {
               return
             }
 
-            applyLoginFill(input, response.login)
+            void applyLoginFill(input, response.login)
           },
         })
       }
@@ -266,7 +351,7 @@ const renderFieldMenu = (input, options = {}) => {
           title: `Sign in with ${match.ssoProvider}`,
           secondary: match.itemName,
           onClick: () => {
-            suppressInlineMenu(input)
+            suppressInlineMenu(input, { untilUserInteraction: true })
             removeInlineUi()
             clickMatchingSsoControl(match.ssoProvider)
           },
@@ -294,7 +379,7 @@ const renderFieldMenu = (input, options = {}) => {
         secondary: pendingOtp,
         accent: 'OTP',
         onClick: () => {
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           const { splitOtpTargets } = getInputs(input)
           if (splitOtpTargets?.length) {
             writeSplitOtp(splitOtpTargets, pendingOtp)
@@ -311,7 +396,29 @@ const renderFieldMenu = (input, options = {}) => {
       empty.textContent = 'No one-time code ready.'
       list.appendChild(empty)
     }
-  } else if (!pageState.fieldSuggestions.length) {
+  } else if (pageState.fieldSuggestionsLocked) {
+    appendFieldMenuButton({
+      container: list,
+      title: 'Unlock Klarkey',
+      secondary: authFlow === 'payment' ? 'Show saved cards.' : 'Show saved details.',
+      onClick: async () => {
+        const response = await sendMessage({
+          type: 'request-desktop-unlock',
+          url: window.location.href,
+          title: document.title,
+        }).catch(() => undefined)
+
+        if (!response?.ok || response.locked) {
+          return
+        }
+
+        await refreshFieldSuggestions(fieldKind, authFlow).catch(() => [])
+        if (pageState.overlayInput === input) {
+          renderFieldMenu(input, { loading: false })
+        }
+      },
+    })
+  } else if (!fieldSuggestions.length) {
     const empty = document.createElement('div')
     empty.className = 'klarkey-inline-empty'
     empty.textContent =
@@ -324,11 +431,11 @@ const renderFieldMenu = (input, options = {}) => {
             : 'No identity details found.'
     list.appendChild(empty)
   } else {
-    for (const suggestion of pageState.fieldSuggestions.slice(0, 6)) {
+    for (const suggestion of fieldSuggestions.slice(0, 6)) {
       appendFieldMenuButton({
         container: list,
-        title: suggestion.value,
-        secondary: suggestion.itemName,
+        title: suggestionTitle(suggestion),
+        secondary: suggestionSecondary(suggestion),
         accent: suggestion.fromSiteMatch ? 'Site' : undefined,
         onClick: async () => {
           if (authFlow === 'login' && suggestion.source === 'login-username') {
@@ -388,7 +495,7 @@ const renderFieldMenu = (input, options = {}) => {
             return
           }
 
-          suppressInlineMenu(input)
+          suppressInlineMenu(input, { untilUserInteraction: true })
           writeValue(input, suggestion.value)
           if (fieldKind === 'username' || fieldKind === 'email') {
             setPendingUsername(suggestion.value)

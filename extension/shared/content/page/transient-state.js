@@ -27,13 +27,13 @@ const setTransientState = (name, value, ttlMs = defaultTtlMs) => {
   const key = keyFor(name)
   const expiresAt = Date.now() + ttlMs
   values.set(key, { value, expiresAt })
-  void sendMessage({ type: 'transient-state-set', payload: { key, value, expiresAt } }).catch(() => undefined)
+  return sendMessage({ type: 'transient-state-set', payload: { key, value, expiresAt } }).catch(() => undefined)
 }
 
 const clearTransientState = (name) => {
   const key = keyFor(name)
   values.delete(key)
-  void sendMessage({ type: 'transient-state-clear', payload: { key } }).catch(() => undefined)
+  return sendMessage({ type: 'transient-state-clear', payload: { key } }).catch(() => undefined)
 }
 
 const hydrateTransientState = async (name) => {

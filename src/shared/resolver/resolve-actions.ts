@@ -170,47 +170,9 @@ export function buildResolvedActions(
     }
 
     const baseScore = score + scoreRecent(snapshot.recents, item.id)
+    const isCopyLikeIntent = query.intent === 'copy' || query.intent === 'insert'
 
-    if (query.intent === 'insert' && query.credential === 'password' && item.hasPassword) {
-      actions.push({
-        id: `paste:${item.id}:password`,
-        kind: 'copy-password',
-        title: item.itemName,
-        subtitle: itemSubtitle(item),
-        itemId: item.id,
-        itemType: item.itemType,
-        ...getLogoMeta(item),
-        primaryHint: 'Insert the password into the last selected field.',
-        requiresUnlock: true,
-        score: baseScore + 24,
-      })
-    } else if (query.intent === 'insert' && query.credential === 'otp' && item.hasOtp) {
-      actions.push({
-        id: `paste:${item.id}:otp`,
-        kind: 'copy-otp',
-        title: item.itemName,
-        subtitle: itemSubtitle(item),
-        itemId: item.id,
-        itemType: item.itemType,
-        ...getLogoMeta(item),
-        primaryHint: 'Insert the current one-time code into the last selected field.',
-        requiresUnlock: true,
-        score: baseScore + 23,
-      })
-    } else if (query.intent === 'insert' && query.credential === 'username' && item.username) {
-      actions.push({
-        id: `paste:${item.id}:username`,
-        kind: 'copy-value',
-        title: item.itemName,
-        subtitle: itemSubtitle(item),
-        itemId: item.id,
-        itemType: item.itemType,
-        ...getLogoMeta(item),
-        primaryHint: 'Insert the primary text into the last selected field.',
-        requiresUnlock: false,
-        score: baseScore + 24,
-      })
-    } else if (query.intent === 'show' && query.credential === 'otp' && item.hasOtp) {
+    if (query.intent === 'show' && query.credential === 'otp' && item.hasOtp) {
       actions.push({
         id: `show:${item.id}:otp`,
         kind: 'show-otp',
@@ -226,7 +188,7 @@ export function buildResolvedActions(
         requiresUnlock: true,
         score: baseScore + 22,
       })
-    } else if (query.intent === 'copy' && query.credential === 'otp' && item.hasOtp) {
+    } else if (isCopyLikeIntent && query.credential === 'otp' && item.hasOtp) {
       actions.push({
         id: `copy:${item.id}:otp`,
         kind: 'copy-otp',
@@ -239,7 +201,7 @@ export function buildResolvedActions(
         requiresUnlock: true,
         score: baseScore + 21.5,
       })
-    } else if (query.intent === 'copy' && query.credential === 'password' && item.hasPassword) {
+    } else if (isCopyLikeIntent && query.credential === 'password' && item.hasPassword) {
       actions.push({
         id: `copy:${item.id}:password`,
         kind: 'copy-password',
@@ -250,6 +212,19 @@ export function buildResolvedActions(
         ...getLogoMeta(item),
         primaryHint: 'Copy the password to the clipboard.',
         requiresUnlock: true,
+        score: baseScore + 21,
+      })
+    } else if (isCopyLikeIntent && query.credential === 'username' && item.username) {
+      actions.push({
+        id: `copy:${item.id}:username`,
+        kind: 'copy-value',
+        title: item.itemName,
+        subtitle: itemSubtitle(item),
+        itemId: item.id,
+        itemType: item.itemType,
+        ...getLogoMeta(item),
+        primaryHint: 'Copy the username to the clipboard.',
+        requiresUnlock: false,
         score: baseScore + 21,
       })
     } else if (query.intent === 'show' && query.credential === 'password' && item.hasPassword) {

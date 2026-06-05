@@ -58,6 +58,11 @@ const dispatchFieldEvents = (field, value) => {
   field.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
 }
 
+const dispatchFieldCommitEvents = (field) => {
+  field.dispatchEvent(new Event('input', { bubbles: true, composed: true }))
+  field.dispatchEvent(new Event('change', { bubbles: true, composed: true }))
+}
+
 const resolveSelectValue = (input, value) => {
   const rawValue = String(value || '').trim()
   if (!rawValue) {
@@ -149,11 +154,66 @@ const writePasswordGroup = (preferredInput, value) => {
   }
 }
 
-const writeSplitOtp = (targets, value) => {
-  const digits = String(value || '').trim().split('')
-  for (const [index, target] of targets.entries()) {
-    writeValue(target, digits[index] || '')
+const normalizedOtpDigits = (value, length) => String(value || '').replace(/\s+/g, '').slice(0, length).split('')
+
+const splitOtpMatches = (targets, digits) =>
+  targets.every((target, index) => readFieldValue(target).trim() === (digits[index] || ''))
+
+const dispatchSplitOtpPaste = (target, value) => {
+  target.focus()
+
+  let clipboardData
+  try {
+    clipboardData = new DataTransfer()
+    clipboardData.setData('text/plain', value)
+    clipboardData.setData('text', value)
+  } catch {
+    clipboardData = undefined
   }
+
+  try {
+    target.dispatchEvent(
+      new ClipboardEvent('paste', {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+        clipboardData,
+      }),
+    )
+    return
+  } catch {
+    target.dispatchEvent(
+      new InputEvent('beforeinput', {
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+        data: value,
+        inputType: 'insertFromPaste',
+      }),
+    )
+  }
+}
+
+const writeSplitOtp = (targets, value) => {
+  const digits = normalizedOtpDigits(value, targets.length)
+  const code = digits.join('')
+  const first = targets[0]
+  if (!first || !code) {
+    return false
+  }
+
+  dispatchSplitOtpPaste(first, code)
+  if (splitOtpMatches(targets, digits)) {
+    return true
+  }
+
+  for (const [index, target] of targets.entries()) {
+    setNativeFieldValue(target, digits[index] || '')
+  }
+  for (const target of targets) {
+    dispatchFieldCommitEvents(target)
+  }
+  return splitOtpMatches(targets, digits)
 }
 
 const isSatisfiedField = (field) => {

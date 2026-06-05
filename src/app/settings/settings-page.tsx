@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import { useEffect, useRef } from 'react'
-import { formatClipboardClearLabel } from '@/app/settings-constants'
+import { formatAutoLockLabel, formatClipboardClearLabel } from '@/app/settings-constants'
 import type { SyncStatus } from '@/shared/sync'
 import type { VaultLockInfo, UserSettings } from '@/shared/types'
 
@@ -62,9 +62,8 @@ function SettingRow({
     return (
       <div
         className={clsx(
-          'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition',
-          selected ? 'bg-white/10' : '',
-          pointerActive && !selected ? 'hover:bg-white/5' : '',
+          'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition-colors',
+          selected ? 'palette-row-selected' : '',
         )}
       >
         {content}
@@ -77,16 +76,14 @@ function SettingRow({
       ref={ref}
       type="button"
       onClick={onClick}
-      onMouseEnter={() => {
-        if (pointerActive) {
+      onPointerMove={(event) => {
+        if (pointerActive && event.pointerType === 'mouse') {
           onHover()
         }
       }}
-      onFocus={onHover}
       className={clsx(
-        'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition',
-        selected ? 'bg-white/10' : 'text-white/74',
-        !selected && pointerActive ? 'hover:bg-white/5' : '',
+        'grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-[10px] px-3 py-3 text-left transition-colors',
+        selected ? 'palette-row-selected' : 'text-white/74',
       )}
     >
       {content}
@@ -228,7 +225,7 @@ export function SettingsPage({
       />
       <SettingRow
         label="Auto-lock after"
-        value={`${settings.autoLockMinutes} min`}
+        value={formatAutoLockLabel(settings.autoLockMinutes)}
         selected={selectedIndex === 8}
         onHover={() => onSelectRow(8)}
         onClick={onCycleAutoLock}
@@ -248,7 +245,7 @@ export function SettingsPage({
         value={syncLabel}
         selected={selectedIndex === 10}
         onHover={() => onSelectRow(10)}
-        onClick={!syncStatus?.configured ? undefined : syncStatus.signedIn ? onSyncNow : onSyncSignIn}
+        onClick={syncStatus?.signedIn ? onSyncNow : onSyncSignIn}
         pointerActive={pointerActive}
       />
       {syncStatus?.signedIn ? (

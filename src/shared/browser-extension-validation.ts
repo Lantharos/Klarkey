@@ -61,6 +61,12 @@ export type BrowserExtensionRequest =
     }
   | {
       id: string;
+      type: "request-unlock";
+      url: string;
+      title?: string;
+    }
+  | {
+      id: string;
       type: "save-login";
       payload: BrowserSaveLoginInput;
     }
@@ -107,6 +113,7 @@ export type BrowserExtensionRequest =
       url: string;
       title?: string;
       requestDetailsJson: string;
+      unlock?: boolean;
     }
   | {
       id: string;
@@ -157,10 +164,11 @@ export type BrowserExtensionResponse =
             plan: BrowserPasskeySavePlan;
             locked?: boolean;
           }
-        | {
-            choices: BrowserPasskeyChoice[];
-            locked?: boolean;
-          }
+          | {
+              choices: BrowserPasskeyChoice[];
+              locked?: boolean;
+              needsUnlockForChoices?: boolean;
+            }
         | ActionExecutionResult
         | {
             supported: false;
@@ -364,6 +372,13 @@ export const validateBrowserExtensionRequest = (
     case "get-settings":
       return validBrowserExtensionRequest(request);
 
+    case "request-unlock": {
+      const url = readSecureBrowserPageUrl(input.url);
+      return url && hasValidTitle(input)
+        ? validBrowserExtensionRequest({ ...request, url } as BrowserExtensionRequest)
+        : invalidBrowserExtensionRequest(id, "invalid_request", "The unlock request URL is invalid.");
+    }
+
     case "list-logins": {
       const url = readSecureBrowserPageUrl(input.url);
       return url && hasValidTitle(input)
@@ -411,7 +426,10 @@ export const validateBrowserExtensionRequest = (
       const url = readSecureBrowserPageUrl(input.url);
       return url &&
         hasValidTitle(input) &&
-        hasValidRequestDetailsJson(input)
+        hasValidRequestDetailsJson(input) &&
+        (input.type !== "passkey-get-plan" ||
+          input.unlock === undefined ||
+          typeof input.unlock === "boolean")
         ? validBrowserExtensionRequest({ ...request, url } as BrowserExtensionRequest)
         : invalidBrowserExtensionRequest(id, "invalid_passkey_request", "The passkey request is invalid.");
     }

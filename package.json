@@ -13,22 +13,20 @@
     "preview": "vite preview",
     "test": "vitest run",
     "check": "bun run lint && bun run test && bun run build",
-    "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "postinstall": "bun run rebuild",
-    "dev:desktop": "electron . --dev",
+    "dev:desktop": "cargo run --manifest-path desktop/Cargo.toml -- --dev",
     "devweb": "vite",
     "verify:desktop-release": "node scripts/verify-desktop-release.mjs",
-    "verify:extension": "node scripts/verify-browser-extension.mjs"
+    "verify:extension": "node scripts/verify-browser-extension.mjs",
+    "desktop": "cargo run --manifest-path desktop/Cargo.toml --",
+    "desktop:dev": "cargo run --manifest-path desktop/Cargo.toml -- --dev",
+    "desktop:build": "node scripts/build-desktop.mjs"
   },
   "dependencies": {
     "@ave-id/sdk": "^0.8.0",
-    "better-sqlite3": "^12.9.0",
     "clsx": "^2.1.1",
     "convex": "^1.37.0",
-    "electron-updater": "^6.6.2",
-    "extract-zip": "^2.0.1",
+    "fflate": "^0.8.2",
     "jsqr": "^1.4.0",
-    "koffi": "^2.16.1",
     "lucide-react": "^1.8.0",
     "motion": "^12.38.0",
     "otpauth": "^9.5.0",
@@ -39,20 +37,16 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "concurrently": "^9.2.1",
-    "electron": "^41.2.1",
-    "electron-builder": "^26.0.12",
     "eslint": "^10.2.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
@@ -62,61 +56,12 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",
-    "vite-plugin-electron": "^0.29.1",
-    "vite-plugin-electron-renderer": "^0.14.6",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.5",
     "wait-on": "^9.0.5"
   },
-  "main": "dist-electron/main.js",
-  "build": {
-    "appId": "com.lantharos.klarkey",
-    "productName": "Klarkey",
-    "artifactName": "${productName}-Setup-${version}.${ext}",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**",
-      "dist-electron/**",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "**/*.node"
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": false,
-      "runAfterFinish": true
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "Lantharos",
-        "repo": "Klarkey"
-      }
-    ]
-  },
   "overrides": {
-    "follow-redirects": "^1.15.12"
-  },
-  "trustedDependencies": [
-    "better-sqlite3",
-    "electron",
-    "electron-winstaller",
-    "esbuild",
-    "koffi"
-  ]
+    "follow-redirects": "^1.15.12",
+    "axios": "^1.16.1"
+  }
 }
