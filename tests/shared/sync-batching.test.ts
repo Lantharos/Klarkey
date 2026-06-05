@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest'
 import type { LocalSyncRecord } from '@/shared/sync'
-import { buildPushBatches } from '@/tauri/sync'
+import { buildPushBatches } from '@/desktop/sync'
 
 function record(index: number, ciphertext = 'sealed'): LocalSyncRecord {
   return {

@@ -562,8 +562,8 @@ export function ItemFormPage({
           </FieldShell>
         ) : null}
       </div>
-      <div className="h-px bg-white/8" />
-      <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+      <div className="palette-glass-divider" />
+      <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
         <span className={execution?.status === 'error' ? 'text-red-300/85' : undefined}>
           {loading
             ? 'Loading item...'

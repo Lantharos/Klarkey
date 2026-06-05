@@ -108,7 +108,7 @@ export function DevPanel() {
             Refresh Info
           </button>
 
-          <div className="h-px bg-white/8" />
+          <div className="palette-glass-divider" />
 
           <button
             type="button"

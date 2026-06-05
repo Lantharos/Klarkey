@@ -458,6 +458,14 @@ function App() {
   }, [focusInput]);
 
   useEffect(() => {
+    const handleBlur = () => {
+      void usePaletteStore.getState().closePalette();
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, []);
+
+  useEffect(() => {
     if (page === "home") {
       focusInput();
     }
@@ -714,7 +722,7 @@ function App() {
         )}
       </div>
 
-      <div className="h-px bg-white/8" />
+      <div className="palette-glass-divider" />
 
       {page === "settings" ? (
         <>
@@ -806,9 +814,9 @@ function App() {
               }}
             />
           </div>
-          <div className="h-px bg-white/8" />
+          <div className="palette-glass-divider" />
           <div
-            className={`flex shrink-0 items-center justify-between gap-4 px-5 py-3 text-[14px] ${settingsFooter.barClass}`}
+            className={`palette-glass-footer flex shrink-0 items-center justify-between gap-4 px-5 py-3 text-[14px] ${settingsFooter.barClass}`}
           >
             <span
               className={`min-w-0 leading-snug ${settingsFooterTone}`}
@@ -817,7 +825,7 @@ function App() {
             </span>
             <div className="flex shrink-0 items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}
@@ -851,8 +859,8 @@ function App() {
               onPick={(id) => void exportVault(id as "klarkey-json" | "csv")}
             />
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className="text-white/48">
               Enter exports your vault in the selected format.
             </span>
@@ -872,8 +880,8 @@ function App() {
               onPick={(id) => void importVault(id as ImportFormat)}
             />
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span className="text-white/48">
               Enter imports items from the selected source.
             </span>
@@ -906,8 +914,8 @@ function App() {
               ))}
             </div>
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span
               className={
                 execution?.secret ? "inline-flex items-center gap-3" : undefined
@@ -935,7 +943,7 @@ function App() {
             </span>
             <div className="flex items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}
@@ -1019,8 +1027,8 @@ function App() {
               ) : null}
             </div>
           </div>
-          <div className="h-px bg-white/8" />
-          <div className="flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
+          <div className="palette-glass-divider" />
+          <div className="palette-glass-footer flex items-center justify-between gap-4 px-5 py-3 text-[14px] text-white/42">
             <span
               className={
                 execution?.secret ? "font-mono text-white/78" : undefined
@@ -1033,7 +1041,7 @@ function App() {
             </span>
             <div className="flex items-center gap-2">
               {lockWarningText ? (
-                <span className="rounded-[7px] bg-red-500/18 px-2 py-1 text-[12px] text-red-200">
+                <span className="palette-glass-chip-danger rounded-[7px] px-2 py-1 text-[12px] text-red-200">
                   {lockWarningText}
                 </span>
               ) : null}

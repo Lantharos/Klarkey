@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeNativeState } from '@/tauri/state-merge'
+import { mergeNativeState } from '@/desktop/state-merge'
 
 describe('native state merge', () => {
   it('does not resurrect locally deleted items from an older native snapshot', () => {

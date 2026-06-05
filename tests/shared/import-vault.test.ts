@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { parseVaultArchive, parseVaultImport } from '@/tauri/import-vault'
+import { parseVaultArchive, parseVaultImport } from '@/desktop/import-vault'
 
 describe('vault import formats', () => {
   it('maps Bitwarden CSV login fields and secure notes', () => {

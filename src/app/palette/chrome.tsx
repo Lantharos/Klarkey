@@ -7,16 +7,16 @@ import { itemInitials } from '@/app/palette-utils'
 import type { ResolvedAction } from '@/shared/types'
 
 export function KeyHint({ children }: { children: string }) {
-  return <span className="rounded-[7px] bg-white/6 px-2 py-1 text-[12px] text-white/50">{children}</span>
+  return <span className="palette-glass-chip rounded-[7px] px-2 py-1 text-[12px] text-white/56">{children}</span>
 }
 
 export function ShortcutHint({ children }: { children: React.ReactNode }) {
-  return <span className="inline-flex items-center gap-1 rounded-[7px] bg-white/6 px-2 py-1 text-[12px] text-white/50">{children}</span>
+  return <span className="palette-glass-chip inline-flex items-center gap-1 rounded-[7px] px-2 py-1 text-[12px] text-white/56">{children}</span>
 }
 
 export function ReturnHint({ embedded = false }: { embedded?: boolean }) {
   return (
-    <span className={embedded ? 'flex items-center justify-center text-white/50' : 'flex items-center justify-center rounded-[7px] bg-white/6 px-2 py-1 text-white/50'}>
+    <span className={embedded ? 'flex items-center justify-center text-white/56' : 'palette-glass-chip flex items-center justify-center rounded-[7px] px-2 py-1 text-white/56'}>
       <CornerDownLeft size={12} strokeWidth={2.2} />
     </span>
   )
@@ -114,7 +114,7 @@ export function SearchBar({
             key={token.id}
             type="button"
             onClick={() => onRemoveToken(token.id)}
-            className="rounded-[8px] bg-white/7 px-2.5 py-1 text-[13px] text-white/72 transition hover:bg-white/10"
+            className="palette-glass-chip rounded-[8px] px-2.5 py-1 text-[13px] text-white/72 transition-colors hover:bg-white/12"
           >
             {token.label}
           </button>

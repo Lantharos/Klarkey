@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { zipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { parseOnePux } from '@/tauri/import-1pux'
+import { parseOnePux } from '@/desktop/import-1pux'
 
 function onePux(items: unknown[]) {
   const archive = zipSync({

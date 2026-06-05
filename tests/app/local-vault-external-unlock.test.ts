@@ -64,7 +64,7 @@ describe('local vault external unlock hydration', () => {
       return undefined
     })
 
-    const { createLocalVaultApi } = await import('@/tauri/local-vault')
+    const { createLocalVaultApi } = await import('@/desktop/local-vault')
     const api = createLocalVaultApi(nativeCall as unknown as <Result>(command: string, args?: Record<string, unknown>) => Promise<Result>)
 
     await Promise.resolve()
@@ -105,7 +105,7 @@ describe('local vault external unlock hydration', () => {
       return undefined
     })
 
-    const { createLocalVaultApi } = await import('@/tauri/local-vault')
+    const { createLocalVaultApi } = await import('@/desktop/local-vault')
     const api = createLocalVaultApi(nativeCall as unknown as <Result>(command: string, args?: Record<string, unknown>) => Promise<Result>)
 
     await Promise.resolve()
@@ -151,7 +151,7 @@ describe('local vault external unlock hydration', () => {
       return undefined
     })
 
-    const { createLocalVaultApi } = await import('@/tauri/local-vault')
+    const { createLocalVaultApi } = await import('@/desktop/local-vault')
     const api = createLocalVaultApi(nativeCall as unknown as <Result>(command: string, args?: Record<string, unknown>) => Promise<Result>)
 
     await Promise.resolve()

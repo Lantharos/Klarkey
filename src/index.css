@@ -25,6 +25,7 @@ body,
 #root {
   overflow: hidden;
   border-radius: 14px;
+  clip-path: inset(0 round 14px);
   background: transparent;
   isolation: isolate;
 }
@@ -63,18 +64,75 @@ body {
 }
 
 .palette-row-selected {
-  background: rgb(58, 58, 60);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.17), rgb(255 255 255 / 0.11)),
+    rgb(255 255 255 / 0.08);
   color: white;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.16),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    0 8px 24px rgb(0 0 0 / 0.12);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
 }
 
 .palette-row-selected-danger {
-  background: rgba(126, 35, 35, 0.72);
+  background:
+    linear-gradient(180deg, rgb(248 113 113 / 0.22), rgb(127 29 29 / 0.15)),
+    rgb(255 255 255 / 0.06);
   color: white;
+  box-shadow:
+    inset 0 1px 0 rgb(254 202 202 / 0.16),
+    inset 0 0 0 1px rgb(248 113 113 / 0.14),
+    0 8px 24px rgb(127 29 29 / 0.10);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
 }
 
 .palette-row-selected-success {
-  background: rgba(30, 103, 76, 0.68);
+  background:
+    linear-gradient(180deg, rgb(52 211 153 / 0.20), rgb(6 95 70 / 0.14)),
+    rgb(255 255 255 / 0.06);
   color: white;
+  box-shadow:
+    inset 0 1px 0 rgb(167 243 208 / 0.14),
+    inset 0 0 0 1px rgb(52 211 153 / 0.13),
+    0 8px 24px rgb(6 95 70 / 0.10);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  backdrop-filter: blur(18px) saturate(130%);
+}
+
+.palette-glass-divider {
+  height: 1px;
+  background:
+    linear-gradient(90deg, transparent, rgb(255 255 255 / 0.11) 8%, rgb(255 255 255 / 0.08) 92%, transparent),
+    rgb(0 0 0 / 0.08);
+}
+
+.palette-glass-footer {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(0 0 0 / 0.075));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.055);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.palette-glass-chip {
+  background: rgb(255 255 255 / 0.08);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.10),
+    inset 0 0 0 1px rgb(255 255 255 / 0.045);
+  -webkit-backdrop-filter: blur(12px) saturate(125%);
+  backdrop-filter: blur(12px) saturate(125%);
+}
+
+.palette-glass-chip-danger {
+  background: rgb(248 113 113 / 0.16);
+  box-shadow:
+    inset 0 1px 0 rgb(254 202 202 / 0.11),
+    inset 0 0 0 1px rgb(248 113 113 / 0.08);
+  -webkit-backdrop-filter: blur(12px) saturate(125%);
+  backdrop-filter: blur(12px) saturate(125%);
 }
 
 .keyboard-only-surface,
@@ -86,6 +144,7 @@ body {
   position: relative;
   isolation: isolate;
   contain: paint;
+  clip-path: inset(0 round 14px);
   background: rgb(26, 26, 27);
   background-clip: padding-box;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -100,7 +159,10 @@ body {
 }
 
 .palette-window-shell--content-native {
-  background: rgb(26 26 27 / 0.62);
+  background: rgb(26 26 27 / 0.6);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .palette-window-shell--host-native {

@@ -10,7 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-extension
-src-tauri/target
+desktop/target
 extension/shared/background.js
 extension/shared/content.js
 dist-ssr
