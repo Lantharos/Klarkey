@@ -217,6 +217,8 @@ pub(crate) fn emit_palette_open(ctx: &AppContext, external_unlock: bool) {
     );
     desktop_integration::emit_target_window(ctx);
     let _ = ctx.emit("palette-focus", json!({}));
+    ctx.show_window();
+    ctx.focus_window();
 }
 
 fn native_window_material() -> Value {

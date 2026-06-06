@@ -99,6 +99,22 @@ impl AppContext {
             .and_then(|events| events.clone())
             .is_some_and(|emitter| emitter.hide())
     }
+
+    pub(crate) fn show_window(&self) -> bool {
+        self.bridge_events
+            .lock()
+            .ok()
+            .and_then(|events| events.clone())
+            .is_some_and(|emitter| emitter.show())
+    }
+
+    pub(crate) fn focus_window(&self) -> bool {
+        self.bridge_events
+            .lock()
+            .ok()
+            .and_then(|events| events.clone())
+            .is_some_and(|emitter| emitter.focus_window())
+    }
 }
 
 pub(crate) fn app_identifier() -> &'static str {

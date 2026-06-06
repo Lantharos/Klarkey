@@ -159,8 +159,10 @@ function createFenestraApi(): KlarkeyApi {
   let initialExternalUnlockDelivered = false
 
   const openPalette = async (options: { externalUnlock?: boolean } = {}) => {
-    await call('palette_open', { externalUnlock: Boolean(options.externalUnlock) })
-    showPaletteWindow()
+    await call('palette_open', { externalUnlock: Boolean(options.externalUnlock) }).catch((error) => {
+      showPaletteWindow()
+      throw error
+    })
   }
 
   api.palette = {
