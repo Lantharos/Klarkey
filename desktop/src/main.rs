@@ -30,7 +30,7 @@ use std::{
 use app_context::AppContext;
 use bridge_commands::{emit_palette_open, register_commands};
 use fenestra_cef::{
-    run_fenestra_host_from_args, CefWindow, DeepLinkRegistration, GlobalShortcutRegistration,
+    run_fenestra_host_from_args, DeepLinkRegistration, FenestraWindow, GlobalShortcutRegistration,
     RuntimeConfig, RuntimeMode, SingleInstancePolicy, TrayIcon, TrayMenuItem, WebViewSecurity,
     WindowRegion,
 };
@@ -123,7 +123,7 @@ fn is_dev(args: &[String]) -> bool {
     args.iter().any(|arg| arg == "--dev")
 }
 
-fn build_window(ctx: &AppContext, args: &[String], root_dir: &Path) -> CefWindow {
+fn build_window(ctx: &AppContext, args: &[String], root_dir: &Path) -> FenestraWindow {
     let runtime = RuntimeConfig {
         mode: RuntimeMode::SharedPreferred,
         allow_user_install: true,
@@ -131,7 +131,7 @@ fn build_window(ctx: &AppContext, args: &[String], root_dir: &Path) -> CefWindow
         ..RuntimeConfig::default()
     };
 
-    let mut window = CefWindow::new()
+    let mut window = FenestraWindow::new()
         .title(APP_NAME)
         .fixed_size(PALETTE_WIDTH, PALETTE_HEIGHT)
         .hidden()

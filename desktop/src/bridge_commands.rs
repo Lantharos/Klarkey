@@ -4,7 +4,8 @@ use std::{
 };
 
 use fenestra_cef::{
-    BridgeCommand, BridgeCommandDescriptor, BridgeError, BridgeResponse, BridgeResult, CefWindow,
+    BridgeCommand, BridgeCommandDescriptor, BridgeError, BridgeResponse, BridgeResult,
+    FenestraWindow,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -16,7 +17,7 @@ use crate::{
 
 const APP_NAME: &str = "Klarkey";
 
-pub(crate) fn register_commands(mut window: CefWindow, ctx: AppContext) -> CefWindow {
+pub(crate) fn register_commands(mut window: FenestraWindow, ctx: AppContext) -> FenestraWindow {
     macro_rules! command {
         ($name:literal, $handler:expr) => {{
             window = window.bridge_descriptor_handler(
