@@ -205,7 +205,7 @@ fn metadata_from_value(state: &Value) -> VaultStateMetadata {
         .filter(|value| matches!(*value, "startup" | "timed"))
         .map(ToString::to_string)
         .unwrap_or_else(|| {
-            if auto_lock_minutes <= 0 {
+            if auto_lock_minutes == 0 {
                 String::from("startup")
             } else {
                 default_system_unlock_policy()

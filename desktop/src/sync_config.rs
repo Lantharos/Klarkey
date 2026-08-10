@@ -1,4 +1,3 @@
-use crate::app_context::AppContext;
 use serde_json::{json, Value};
 use std::{collections::HashMap, env, fs, path::PathBuf};
 
@@ -16,8 +15,8 @@ const CONVEX_URL_NAMES: [&str; 4] = [
     "VITE_CONVEX_URL",
 ];
 
-pub(crate) fn sync_config(ctx: &AppContext) -> Value {
-    let mut values = read_env_files(ctx);
+pub(crate) fn sync_config() -> Value {
+    let mut values = read_env_files();
     for (key, value) in env::vars() {
         values.insert(key, value);
     }
@@ -30,9 +29,9 @@ pub(crate) fn sync_config(ctx: &AppContext) -> Value {
     })
 }
 
-fn read_env_files(ctx: &AppContext) -> HashMap<String, String> {
+fn read_env_files() -> HashMap<String, String> {
     let mut values = HashMap::new();
-    for root in env_roots(ctx) {
+    for root in env_roots() {
         for file in ENV_FILES {
             read_env_file(root.join(file), &mut values);
         }
@@ -40,26 +39,8 @@ fn read_env_files(ctx: &AppContext) -> HashMap<String, String> {
     values
 }
 
-fn env_roots(ctx: &AppContext) -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(path) = env::current_dir() {
-        push_env_root(&mut roots, path);
-    }
-    if cfg!(debug_assertions) {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        push_env_root(&mut roots, manifest_dir.clone());
-        if let Some(parent) = manifest_dir.parent() {
-            push_env_root(&mut roots, parent.to_path_buf());
-        }
-        push_env_root(&mut roots, ctx.root_dir().to_path_buf());
-    }
-    roots
-}
-
-fn push_env_root(roots: &mut Vec<PathBuf>, path: PathBuf) {
-    if !roots.iter().any(|root| root == &path) {
-        roots.push(path);
-    }
+fn env_roots() -> Vec<PathBuf> {
+    env::current_dir().into_iter().collect()
 }
 
 fn read_env_file(path: PathBuf, values: &mut HashMap<String, String>) {

@@ -16,18 +16,13 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '9.0.x'
+      - name: Install Sabine CLI
+        run: cargo install --git https://github.com/Lantharos/Sabine.git --rev ed1695c489417ee81b2aa9339170ea1a4e8bc995 --locked sabine-cli
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
       - name: Build Windows desktop release
-        env:
-          CSC_LINK: ${{ secrets.WINDOWS_CODESIGN_CERTIFICATE }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PASSWORD }}
         run: bun run build:desktop
 
       - name: Upload desktop artifacts

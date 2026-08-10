@@ -4,7 +4,7 @@ Klarkey is a cross-platform desktop command palette for local item and credentia
 
 ## Stack
 
-- Fenestra CEF desktop shell
+- Sabine shared-runtime desktop shell
 - React 19
 - Vite 8
 - Tailwind CSS 4
@@ -80,12 +80,12 @@ bun run build
 
 ## Desktop release
 
-Desktop releases build the Fenestra shell directly. `bun run build:desktop` builds the renderer, browser extension bundles, and the release binary at `desktop/target/release/klarkey-desktop`. Windows and macOS builds are unsigned unless code-signing material is added later.
+Desktop releases use `Sabine.toml` and Sabine's bundler. Install the CLI from the same Git revision pinned in `desktop/Cargo.toml`, then use `sabine dev` for development or `bun run build:desktop` to build the renderer, browser extension bundles, native app, and a platform bundle under `release/`. Cargo and Bun fetch Sabine from Git, so no sibling checkout is required. Windows and macOS builds are unsigned unless code-signing material is added later.
 
 ## Notes
 
 - Existing desktop vaults start locked when a passcode, master password, or system unlock is configured.
-- On Linux, Klarkey uses the Fenestra OSR host for the palette window and requests compositor-backed blur where the desktop supports it.
+- Sabine owns the shared Chromium runtime and native OSR host on every desktop platform. Klarkey requests compositor-backed blur where the desktop supports it.
 - Cloud sync is free-gated for now. The Convex entitlement table defaults to allowing sync and is ready for a paid gate later.
 - Website passkeys are handled by the desktop native-messaging host for the browser extension.
 - System unlock stores its vault unlock key in the OS keychain. Windows and macOS use the platform owner-authentication APIs. Linux stores the key through Secret Service and treats polkit verification as the separate user-authentication step for timed auto-lock unlocks.

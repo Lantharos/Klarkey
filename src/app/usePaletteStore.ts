@@ -83,12 +83,6 @@ const fallbackApi: KlarkeyApi = {
     save: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
     remove: async () => ({ status: 'error', title: 'Unavailable', message: 'Desktop bridge unavailable.' }),
   },
-  targetWindow: {
-    get: async () => undefined,
-  },
-  nativeWindowMaterial: {
-    get: async () => ({ backgroundBlur: false, translucent: false, contentTranslucent: false, hostTranslucent: false }),
-  },
   importExport: {
     exportVault: async () => ({ success: false, exportedCount: 0, message: 'Desktop bridge unavailable.' }),
     importVault: async () => ({ success: false, importedCount: 0, skippedCount: 0, errorCount: 0, message: 'Desktop bridge unavailable.' }),
@@ -97,7 +91,6 @@ const fallbackApi: KlarkeyApi = {
   },
   onPrepareOpen: () => () => undefined,
   onFocusRequest: () => () => undefined,
-  onTargetWindowChange: () => () => undefined,
   onLockStateChanged: () => () => undefined,
   onSyncChanged: () => () => undefined,
 }

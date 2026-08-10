@@ -4,7 +4,6 @@ import type {
   CommandQuery,
   CreateItemInput,
   CreateVaultPasskeyInput,
-  ExternalWindowContext,
   ItemDetails,
   ModifierKey,
   PasskeySupport,
@@ -18,13 +17,6 @@ import type {
   VaultPasskeyRecord,
 } from '@/shared/types'
 import type { SyncStatus, SyncUpdateEvent } from '@/shared/sync'
-
-export type NativeWindowMaterial = {
-  backgroundBlur: boolean
-  translucent: boolean
-  contentTranslucent: boolean
-  hostTranslucent: boolean
-}
 
 export interface KlarkeyApi {
   palette: {
@@ -81,12 +73,6 @@ export interface KlarkeyApi {
     save: (input: CreateVaultPasskeyInput) => Promise<ActionExecutionResult>
     remove: (passkeyId: string) => Promise<ActionExecutionResult>
   }
-  targetWindow: {
-    get: () => Promise<ExternalWindowContext | undefined>
-  }
-  nativeWindowMaterial: {
-    get: () => Promise<NativeWindowMaterial>
-  }
   importExport: {
     exportVault: (options: ExportOptions) => Promise<ExportResult>
     importVault: (options: ImportOptions) => Promise<ImportResult>
@@ -95,7 +81,6 @@ export interface KlarkeyApi {
   }
   onPrepareOpen: (callback: (options?: { externalUnlock?: boolean; nativeTranslucent?: boolean; nativeContentTranslucent?: boolean; nativeHostTranslucent?: boolean }) => void) => () => void
   onFocusRequest: (callback: () => void) => () => void
-  onTargetWindowChange: (callback: (context: ExternalWindowContext) => void) => () => void
   onLockStateChanged: (callback: (info: VaultLockInfo) => void) => () => void
   onSyncChanged: (callback: (event: SyncUpdateEvent) => void) => () => void
   dev?: {

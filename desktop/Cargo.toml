@@ -9,7 +9,7 @@ aes-gcm = "0.10.3"
 arboard = "3.6.1"
 base64 = "0.22.1"
 ciborium = "0.2.2"
-fenestra-cef = { path = "../../fenestra/crates/fenestra-cef" }
+sabine = { git = "https://github.com/Lantharos/Sabine.git", rev = "ed1695c489417ee81b2aa9339170ea1a4e8bc995" }
 hex = "0.4.3"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 libc = "0.2.186"
@@ -27,7 +27,6 @@ sha2 = "0.11.0"
 signature = "2"
 ssh-agent-lib = "0.5.2"
 ssh-key = { version = "0.6.7", features = ["ed25519", "p256", "p384", "p521", "rsa"] }
-stuk-actions = { path = "../../stuk/crates/stuk-actions" }
 sysinfo = "0.39.1"
 tokio = { version = "1", features = ["net", "rt", "rt-multi-thread", "io-util", "macros"] }
 url = "2.5.8"

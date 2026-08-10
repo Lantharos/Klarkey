@@ -17,14 +17,12 @@ use ssh_key::{
     public::KeyData,
     Algorithm, Signature,
 };
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{path::PathBuf, sync::Mutex};
 
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+#[cfg(unix)]
+use std::{fs, path::Path};
 
 const STATE_FILE: &str = "vault-state.json";
 

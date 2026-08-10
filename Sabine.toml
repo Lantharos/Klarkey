@@ -1,0 +1,13 @@
+[app]
+id = "com.lantharos.klarkey"
+name = "Klarkey"
+version = "0.0.0"
+icon = "public/klarkey.png"
+cargo_manifest = "desktop/Cargo.toml"
+
+[web]
+root = "."
+dist = "dist"
+entry = "dist/index.html"
+dev_command = "bun run dev -- --host 127.0.0.1 --port 5173 --strictPort"
+build = "bun run build"

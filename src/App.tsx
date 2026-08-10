@@ -346,28 +346,6 @@ function App() {
       return undefined;
     }
 
-    let disposed = false;
-    void window.klarkey.nativeWindowMaterial
-      .get()
-      .then((material) => {
-        if (!disposed) {
-          setNativeTranslucencyAvailable(material.translucent);
-          setNativeContentTranslucencyAvailable(material.contentTranslucent);
-          setNativeHostTranslucencyAvailable(material.hostTranslucent);
-        }
-      })
-      .catch(() => undefined);
-
-    return () => {
-      disposed = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!window.klarkey) {
-      return undefined;
-    }
-
     return window.klarkey.onLockStateChanged((info) => {
       const previousState = usePaletteStore.getState().lockInfo?.state;
       usePaletteStore.setState({ lockInfo: info });

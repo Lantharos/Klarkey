@@ -1,14 +1,13 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, OnceLock},
 };
 
-use fenestra_cef::BridgeEventEmitter;
+use sabine::BridgeEventEmitter;
 
 use crate::{
-    deep_links::DeepLinkState, desktop_integration::DesktopIntegrationState,
-    ssh_agent::SshAgentState, system_commands::FileAccessState,
+    deep_links::DeepLinkState, ssh_agent::SshAgentState, system_commands::FileAccessState,
 };
 
 const APP_IDENTIFIER: &str = "com.lantharos.klarkey";
@@ -16,36 +15,28 @@ const STATE_FILE: &str = "vault-state.json";
 
 #[derive(Clone)]
 pub(crate) struct AppContext {
-    root_dir: Arc<PathBuf>,
     data_dir: Arc<PathBuf>,
     file_access: Arc<FileAccessState>,
     deep_links: Arc<DeepLinkState>,
-    desktop_integration: Arc<DesktopIntegrationState>,
     ssh_agent: Arc<SshAgentState>,
     runtime: Arc<tokio::runtime::Runtime>,
-    bridge_events: Arc<Mutex<Option<BridgeEventEmitter>>>,
+    bridge_events: Arc<OnceLock<BridgeEventEmitter>>,
 }
 
 impl AppContext {
-    pub(crate) fn new(root_dir: PathBuf) -> Result<Self, String> {
+    pub(crate) fn new() -> Result<Self, String> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
             .build()
             .map_err(|error| format!("Could not start Klarkey runtime: {error}"))?;
         Ok(Self {
-            root_dir: Arc::new(root_dir),
             data_dir: Arc::new(app_data_dir()),
             file_access: Arc::new(FileAccessState::default()),
             deep_links: Arc::new(DeepLinkState::default()),
-            desktop_integration: Arc::new(DesktopIntegrationState::default()),
             ssh_agent: Arc::new(SshAgentState::default()),
             runtime: Arc::new(runtime),
-            bridge_events: Arc::new(Mutex::new(None)),
+            bridge_events: Arc::new(OnceLock::new()),
         })
-    }
-
-    pub(crate) fn root_dir(&self) -> &Path {
-        self.root_dir.as_ref()
     }
 
     pub(crate) fn data_dir(&self) -> Result<PathBuf, String> {
@@ -66,10 +57,6 @@ impl AppContext {
         self.deep_links.as_ref()
     }
 
-    pub(crate) fn desktop_integration(&self) -> &DesktopIntegrationState {
-        self.desktop_integration.as_ref()
-    }
-
     pub(crate) fn ssh_agent(&self) -> &SshAgentState {
         self.ssh_agent.as_ref()
     }
@@ -79,41 +66,15 @@ impl AppContext {
     }
 
     pub(crate) fn set_bridge_event_emitter(&self, emitter: Option<BridgeEventEmitter>) {
-        if let Ok(mut events) = self.bridge_events.lock() {
-            *events = emitter;
+        if let Some(emitter) = emitter {
+            let _ = self.bridge_events.set(emitter);
         }
     }
 
-    pub(crate) fn emit(&self, name: impl Into<String>, payload: serde_json::Value) -> bool {
+    pub(crate) fn focus_window(&self, activation_token: Option<&str>) -> bool {
         self.bridge_events
-            .lock()
-            .ok()
-            .and_then(|events| events.clone())
-            .is_some_and(|emitter| emitter.emit(name, payload))
-    }
-
-    pub(crate) fn hide_window(&self) -> bool {
-        self.bridge_events
-            .lock()
-            .ok()
-            .and_then(|events| events.clone())
-            .is_some_and(|emitter| emitter.hide())
-    }
-
-    pub(crate) fn show_window(&self) -> bool {
-        self.bridge_events
-            .lock()
-            .ok()
-            .and_then(|events| events.clone())
-            .is_some_and(|emitter| emitter.show())
-    }
-
-    pub(crate) fn focus_window(&self) -> bool {
-        self.bridge_events
-            .lock()
-            .ok()
-            .and_then(|events| events.clone())
-            .is_some_and(|emitter| emitter.focus_window())
+            .get()
+            .is_some_and(|events| events.focus_window_with_activation_token(activation_token))
     }
 }
 

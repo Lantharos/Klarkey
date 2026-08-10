@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-extension
+release
 desktop/target
 extension/shared/background.js
 extension/shared/content.js

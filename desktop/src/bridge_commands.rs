@@ -1,23 +1,31 @@
+#[cfg(target_os = "linux")]
 use std::{
     env, fs,
     path::{Path, PathBuf},
 };
 
-use fenestra_cef::{
-    BridgeCommand, BridgeCommandDescriptor, BridgeError, BridgeResponse, BridgeResult,
-    FenestraWindow,
+use sabine::{
+    BridgeCommand, BridgeCommandDescriptor, BridgeError, BridgeResponse, BridgeResult, SabineWindow,
 };
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 
+#[cfg(target_os = "linux")]
+use crate::app_context;
 use crate::{
-    app_context::{self, AppContext},
-    deep_links, desktop_integration, ssh_agent, sync_config, system_auth, system_commands,
+    app_context::AppContext, deep_links, external_url, ssh_agent, sync_config, system_auth,
+    system_commands,
 };
 
+#[cfg(target_os = "linux")]
 const APP_NAME: &str = "Klarkey";
 
-pub(crate) fn register_commands(mut window: FenestraWindow, ctx: AppContext) -> FenestraWindow {
+pub(crate) fn register_commands(
+    mut window: SabineWindow,
+    ctx: AppContext,
+    initial_external_unlock: bool,
+    initial_open_palette: bool,
+) -> SabineWindow {
     macro_rules! command {
         ($name:literal, $handler:expr) => {{
             window = window.bridge_descriptor_handler(
@@ -27,30 +35,21 @@ pub(crate) fn register_commands(mut window: FenestraWindow, ctx: AppContext) -> 
         }};
     }
 
+    command!("app_launch_context", move |_| {
+        json_ok(json!({
+            "externalUnlock": initial_external_unlock,
+            "openPalette": initial_open_palette,
+        }))
+    });
+
     let context = ctx.clone();
     command!("palette_open", move |command| {
         let input = params_or_default::<PaletteOpenParams>(&command)?;
-        emit_palette_open(&context, input.external_unlock.unwrap_or(false));
-        json_ok(Value::Null)
+        let prepared = prepare_palette_open(input.external_unlock.unwrap_or(false));
+        context.focus_window(input.activation_token.as_deref());
+        json_ok(prepared)
     });
 
-    let context = ctx.clone();
-    command!("palette_close", move |_| {
-        context.hide_window();
-        json_ok(Value::Null)
-    });
-
-    command!("palette_hotkey_set", move |command| {
-        let input: HotkeyParams = params(&command)?;
-        if input.hotkey.trim().is_empty() {
-            return Err(BridgeError::new("Shortcut cannot be empty."));
-        }
-        json_ok(Value::Null)
-    });
-
-    command!("native_window_material", move |_| {
-        json_ok(native_window_material())
-    });
     command!("system_auth_support", move |_| {
         json_ok(system_auth::support())
     });
@@ -85,19 +84,11 @@ pub(crate) fn register_commands(mut window: FenestraWindow, ctx: AppContext) -> 
         json_ok(deep_links::oauth_pending_callbacks(&context))
     });
 
-    let context = ctx.clone();
-    command!("sync_config", move |_| {
-        json_ok(sync_config::sync_config(&context))
-    });
-
-    let context = ctx.clone();
-    command!("palette_target_get", move |_| {
-        json_ok(desktop_integration::palette_target_get(&context))
-    });
+    command!("sync_config", move |_| json_ok(sync_config::sync_config()));
 
     command!("open_external_url", move |command| {
         let input: UrlParams = params(&command)?;
-        json_result(desktop_integration::open_external_url(input.url))
+        json_result(external_url::open(input.url))
     });
 
     let context = ctx.clone();
@@ -198,36 +189,15 @@ pub(crate) fn register_commands(mut window: FenestraWindow, ctx: AppContext) -> 
         json_ok(autostart_set(input.enabled))
     });
 
-    command!("app_quit", move |_| {
-        std::process::exit(0);
-    });
-
     window
 }
 
-pub(crate) fn emit_palette_open(ctx: &AppContext, external_unlock: bool) {
-    desktop_integration::capture_target_window(ctx);
-    let _ = ctx.emit(
-        "palette-prepare",
-        json!({
-            "externalUnlock": external_unlock,
-            "nativeTranslucent": true,
-            "nativeContentTranslucent": true,
-            "nativeHostTranslucent": false,
-        }),
-    );
-    desktop_integration::emit_target_window(ctx);
-    let _ = ctx.emit("palette-focus", json!({}));
-    ctx.show_window();
-    ctx.focus_window();
-}
-
-fn native_window_material() -> Value {
+fn prepare_palette_open(external_unlock: bool) -> Value {
     json!({
-        "backgroundBlur": true,
-        "translucent": true,
-        "contentTranslucent": true,
-        "hostTranslucent": false,
+        "externalUnlock": external_unlock,
+        "nativeTranslucent": true,
+        "nativeContentTranslucent": true,
+        "nativeHostTranslucent": false,
     })
 }
 
@@ -338,12 +308,7 @@ fn desktop_value(value: &str) -> String {
 #[serde(rename_all = "camelCase")]
 struct PaletteOpenParams {
     external_unlock: Option<bool>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct HotkeyParams {
-    hotkey: String,
+    activation_token: Option<String>,
 }
 
 #[derive(Deserialize)]

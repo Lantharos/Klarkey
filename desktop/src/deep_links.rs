@@ -1,5 +1,4 @@
 use crate::app_context::AppContext;
-use serde_json::json;
 use std::sync::Mutex;
 
 #[derive(Default)]
@@ -52,7 +51,6 @@ fn emit_filtered_oauth_callbacks(
             pending.drain(0..drop_count);
         }
     }
-    let _ = ctx.emit("oauth-callback", json!({ "urls": urls }));
     true
 }
 

@@ -63,17 +63,17 @@ pub(crate) fn delete_vault_key() -> Value {
     }
 }
 
-pub(crate) fn unlock(reason: String, strict: bool) -> Value {
+pub(crate) fn unlock(reason: String, _strict: bool) -> Value {
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
         let keyring_locked = default_secret_collection_locked();
-        if strict {
+        if _strict {
             if let Err(message) = platform_authenticate(&reason) {
                 return json!({ "success": false, "message": message });
             }
         }
 
-        return match refresh_vault_key_bytes() {
+        match refresh_vault_key_bytes() {
             Ok(_) => json!({ "success": true, "message": "Vault unlocked." }),
             Err(message) if message == "System unlock is not configured for this vault." => json!({
                 "success": false,
@@ -87,7 +87,7 @@ pub(crate) fn unlock(reason: String, strict: bool) -> Value {
                     "The system keyring is unavailable."
                 }
             }),
-        };
+        }
     }
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
@@ -196,7 +196,7 @@ fn platform_auth_support() -> AuthSupport {
     };
 
     let available = UserConsentVerifier::CheckAvailabilityAsync()
-        .and_then(|operation| operation.get())
+        .and_then(|operation| operation.join())
         .is_ok_and(|availability| availability == UserConsentVerifierAvailability::Available);
     AuthSupport {
         available,
@@ -216,7 +216,7 @@ fn platform_authenticate(reason: &str) -> Result<(), String> {
 
     let message = HSTRING::from(non_empty_reason(reason));
     let result = UserConsentVerifier::RequestVerificationAsync(&message)
-        .and_then(|operation| operation.get())
+        .and_then(|operation| operation.join())
         .map_err(|_| String::from("Windows Hello verification is unavailable."))?;
     match result {
         UserConsentVerificationResult::Verified => Ok(()),
@@ -243,7 +243,7 @@ fn platform_authenticate(reason: &str) -> Result<(), String> {
 fn platform_auth_support() -> AuthSupport {
     use objc2_local_authentication::{LAContext, LAPolicy};
 
-    let context = LAContext::new();
+    let context = unsafe { LAContext::new() };
     let available = unsafe {
         context
             .canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthentication)
@@ -269,7 +269,7 @@ fn platform_authenticate(reason: &str) -> Result<(), String> {
     use std::sync::mpsc;
     use std::time::Duration;
 
-    let context = LAContext::new();
+    let context = unsafe { LAContext::new() };
     unsafe {
         context
             .canEvaluatePolicy_error(LAPolicy::DeviceOwnerAuthentication)
