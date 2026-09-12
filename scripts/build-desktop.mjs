@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 
 const target = process.platform === 'win32'
-  ? 'windows'
+  ? 'exe'
   : process.platform === 'darwin'
-    ? 'macos'
+    ? 'dmg'
     : 'portable'
 
 execFileSync('sabine', ['bundle', '.', '--target', target, '--out', 'release', '--release'], {

@@ -6,7 +6,7 @@
       "name": "klarkey",
       "dependencies": {
         "@ave-id/sdk": "^0.8.0",
-        "@lantharos/sabine": "github:Lantharos/Sabine#ed1695c489417ee81b2aa9339170ea1a4e8bc995",
+        "@lantharos/sabine": "github:Lantharos/Sabine#v0.25",
         "clsx": "^2.1.1",
         "convex": "^1.37.0",
         "fflate": "^0.8.2",
@@ -200,7 +200,7 @@
 
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
-    "@lantharos/sabine": ["@lantharos/sabine@github:Lantharos/Sabine#ed1695c", {}, "Lantharos-Sabine-ed1695c", "sha512-F2tvQAWZU2rCUoUpDHhW31Sv6BGheWxCnJ/SOq0TN+k5lhgVMVf7pCsM1FHnmBD5CeSJ+GnwAfakQn1MT6Q/Vw=="],
+    "@lantharos/sabine": ["@lantharos/sabine@github:Lantharos/Sabine#08c0b85", {}, "Lantharos-Sabine-08c0b85", "sha512-gG8tAAoJm4xz92FfvUcAQHfvQaEBiqz/QnaK6YLj+r0Zn0er/ESfi02dN/rrM/k5GzIK5ASLPyfxFKwH6FnhxQ=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.1" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow=="],
 

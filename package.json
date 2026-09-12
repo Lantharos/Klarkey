@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@ave-id/sdk": "^0.8.0",
-    "@lantharos/sabine": "github:Lantharos/Sabine#ed1695c489417ee81b2aa9339170ea1a4e8bc995",
+    "@lantharos/sabine": "github:Lantharos/Sabine#v0.25",
     "clsx": "^2.1.1",
     "convex": "^1.37.0",
     "fflate": "^0.8.2",

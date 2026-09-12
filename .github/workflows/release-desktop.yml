@@ -16,8 +16,15 @@ jobs:
         with:
           bun-version: latest
 
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install NSIS
+        run: |
+          choco install nsis --yes --no-progress
+          "${env:ProgramFiles(x86)}\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
       - name: Install Sabine CLI
-        run: cargo install --git https://github.com/Lantharos/Sabine.git --rev ed1695c489417ee81b2aa9339170ea1a4e8bc995 --locked sabine-cli
+        run: cargo install --git https://github.com/Lantharos/Sabine.git --tag v0.25 --locked sabine-cli
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

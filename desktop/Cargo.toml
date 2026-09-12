@@ -2,14 +2,14 @@
 name = "klarkey-desktop"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.89"
+rust-version = "1.90"
 
 [dependencies]
 aes-gcm = "0.10.3"
 arboard = "3.6.1"
 base64 = "0.22.1"
 ciborium = "0.2.2"
-sabine = { git = "https://github.com/Lantharos/Sabine.git", rev = "ed1695c489417ee81b2aa9339170ea1a4e8bc995" }
+sabine = { git = "https://github.com/Lantharos/Sabine.git", tag = "v0.25" }
 hex = "0.4.3"
 keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 libc = "0.2.186"
