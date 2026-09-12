@@ -30,6 +30,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build Windows desktop release
+        env:
+          SABINE_UPDATE_SIGNING_KEY: ${{ secrets.SABINE_UPDATE_SIGNING_KEY }}
         run: bun run build:desktop
 
       - name: Upload desktop artifacts

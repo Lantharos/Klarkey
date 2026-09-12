@@ -11,3 +11,10 @@ dist = "dist"
 entry = "dist/index.html"
 dev_command = "bun run dev -- --host 127.0.0.1 --port 5173 --strictPort"
 build = "bun run build"
+
+[updates]
+provider = "github"
+repository = "Lantharos/Klarkey"
+channel = "stable"
+policy = "automatic"
+public_key = "ld4CuqvdeTUnuioex4o8XQIcoLCYcLJtw1eVZnF1lS8="

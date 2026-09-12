@@ -80,7 +80,7 @@ bun run build
 
 ## Desktop release
 
-Desktop releases use `Sabine.toml` and Sabine's bundler. Install the CLI from the same Git tag pinned in `desktop/Cargo.toml`, then use `sabine dev` for development or `bun run build:desktop` to build the renderer, browser extension bundles, native app, and a platform bundle under `release/`: a setup EXE on Windows (requires NSIS), a DMG on Apple Silicon Macs, or a portable bundle on Linux. Cargo and Bun fetch Sabine from Git, so no sibling checkout is required. Windows and macOS builds are unsigned unless code-signing material is added later.
+Desktop releases use `Sabine.toml` and Sabine's bundler. Install the CLI from the same Git tag pinned in `desktop/Cargo.toml`, then use `sabine dev` for development or `bun run build:desktop` to build the renderer, browser extension bundles, native app, and a platform bundle under `release/`: a setup EXE on Windows (requires NSIS), a DMG on Apple Silicon Macs, or a portable bundle on Linux. Cargo and Bun fetch Sabine from Git, so no sibling checkout is required. The Windows workflow uses the repository’s `SABINE_UPDATE_SIGNING_KEY` secret to pin trusted app updates. Windows and macOS executables are unsigned unless platform code-signing material is added later.
 
 ## Notes
 
