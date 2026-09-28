@@ -120,7 +120,7 @@ export function createDesktopSync<State extends VaultState>(access: SyncAccess<S
     sync.lastError = undefined
     access.saveState(state)
     const url = buildAuthorizeUrl(config, {
-      scope: ['openid', 'profile', 'email', 'offline_access'],
+      scope: ['openid', 'profile', 'email', 'offline_access', 'e2ee:symmetric'],
       state: pending.state,
       nonce: pending.nonce,
       codeChallenge: await generateCodeChallenge(verifier),

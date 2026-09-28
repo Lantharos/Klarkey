@@ -1011,7 +1011,7 @@ export async function signInMobileSync() {
   });
 
   const authUrl = buildAuthorizeUrl(oauth, {
-    scope: ["openid", "profile", "email", "offline_access"],
+    scope: ["openid", "profile", "email", "offline_access", "e2ee:symmetric"],
     state,
     nonce,
     codeChallenge,

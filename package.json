@@ -15,7 +15,7 @@
     "dev:desktop": "sabine dev"
   },
   "dependencies": {
-    "@ave-id/sdk": "^0.8.0",
+    "@ave-id/sdk": "^0.11.0",
     "@lantharos/sabine": "github:Lantharos/Sabine#v0.25",
     "clsx": "^2.1.1",
     "convex": "^1.37.0",

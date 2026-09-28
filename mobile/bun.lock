@@ -5,7 +5,7 @@
     "": {
       "name": "mobile",
       "dependencies": {
-        "@ave-id/sdk": "^0.8.0",
+        "@ave-id/sdk": "^0.11.0",
         "@bacons/apple-targets": "^4.0.6",
         "@expo/config-plugins": "^55.0.8",
         "@noble/hashes": "^2.2.0",
@@ -57,7 +57,7 @@
     "uuid": "14.0.0",
   },
   "packages": {
-    "@ave-id/sdk": ["@ave-id/sdk@0.8.0", "", { "peerDependencies": { "react": ">=18.0.0" }, "optionalPeers": ["react"] }, "sha512-Om7eK4B4nII+KssfxJPj3+CjHoUAh2Mpko3J810MiINHy2Q+bLuFTM2ReNp6TFpQGCFzih1Yi8LFBSaKwx/zcA=="],
+    "@ave-id/sdk": ["@ave-id/sdk@0.11.0", "", { "peerDependencies": { "react": ">=18.0.0" }, "optionalPeers": ["react"] }, "sha512-xOdYUjQfQroCpvZd/xoqZtQY1hYSC+WePUuCsc1Rb5k2hCI8l4j1JicCcW9mMbYPhA7zejttsNqmaqwRs86itw=="],
 
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
 
